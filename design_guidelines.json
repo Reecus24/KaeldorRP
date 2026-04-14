@@ -1,0 +1,96 @@
+{
+  "theme": "dark",
+  "archetype": "Archetype 4 (Swiss & High-Contrast) + Retro-Futurism/Terminal variant",
+  "mood": "Authoritative, mysterious, dense, command-center",
+  "typography": {
+    "fonts": {
+      "heading": "Manrope",
+      "body": "IBM Plex Sans",
+      "mono": "JetBrains Mono"
+    },
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl font-bold tracking-tight text-zinc-100",
+      "h2": "text-xl sm:text-2xl font-semibold tracking-tight text-zinc-200",
+      "h3": "text-lg sm:text-xl font-medium text-zinc-200",
+      "body": "text-sm text-zinc-400 leading-relaxed",
+      "mono": "font-mono text-xs sm:text-sm tracking-wider"
+    }
+  },
+  "colors": {
+    "background": "#09090B",
+    "surface": "#18181B",
+    "border": "#27272A",
+    "primary": "#F59E0B",
+    "primary_text": "#000000",
+    "primary_hover": "#D97706",
+    "secondary": "#27272A",
+    "secondary_text": "#F4F4F5",
+    "secondary_hover": "#3F3F46",
+    "text_main": "#F4F4F5",
+    "text_muted": "#A1A1AA",
+    "accent_danger": "#EF4444",
+    "accent_success": "#10B981",
+    "accent_info": "#3B82F6"
+  },
+  "layout": {
+    "strategy": "Mode B: The 'Control Room' Grid",
+    "spacing": {
+      "container_padding": "p-4 sm:p-6 lg:p-8",
+      "gap": "gap-4 lg:gap-6",
+      "widget_padding": "p-4 sm:p-5"
+    },
+    "geometry": {
+      "border_radius": "rounded-md",
+      "borders": "border border-zinc-800",
+      "shadows": "shadow-sm shadow-black/50"
+    }
+  },
+  "components": {
+    "sidebar": "w-64 border-r border-zinc-800 bg-zinc-950 flex flex-col gap-2 p-4",
+    "cards": "bg-zinc-900 border border-zinc-800 rounded-md overflow-hidden",
+    "tables": "w-full text-sm text-left. Header: bg-zinc-900 text-zinc-400 font-medium. Rows: border-b border-zinc-800 hover:bg-zinc-800/50 transition-colors",
+    "buttons": {
+      "primary": "bg-amber-500 hover:bg-amber-600 text-black font-medium rounded-md px-4 py-2 transition-colors",
+      "secondary": "bg-transparent border border-zinc-700 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 rounded-md px-4 py-2 transition-colors",
+      "ghost": "bg-transparent hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100 rounded-md px-4 py-2 transition-colors"
+    },
+    "inputs": "bg-zinc-950 border border-zinc-800 rounded-md px-3 py-2 text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-amber-500/50",
+    "logs_viewer": "bg-[#050505] border border-zinc-800 rounded-md p-4 font-mono text-xs sm:text-sm text-amber-500/90 overflow-y-auto h-64 sm:h-96"
+  },
+  "media": {
+    "images": [
+      {
+        "category": "campaign_header_bg",
+        "url": "https://images.pexels.com/photos/207130/pexels-photo-207130.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Dreamlike moonlit mountain landscape for the active campaign header or server status card. MUST use heavy overlay: bg-black/60 to bg-black/80 to ensure text contrast."
+      },
+      {
+        "category": "empty_state_lore",
+        "url": "https://images.pexels.com/photos/3772353/pexels-photo-3772353.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Misty forest pathway for lore/NPC empty states to give a dark, narrative feel. Keep opacity low (10-20%) and use grayscale or blend-luminosity."
+      }
+    ],
+    "icons": {
+      "library": "lucide-react",
+      "style": "stroke-width 1.5, minimal, neutral colors unless indicating status"
+    }
+  },
+  "motion": {
+    "transitions": "transition-all duration-200 ease-in-out",
+    "hover_effects": "Subtle background lightening (bg-zinc-800/50) and text brightening (text-white). No heavy scaling/bouncing."
+  },
+  "accessibility": {
+    "contrast": "Strict AA compliance. Ensure text over images has text-shadow or heavy backdrop.",
+    "testing_attributes": "All interactive elements (buttons, links, form inputs, dialog triggers) MUST include a 'data-testid' attribute (e.g., data-testid='create-npc-submit')."
+  },
+  "instructions_to_main_agent": [
+    "Prioritize function and density. This is a Game Master's command center, so pack information tightly but legibly using the 'Control Room' grid (Mode B).",
+    "CRITICAL: Do NOT use purple (#9D4CDD) or teal (#1B93A4) anywhere in the UI. Use the provided Amber (#F59E0B) as the primary accent against Zinc/Obsidian backgrounds.",
+    "CRITICAL: Do not use Inter or generic sans for headings. Use Manrope for headings and IBM Plex Sans for body. Use JetBrains Mono for logs/terminals.",
+    "Use Shadcn UI components extensively, but customize them to remove heavy rounded corners. Stick to `rounded-md` (max 6px) or `rounded-sm` for a sharp, technical look.",
+    "The 'Event Log/Journal Viewer' MUST feel like a technical terminal. Use the `logs_viewer` component styles defined above (deep black background, monospace amber/green text).",
+    "Include a sticky sidebar navigation on desktop for quick switching between Campaign, NPCs, Lore, Rules, and Logs.",
+    "Ensure all buttons, inputs, and clickable items have explicit `hover` and `focus` states with high contrast changes.",
+    "No authentication UI is required. The dashboard should assume admin access by default based on the problem statement."
+  ]
+}
