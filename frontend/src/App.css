@@ -1,34 +1,61 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* Global app styles */
+.gm-log-viewer {
+  background: #050505;
+  border: 1px solid #27272A;
+  border-radius: 0.375rem;
+  padding: 1rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  color: rgba(245, 158, 11, 0.9);
+  overflow-y: auto;
+  max-height: 24rem;
+  line-height: 1.6;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.gm-log-viewer .event-type {
+  color: #10B981;
+  font-weight: 500;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.gm-log-viewer .event-time {
+  color: #A1A1AA;
 }
 
-.App-link {
-    color: #61dafb;
+.gm-sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: #A1A1AA;
+  transition: all 0.2s ease-in-out;
+  text-decoration: none;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+.gm-sidebar-link:hover {
+  background: rgba(245, 158, 11, 0.08);
+  color: #F4F4F5;
+}
+
+.gm-sidebar-link.active {
+  background: rgba(245, 158, 11, 0.12);
+  color: #F59E0B;
+  font-weight: 500;
+}
+
+.gm-card-header-bg {
+  background: linear-gradient(to right, rgba(9, 9, 11, 0.85), rgba(9, 9, 11, 0.7)), url('https://images.pexels.com/photos/207130/pexels-photo-207130.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940');
+  background-size: cover;
+  background-position: center;
+}
+
+/* Fade-in animation */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out forwards;
 }

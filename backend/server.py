@@ -1,72 +1,599 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, Query
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from pydantic import BaseModel, Field
+from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
-
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
 app = FastAPI()
-
-# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+from dice import parse_and_roll, format_roll_result
+from gm_engine import GameMasterEngine
+gm = GameMasterEngine()
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+# ── Pydantic Models ──
 
-# Add your routes to the router instead of directly to app
+class CampaignCreate(BaseModel):
+    name: str
+    world_summary: str = ""
+    tone: str = "realistic"
+
+class CampaignUpdate(BaseModel):
+    name: Optional[str] = None
+    world_summary: Optional[str] = None
+    tone: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class NPCCreate(BaseModel):
+    campaign_id: str
+    name: str
+    role: str = ""
+    faction: str = ""
+    personality_traits: str = ""
+    motivation: str = ""
+    secrets: str = ""
+    relationship_notes: str = ""
+    trust_level: int = 0
+    status: str = "alive"
+    voice_style: str = ""
+
+class NPCUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    faction: Optional[str] = None
+    personality_traits: Optional[str] = None
+    motivation: Optional[str] = None
+    secrets: Optional[str] = None
+    relationship_notes: Optional[str] = None
+    trust_level: Optional[int] = None
+    status: Optional[str] = None
+    voice_style: Optional[str] = None
+
+class LoreCreate(BaseModel):
+    campaign_id: str
+    category: str = "custom"
+    title: str
+    content: str
+    tags: List[str] = []
+
+class LoreUpdate(BaseModel):
+    category: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class SceneCreate(BaseModel):
+    campaign_id: str
+    location: str
+    time_of_day: str = ""
+    description: str = ""
+    active_threats: List[str] = []
+    important_npcs: List[str] = []
+    tension_level: int = 1
+    unresolved_hooks: List[str] = []
+
+class SceneUpdate(BaseModel):
+    location: Optional[str] = None
+    time_of_day: Optional[str] = None
+    description: Optional[str] = None
+    active_threats: Optional[List[str]] = None
+    important_npcs: Optional[List[str]] = None
+    tension_level: Optional[int] = None
+    unresolved_hooks: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+class EventCreate(BaseModel):
+    campaign_id: str
+    event_type: str = "action"
+    summary: str
+    details: str = ""
+
+class RulesCreate(BaseModel):
+    campaign_id: str
+    content: str = ""
+    dice_system: str = "narrative"
+    critical_enabled: bool = True
+    hidden_rolls_enabled: bool = False
+    difficulty_classes: str = "Easy:5, Medium:10, Hard:15, Extreme:20"
+
+class RulesUpdate(BaseModel):
+    content: Optional[str] = None
+    dice_system: Optional[str] = None
+    critical_enabled: Optional[bool] = None
+    hidden_rolls_enabled: Optional[bool] = None
+    difficulty_classes: Optional[str] = None
+
+class ChannelConfigCreate(BaseModel):
+    campaign_id: str
+    guild_id: str
+    channel_id: str
+    channel_name: str = ""
+    mode: str = "ic"
+
+class ChannelConfigUpdate(BaseModel):
+    mode: Optional[str] = None
+    channel_name: Optional[str] = None
+
+class QuestCreate(BaseModel):
+    campaign_id: str
+    title: str
+    description: str = ""
+    status: str = "active"
+    objectives: List[str] = []
+
+class QuestUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[str] = None
+    objectives: Optional[List[str]] = None
+
+class NarrateRequest(BaseModel):
+    campaign_id: str
+    action: str
+    channel_id: str = ""
+
+class NPCSpeakRequest(BaseModel):
+    campaign_id: str
+    npc_name: str
+    dialogue_or_intent: str
+
+class RollRequest(BaseModel):
+    campaign_id: str
+    dice_expression: str
+    context: str = ""
+
+class CheckRequest(BaseModel):
+    campaign_id: str
+    difficulty: str
+    context: str
+
+class ResetSessionRequest(BaseModel):
+    campaign_id: str
+
+class RecapRequest(BaseModel):
+    campaign_id: str
+
+# ── Helper ──
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+def new_id():
+    return str(uuid.uuid4())
+
+# ── Campaign Routes ──
+
+@api_router.get("/campaigns")
+async def list_campaigns():
+    return await db.campaigns.find({}, {"_id": 0}).to_list(100)
+
+@api_router.get("/campaigns/active")
+async def get_active_campaign():
+    campaign = await db.campaigns.find_one({"is_active": True}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "No active campaign. Create one first.")
+    return campaign
+
+@api_router.post("/campaigns")
+async def create_campaign(data: CampaignCreate):
+    await db.campaigns.update_many({}, {"$set": {"is_active": False}})
+    doc = {"id": new_id(), "name": data.name, "world_summary": data.world_summary, "tone": data.tone, "is_active": True, "created_at": now_iso(), "updated_at": now_iso()}
+    await db.campaigns.insert_one(doc)
+    doc.pop("_id", None)
+    rules = {"id": new_id(), "campaign_id": doc["id"], "content": "", "dice_system": "narrative", "critical_enabled": True, "hidden_rolls_enabled": False, "difficulty_classes": "Easy:5, Medium:10, Hard:15, Extreme:20", "created_at": now_iso(), "updated_at": now_iso()}
+    await db.rules.insert_one(rules)
+    return doc
+
+@api_router.get("/campaigns/{campaign_id}")
+async def get_campaign(campaign_id: str):
+    c = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+    if not c:
+        raise HTTPException(404, "Campaign not found")
+    return c
+
+@api_router.put("/campaigns/{campaign_id}")
+async def update_campaign(campaign_id: str, data: CampaignUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    update["updated_at"] = now_iso()
+    if update.get("is_active"):
+        await db.campaigns.update_many({}, {"$set": {"is_active": False}})
+    result = await db.campaigns.update_one({"id": campaign_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(404, "Campaign not found")
+    return await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+
+@api_router.delete("/campaigns/{campaign_id}")
+async def delete_campaign(campaign_id: str):
+    await db.campaigns.delete_one({"id": campaign_id})
+    for col_name in ["npcs", "lore_entries", "scenes", "events", "recaps", "rules", "quests", "chat_history", "channel_configs"]:
+        await db[col_name].delete_many({"campaign_id": campaign_id})
+    return {"status": "deleted"}
+
+# ── NPC Routes ──
+
+@api_router.get("/npcs")
+async def list_npcs(campaign_id: str = Query(...)):
+    return await db.npcs.find({"campaign_id": campaign_id}, {"_id": 0}).to_list(500)
+
+@api_router.post("/npcs")
+async def create_npc(data: NPCCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    doc["updated_at"] = now_iso()
+    await db.npcs.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/npcs/{npc_id}")
+async def update_npc(npc_id: str, data: NPCUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    update["updated_at"] = now_iso()
+    result = await db.npcs.update_one({"id": npc_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(404, "NPC not found")
+    return await db.npcs.find_one({"id": npc_id}, {"_id": 0})
+
+@api_router.delete("/npcs/{npc_id}")
+async def delete_npc(npc_id: str):
+    await db.npcs.delete_one({"id": npc_id})
+    return {"status": "deleted"}
+
+# ── Lore Routes ──
+
+@api_router.get("/lore")
+async def list_lore(campaign_id: str = Query(...)):
+    return await db.lore_entries.find({"campaign_id": campaign_id}, {"_id": 0}).to_list(500)
+
+@api_router.post("/lore")
+async def create_lore(data: LoreCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.lore_entries.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/lore/{lore_id}")
+async def update_lore(lore_id: str, data: LoreUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    result = await db.lore_entries.update_one({"id": lore_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(404, "Lore entry not found")
+    return await db.lore_entries.find_one({"id": lore_id}, {"_id": 0})
+
+@api_router.delete("/lore/{lore_id}")
+async def delete_lore(lore_id: str):
+    await db.lore_entries.delete_one({"id": lore_id})
+    return {"status": "deleted"}
+
+# ── Scene Routes ──
+
+@api_router.get("/scenes/active")
+async def get_active_scene(campaign_id: str = Query(...)):
+    scene = await db.scenes.find_one({"campaign_id": campaign_id, "is_active": True}, {"_id": 0})
+    if not scene:
+        return None
+    return scene
+
+@api_router.get("/scenes")
+async def list_scenes(campaign_id: str = Query(...)):
+    return await db.scenes.find({"campaign_id": campaign_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+@api_router.post("/scenes")
+async def create_scene(data: SceneCreate):
+    await db.scenes.update_many({"campaign_id": data.campaign_id}, {"$set": {"is_active": False}})
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["is_active"] = True
+    doc["created_at"] = now_iso()
+    await db.scenes.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/scenes/{scene_id}")
+async def update_scene(scene_id: str, data: SceneUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    if update.get("is_active"):
+        scene = await db.scenes.find_one({"id": scene_id}, {"_id": 0})
+        if scene:
+            await db.scenes.update_many({"campaign_id": scene["campaign_id"]}, {"$set": {"is_active": False}})
+    result = await db.scenes.update_one({"id": scene_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(404, "Scene not found")
+    return await db.scenes.find_one({"id": scene_id}, {"_id": 0})
+
+# ── Event Routes ──
+
+@api_router.get("/events")
+async def list_events(campaign_id: str = Query(...), limit: int = 50):
+    return await db.events.find({"campaign_id": campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+
+@api_router.post("/events")
+async def create_event(data: EventCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["timestamp"] = now_iso()
+    await db.events.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+# ── Recap Routes ──
+
+@api_router.get("/recaps")
+async def list_recaps(campaign_id: str = Query(...)):
+    return await db.recaps.find({"campaign_id": campaign_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+
+@api_router.post("/recaps")
+async def create_recap(campaign_id: str = "", summary: str = "", body: dict = None):
+    doc = {"id": new_id(), "campaign_id": campaign_id, "summary": summary, "created_at": now_iso()}
+    if body:
+        doc.update(body)
+    await db.recaps.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+# ── Rules Routes ──
+
+@api_router.get("/rules")
+async def get_rules(campaign_id: str = Query(...)):
+    rules = await db.rules.find_one({"campaign_id": campaign_id}, {"_id": 0})
+    if not rules:
+        return {"campaign_id": campaign_id, "content": "", "dice_system": "narrative", "critical_enabled": True, "hidden_rolls_enabled": False, "difficulty_classes": "Easy:5, Medium:10, Hard:15, Extreme:20"}
+    return rules
+
+@api_router.put("/rules/{rules_id}")
+async def update_rules(rules_id: str, data: RulesUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    update["updated_at"] = now_iso()
+    result = await db.rules.update_one({"id": rules_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(404, "Rules not found")
+    return await db.rules.find_one({"id": rules_id}, {"_id": 0})
+
+@api_router.post("/rules")
+async def create_rules(data: RulesCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    doc["updated_at"] = now_iso()
+    await db.rules.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+# ── Channel Config Routes ──
+
+@api_router.get("/channels")
+async def list_channels(guild_id: str = Query(None), campaign_id: str = Query(None)):
+    query = {}
+    if guild_id:
+        query["guild_id"] = guild_id
+    if campaign_id:
+        query["campaign_id"] = campaign_id
+    return await db.channel_configs.find(query, {"_id": 0}).to_list(100)
+
+@api_router.post("/channels")
+async def create_channel(data: ChannelConfigCreate):
+    existing = await db.channel_configs.find_one({"channel_id": data.channel_id, "campaign_id": data.campaign_id})
+    if existing:
+        await db.channel_configs.update_one({"channel_id": data.channel_id, "campaign_id": data.campaign_id}, {"$set": {"mode": data.mode, "channel_name": data.channel_name}})
+        return await db.channel_configs.find_one({"channel_id": data.channel_id, "campaign_id": data.campaign_id}, {"_id": 0})
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.channel_configs.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/channels/{config_id}")
+async def update_channel(config_id: str, data: ChannelConfigUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    result = await db.channel_configs.update_one({"id": config_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(404, "Channel config not found")
+    return await db.channel_configs.find_one({"id": config_id}, {"_id": 0})
+
+@api_router.delete("/channels/{config_id}")
+async def delete_channel(config_id: str):
+    await db.channel_configs.delete_one({"id": config_id})
+    return {"status": "deleted"}
+
+# ── Quest Routes ──
+
+@api_router.get("/quests")
+async def list_quests(campaign_id: str = Query(...)):
+    return await db.quests.find({"campaign_id": campaign_id}, {"_id": 0}).to_list(200)
+
+@api_router.post("/quests")
+async def create_quest(data: QuestCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.quests.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/quests/{quest_id}")
+async def update_quest(quest_id: str, data: QuestUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    result = await db.quests.update_one({"id": quest_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(404, "Quest not found")
+    return await db.quests.find_one({"id": quest_id}, {"_id": 0})
+
+@api_router.delete("/quests/{quest_id}")
+async def delete_quest(quest_id: str):
+    await db.quests.delete_one({"id": quest_id})
+    return {"status": "deleted"}
+
+# ── GM Engine Routes ──
+
+@api_router.post("/gm/narrate")
+async def gm_narrate(data: NarrateRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    scene = await db.scenes.find_one({"campaign_id": data.campaign_id, "is_active": True}, {"_id": 0})
+    npcs = await db.npcs.find({"campaign_id": data.campaign_id}, {"_id": 0}).to_list(100)
+    recent_events = await db.events.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(20)
+    chat_history = await db.chat_history.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(20)
+    response = await gm.narrate(campaign, scene, npcs, recent_events[::-1], data.action, chat_history[::-1])
+    ts = now_iso()
+    await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "user", "content": data.action, "timestamp": ts})
+    await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "assistant", "content": response, "timestamp": ts})
+    await db.events.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "event_type": "action", "summary": data.action[:200], "details": response[:500], "timestamp": ts})
+    return {"narration": response}
+
+@api_router.post("/gm/npc-speak")
+async def gm_npc_speak(data: NPCSpeakRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    npc = await db.npcs.find_one({"campaign_id": data.campaign_id, "name": {"$regex": f"^{data.npc_name}$", "$options": "i"}}, {"_id": 0})
+    if not npc:
+        raise HTTPException(404, f"NPC '{data.npc_name}' not found in this campaign")
+    scene = await db.scenes.find_one({"campaign_id": data.campaign_id, "is_active": True}, {"_id": 0})
+    recent_events = await db.events.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(10)
+    chat_history = await db.chat_history.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(10)
+    response = await gm.npc_speak(campaign, npc, scene, recent_events[::-1], data.dialogue_or_intent, chat_history[::-1])
+    ts = now_iso()
+    await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "user", "content": f"[To {npc['name']}] {data.dialogue_or_intent}", "timestamp": ts})
+    await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "assistant", "content": f"[{npc['name']}] {response}", "timestamp": ts})
+    await db.events.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "event_type": "npc_interaction", "summary": f"{npc['name']}: {data.dialogue_or_intent[:100]}", "details": response[:500], "timestamp": ts})
+    return {"npc_name": npc["name"], "response": response}
+
+@api_router.post("/gm/roll")
+async def gm_roll(data: RollRequest):
+    try:
+        result = parse_and_roll(data.dice_expression)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    formatted = format_roll_result(result)
+    if data.campaign_id:
+        ts = now_iso()
+        summary = f"Roll: {data.dice_expression} = {result['total']}"
+        if data.context:
+            summary += f" ({data.context})"
+        await db.events.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "event_type": "roll", "summary": summary, "details": formatted, "timestamp": ts})
+    return {"result": result, "formatted": formatted}
+
+@api_router.post("/gm/check")
+async def gm_check(data: CheckRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    rules = await db.rules.find_one({"campaign_id": data.campaign_id}, {"_id": 0})
+    dc_map = {}
+    if rules:
+        for pair in rules.get("difficulty_classes", "").split(","):
+            pair = pair.strip()
+            if ":" in pair:
+                name, val = pair.split(":", 1)
+                dc_map[name.strip().lower()] = int(val.strip())
+    dc = dc_map.get(data.difficulty.lower(), 10)
+    roll_result = parse_and_roll("1d20")
+    passed = roll_result["total"] >= dc
+    formatted = format_roll_result(roll_result)
+    scene = await db.scenes.find_one({"campaign_id": data.campaign_id, "is_active": True}, {"_id": 0})
+    narrative = await gm.resolve_check(campaign, scene, roll_result, f"{data.difficulty} (DC {dc})", data.context)
+    ts = now_iso()
+    await db.events.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "event_type": "roll", "summary": f"Check ({data.difficulty}): {data.context} - {'PASS' if passed else 'FAIL'} ({roll_result['total']} vs DC {dc})", "details": narrative[:500], "timestamp": ts})
+    return {"roll": formatted, "total": roll_result["total"], "dc": dc, "passed": passed, "is_critical": roll_result["is_critical"], "is_fumble": roll_result["is_fumble"], "narrative": narrative}
+
+@api_router.get("/gm/scene-summary")
+async def gm_scene_summary(campaign_id: str = Query(...)):
+    campaign = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    scene = await db.scenes.find_one({"campaign_id": campaign_id, "is_active": True}, {"_id": 0})
+    if not scene:
+        return {"summary": "No active scene. Use /scene in Discord or create one in the dashboard."}
+    npcs = await db.npcs.find({"campaign_id": campaign_id, "name": {"$in": scene.get("important_npcs", [])}}, {"_id": 0}).to_list(20)
+    return {"scene": scene, "npcs": npcs, "campaign_name": campaign["name"], "tone": campaign.get("tone", "realistic")}
+
+@api_router.post("/gm/generate-recap")
+async def gm_generate_recap(data: RecapRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    events = await db.events.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(50)
+    if not events:
+        return {"recap": "No events recorded yet."}
+    recap_text = await gm.generate_recap(campaign, events[::-1])
+    doc = {"id": new_id(), "campaign_id": data.campaign_id, "summary": recap_text, "created_at": now_iso()}
+    await db.recaps.insert_one(doc)
+    doc.pop("_id", None)
+    return {"recap": recap_text, "recap_doc": doc}
+
+@api_router.post("/gm/reset-session")
+async def gm_reset_session(data: ResetSessionRequest):
+    await db.scenes.update_many({"campaign_id": data.campaign_id}, {"$set": {"is_active": False}})
+    await db.chat_history.delete_many({"campaign_id": data.campaign_id})
+    return {"status": "session_reset", "message": "Scene deactivated and chat history cleared. Campaign data preserved."}
+
+# ── Export / Import ──
+
+@api_router.get("/export/{campaign_id}")
+async def export_campaign(campaign_id: str):
+    campaign = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    data = {"campaign": campaign}
+    for col_name in ["npcs", "lore_entries", "scenes", "events", "recaps", "rules", "quests", "channel_configs"]:
+        data[col_name] = await db[col_name].find({"campaign_id": campaign_id}, {"_id": 0}).to_list(1000)
+    return data
+
+@api_router.post("/import")
+async def import_campaign(data: dict):
+    campaign = data.get("campaign")
+    if not campaign:
+        raise HTTPException(400, "Missing campaign data")
+    campaign["id"] = new_id()
+    campaign["is_active"] = True
+    campaign["created_at"] = now_iso()
+    await db.campaigns.update_many({}, {"$set": {"is_active": False}})
+    await db.campaigns.insert_one(campaign)
+    cid = campaign["id"]
+    for col_name in ["npcs", "lore_entries", "scenes", "events", "recaps", "rules", "quests", "channel_configs"]:
+        items = data.get(col_name, [])
+        for item in items:
+            item["id"] = new_id()
+            item["campaign_id"] = cid
+            item.pop("_id", None)
+        if items:
+            await db[col_name].insert_many(items)
+    return {"status": "imported", "campaign_id": cid}
+
+# ── Bot Status ──
+
+@api_router.get("/bot/status")
+async def bot_status():
+    campaign_count = await db.campaigns.count_documents({})
+    npc_count = await db.npcs.count_documents({})
+    event_count = await db.events.count_documents({})
+    active = await db.campaigns.find_one({"is_active": True}, {"_id": 0})
+    return {"campaigns": campaign_count, "npcs": npc_count, "events": event_count, "active_campaign": active}
+
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "GM Bot API running"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
 app.include_router(api_router)
 
 app.add_middleware(
@@ -76,13 +603,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
