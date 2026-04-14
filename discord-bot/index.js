@@ -13,10 +13,10 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 
-// NOTE: For message-driven RP, enable MESSAGE CONTENT INTENT in Discord Developer Portal:
+// MessageContent intent requires manual enable in Discord Developer Portal:
 // https://discord.com/developers/applications -> Bot -> Privileged Gateway Intents -> Message Content Intent
-// Without it, the bot can only use slash commands, not read player messages in IC channels.
-const HAS_MESSAGE_CONTENT = false; // Set to true after enabling the intent
+// The bot will still work for slash commands without it, but message-driven RP requires it.
+const HAS_MESSAGE_CONTENT = true;
 
 // ── Character Creation State ──
 const creationSessions = new Map(); // channelId -> session
@@ -79,11 +79,76 @@ function isOOC(text) {
   return t.startsWith('//') || /^\(\([\s\S]*\)\)$/.test(t);
 }
 
+// ── Location Channel Auto-Creation ──
+async function handleLocationChange(message, campaignId, locationName) {
+  try {
+    const { data: campaign } = await axios.get(`${API}/campaigns/${campaignId}`);
+    if (!campaign.auto_create_channels) return null;
+
+    const guild = message.guild;
+    if (!guild) return null;
+
+    const slug = locationName.toLowerCase().replace(/[^a-zäöüß0-9\s-]/g, '').replace(/\s+/g, '-').slice(0, 80);
+    const existing = guild.channels.cache.find(c => c.name === slug && c.type === ChannelType.GuildText);
+    if (existing) return existing;
+
+    // Find or create campaign category
+    let category = null;
+    const catName = `${campaign.name}`.slice(0, 90);
+    category = guild.channels.cache.find(c => c.name === catName && c.type === ChannelType.GuildCategory);
+    if (!category && campaign.auto_create_channels) {
+      try {
+        category = await guild.channels.create({ name: catName, type: ChannelType.GuildCategory });
+      } catch (e) { console.error('Cannot create category:', e.message); }
+    }
+
+    const newChannel = await guild.channels.create({
+      name: slug,
+      type: ChannelType.GuildText,
+      parent: category?.id || null,
+      topic: `${locationName} - ${campaign.name}`
+    });
+
+    // Register as IC channel
+    await axios.post(`${API}/channels`, {
+      campaign_id: campaignId, guild_id: guild.id,
+      channel_id: newChannel.id, channel_name: slug, mode: 'ic'
+    });
+
+    // Post scene header
+    await newChannel.send({ embeds: [embed(`${locationName}`, `*Die Szene wechselt hierher...*`, 0xD97706)] });
+    return newChannel;
+  } catch (err) {
+    console.error('Location channel creation error:', err.message);
+    return null;
+  }
+}
+
+// ── Character Change Tracking ──
+async function trackCharacterChanges(campaignId, response) {
+  // Parse GM response for character state changes marked with [ÄNDERUNG: ...]
+  const changes = [];
+  const changePattern = /\[ÄNDERUNG:\s*(.+?)\]/gi;
+  let match;
+  while ((match = changePattern.exec(response)) !== null) {
+    changes.push(match[1]);
+  }
+  if (changes.length > 0) {
+    try {
+      await axios.post(`${API}/character-changes`, {
+        campaign_id: campaignId,
+        changes: changes,
+        source: response.slice(0, 200)
+      });
+    } catch (e) { /* silent - non-critical */ }
+  }
+  return changes;
+}
+
 // ── Message Handler ──
 client.on('messageCreate', async message => {
   if (message.author.bot || !message.guild) return;
   if (GUILD_ID && message.guildId !== GUILD_ID) return;
-  // Without MessageContent intent, message.content may be empty for non-mention messages
   const content = message.content || '';
   if (!content) return;
 
@@ -118,12 +183,26 @@ client.on('messageCreate', async message => {
 
     if (result.response) {
       let text = result.response;
-      // Check for location markers
+      // Check for location markers and auto-create channels
       const locMatch = text.match(/\[NEUER_ORT:\s*(.+?)\]/);
       if (locMatch) {
-        text = text.replace(/\[NEUER_ORT:\s*.+?\]/, '').trim();
-        // Could auto-create channel here if enabled
+        const locName = locMatch[1];
+        text = text.replace(/\[NEUER_ORT:\s*.+?\]/g, '').trim();
+        const newCh = await handleLocationChange(message, campaign.id, locName);
+        if (newCh) {
+          await message.channel.send(`*Die Szene wechselt nach **${locName}**... Weiter in <#${newCh.id}>*`);
+          // Post the GM narration in the new channel instead
+          if (text.length <= 2000) {
+            await newCh.send(text);
+          } else {
+            await newCh.send({ embeds: [embed('Spielleiter', text)] });
+          }
+          return;
+        }
       }
+      // Track character changes from GM response
+      await trackCharacterChanges(campaign.id, text);
+
       if (text.length <= 2000) {
         await message.reply({ content: text, allowedMentions: { repliedUser: false } });
       } else {

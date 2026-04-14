@@ -39,6 +39,7 @@ class CampaignUpdate(BaseModel):
     world_summary: Optional[str] = None
     tone: Optional[str] = None
     is_active: Optional[bool] = None
+    auto_create_channels: Optional[bool] = None
 
 class NPCCreate(BaseModel):
     campaign_id: str
@@ -249,6 +250,11 @@ class RelationshipRequest(BaseModel):
 class OpeningSceneRequest(BaseModel):
     campaign_id: str
 
+class CharacterChangeRequest(BaseModel):
+    campaign_id: str
+    changes: List[str]
+    source: str = ""
+
 # ── Helper ──
 
 def now_iso():
@@ -273,7 +279,7 @@ async def get_active_campaign():
 @api_router.post("/campaigns")
 async def create_campaign(data: CampaignCreate):
     await db.campaigns.update_many({}, {"$set": {"is_active": False}})
-    doc = {"id": new_id(), "name": data.name, "world_summary": data.world_summary, "tone": data.tone, "is_active": True, "created_at": now_iso(), "updated_at": now_iso()}
+    doc = {"id": new_id(), "name": data.name, "world_summary": data.world_summary, "tone": data.tone, "is_active": True, "auto_create_channels": False, "created_at": now_iso(), "updated_at": now_iso()}
     await db.campaigns.insert_one(doc)
     doc.pop("_id", None)
     rules = {"id": new_id(), "campaign_id": doc["id"], "content": "", "dice_system": "narrative", "critical_enabled": True, "hidden_rolls_enabled": False, "difficulty_classes": "Easy:5, Medium:10, Hard:15, Extreme:20", "created_at": now_iso(), "updated_at": now_iso()}
@@ -747,6 +753,33 @@ async def gm_generate_opening_scene(data: OpeningSceneRequest):
     pcs = await db.player_characters.find({"campaign_id": data.campaign_id, "status": "active"}, {"_id": 0}).to_list(10)
     scene_text = await gm.generate_opening_scene(campaign, pcs)
     return {"scene": scene_text}
+
+# ── Character Change Tracking ──
+
+@api_router.post("/character-changes")
+async def track_character_changes(data: CharacterChangeRequest):
+    ts = now_iso()
+    docs = []
+    for change in data.changes:
+        doc = {"id": new_id(), "campaign_id": data.campaign_id, "change": change, "source": data.source, "timestamp": ts, "applied": False}
+        docs.append(doc)
+    if docs:
+        await db.character_changes.insert_many(docs)
+        # Also log as events
+        for change in data.changes:
+            await db.events.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "event_type": "character_change", "summary": change, "details": data.source, "timestamp": ts})
+    return {"tracked": len(docs), "changes": data.changes}
+
+@api_router.get("/character-changes")
+async def list_character_changes(campaign_id: str = Query(...), limit: int = 50):
+    return await db.character_changes.find({"campaign_id": campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+
+@api_router.put("/character-changes/{change_id}/apply")
+async def apply_character_change(change_id: str):
+    result = await db.character_changes.update_one({"id": change_id}, {"$set": {"applied": True, "applied_at": now_iso()}})
+    if result.matched_count == 0:
+        raise HTTPException(404, "Change not found")
+    return await db.character_changes.find_one({"id": change_id}, {"_id": 0})
 
 # ── Export / Import (updated) ──
 

@@ -116,7 +116,9 @@ Wenn Antwort nötig:
 - Zeige sichtbare Würfelergebnisse so: [Wurf: 1W20 = {pre_roll}]
 - 1-4 Absätze, lebendig aber prägnant
 - Ende mit offener Situation
-- Wenn der Charakter einen wichtigen neuen Ort betritt, markiere: [NEUER_ORT: Ortsname]"""
+- Wenn der Charakter einen wichtigen neuen Ort betritt, markiere: [NEUER_ORT: Ortsname]
+- Wenn sich der Zustand eines Charakters ändert (Verletzung, Inventar, Ruf, Beziehung, Wissen), markiere: [ÄNDERUNG: Charakter - Was sich geändert hat]
+  Beispiele: [ÄNDERUNG: Erik - Verletzung: Schnittwunde am Arm], [ÄNDERUNG: Maria - Inventar: Schwert verloren], [ÄNDERUNG: Erik - Ruf: Von den Wachen als Verdächtiger notiert]"""
 
         hist = ""
         for m in history[-12:]:
