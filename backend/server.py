@@ -300,6 +300,11 @@ class SmartContextRequest(BaseModel):
     player_discord_id: str = ""
     current_message: str = ""
 
+class SceneResponseRequest(BaseModel):
+    campaign_id: str
+    channel_id: str = ""
+    player_actions: List[dict]  # [{discord_id, pc_name, message}]
+
 class AutoSummarizeRequest(BaseModel):
     campaign_id: str
 
@@ -854,6 +859,25 @@ async def gm_message_driven(data: MessageDrivenRequest):
     if response:
         await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "assistant", "content": response, "timestamp": ts})
         await db.events.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "event_type": "action", "summary": f"{pc_name}: {data.player_message[:150]}", "details": response[:500], "timestamp": ts})
+    return {"response": response}
+
+# ── Scene Response (combined turn-based) ──
+
+@api_router.post("/gm/scene-response")
+async def gm_scene_response(data: SceneResponseRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    first_player = data.player_actions[0]["discord_id"] if data.player_actions else ""
+    smart_ctx = await build_smart_context(data.campaign_id, first_player)
+    response = await gm.scene_turn_response(campaign, data.player_actions, smart_ctx)
+    ts = now_iso()
+    for action in data.player_actions:
+        await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "user", "content": f"[{action.get('pc_name','?')}] {action.get('message','')}", "timestamp": ts})
+    if response:
+        await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "assistant", "content": response, "timestamp": ts})
+        summary = " / ".join([f"{a.get('pc_name','?')}: {a.get('message','')[:60]}" for a in data.player_actions])
+        await db.events.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "event_type": "action", "summary": summary[:200], "details": response[:500], "timestamp": ts})
     return {"response": response}
 
 # ── Campaign Generation ──

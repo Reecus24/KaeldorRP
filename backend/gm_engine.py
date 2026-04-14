@@ -227,6 +227,67 @@ Leere Felder weglassen. Nur geänderte Werte."""
                 except Exception: pass
             return {}
 
+    # ── Scene Turn Response (combined multi-player, short output) ──
+
+    async def scene_turn_response(self, campaign, player_actions, smart_ctx):
+        """Respond to combined player actions in a shared scene. Short, disciplined output."""
+        tone = campaign.get('tone', 'realistic')
+        pre_roll = random.randint(1, 20)
+        pre_roll_2 = random.randint(1, 20)
+
+        world_context = self.format_smart_context(smart_ctx) if smart_ctx else ""
+
+        # Build the combined actions block
+        actions_block = ""
+        for a in player_actions:
+            actions_block += f"**{a.get('pc_name', '?')}**: {a.get('message', '')}\n"
+
+        system = f"""Du bist der Spielleiter einer privaten Rollenspiel-Sitzung für zwei Spieler.
+{GERMAN}
+{self._rules()}
+{self._tone(tone)}
+
+{world_context}
+
+ANTWORT-STIL:
+- KURZ und LESBAR. Normalerweise 2 bis 5 Sätze.
+- Längere Antworten (3-4 kurze Absätze) NUR bei: Szeneneröffnungen, großen Enthüllungen, Kampfhöhepunkten.
+- KEINE Textwände. KEIN halber Roman. KEIN übermäßiges Beschreiben.
+- Atmosphärisch, aber knapp. Jeder Satz zählt.
+- Absätze kurz halten. Zwischen NPC-Dialog und Erzählung trennen.
+- NPC-Dialog in Anführungszeichen, kursive Handlungsbeschreibung.
+- MAXIMAL 600 Zeichen für normale Antworten. Bei Kampf/Enthüllung maximal 1200.
+
+SZENEN-LOGIK:
+- Du erhältst die Handlungen ALLER Spielercharaktere in dieser Szene gleichzeitig.
+- Reagiere auf BEIDE Handlungen in EINER zusammenhängenden Antwort.
+- Beschreibe NUR Konsequenzen für die handelnden Charaktere. Erfinde keine Aktionen für abwesende Spieler.
+- Jeder Charakter sollte die Konsequenzen seiner Handlung spüren.
+
+GEDÄCHTNIS:
+- Erinnere dich an Verletzungen, Schulden, Versprechen, Beziehungen.
+- Referenziere Vergangenes wenn relevant, aber kurz.
+- Offenbare Geheimes nur wenn fiktional angemessen.
+
+WÜRFEL:
+- Bei unsicherem Ausgang: verwende {pre_roll} oder {pre_roll_2} (1W20), erzähle knapp.
+- Zeige: [Wurf: 1W20 = X]
+- Bei Ortswechsel: [NEUER_ORT: Name]
+- Bei Zustandsänderung: [ÄNDERUNG: Charakter - Was]
+
+Wenn KEINE Reaktion der Welt angemessen ist: [KEINE_ANTWORT]"""
+
+        hist = ""
+        chat_msgs = (smart_ctx or {}).get("recent_chat", [])
+        for m in chat_msgs[-4:]:
+            pf = "SPIELER" if m.get('role') == 'user' else "SL"
+            hist += f"{pf}: {m.get('content','')}\n"
+        prompt = f"{hist}\nAKTIONEN DIESER RUNDE:\n{actions_block}"
+
+        chat = self._chat("scene", system)
+        resp = await chat.send_message(UserMessage(text=prompt))
+        return None if "[KEINE_ANTWORT]" in resp else resp
+
     # ── Message-Driven Response (with Smart Memory) ──
 
     async def message_driven_response(self, campaign, scene, npcs, events, pcs, msg, active_pc, history, smart_ctx=None):
@@ -253,19 +314,26 @@ DER HANDELNDE CHARAKTER:
 
 GEDÄCHTNIS-ANWEISUNGEN:
 - Du ERINNERST dich an alle oben aufgeführten Ereignisse, Verletzungen, Schulden, Versprechen und Beziehungen.
-- Referenziere vergangene Ereignisse wenn sie für die aktuelle Situation relevant sind.
-- NPCs erinnern sich an frühere Interaktionen und reagieren entsprechend.
-- Verletzungen beeinflussen Handlungsfähigkeit. Verlorene Gegenstände sind weg. Versprechen werden erwartet.
-- Offenbare GEHEIMES WISSEN nur wenn es fiktional angemessen entdeckt wird.
-- Beziehungswerte beeinflussen NPC-Verhalten: negativ=misstrauisch/feindlich, positiv=hilfsbereit/loyal.
+- Referenziere vergangene Ereignisse wenn relevant, aber KURZ.
+- NPCs erinnern sich an frühere Interaktionen.
+- Verletzungen beeinflussen Handlungsfähigkeit. Verlorene Gegenstände sind weg.
+- Offenbare GEHEIMES WISSEN nur wenn fiktional angemessen.
+- Beziehungswerte beeinflussen NPC-Verhalten.
+
+ANTWORT-STIL:
+- KURZ und LESBAR. Normalerweise 2 bis 5 Sätze. MAXIMAL 500 Zeichen für normale Antworten.
+- Längere Antworten NUR bei großen Enthüllungen oder Szenenwechseln (maximal 1000 Zeichen).
+- Keine Textwände. Atmosphärisch aber knapp. Jeder Satz muss zählen.
+- NPC-Dialog in Anführungszeichen. Aktionen *kursiv*.
+- Beschreibe NUR Konsequenzen für den handelnden Charakter. Keine Aktionen für abwesende Spieler.
 
 REAKTIONSLOGIK:
 Antworte NUR wenn die Nachricht eine fiktional sinnvolle Weltreaktion erfordert.
 Wenn KEINE Antwort nötig: [KEINE_ANTWORT]
 
 Wenn Antwort nötig:
-- 1-4 Absätze, lebendig, prägnant, konsequent
-- Bei unsicherem Ausgang: verwende Vorwurf {pre_roll} (1W20), erzähle narrativ
+- 2-5 Sätze, lebendig, knapp, konsequent
+- Bei unsicherem Ausgang: verwende Vorwurf {pre_roll} (1W20), erzähle knapp
 - Zeige: [Wurf: 1W20 = {pre_roll}]
 - Bei Ortswechsel: [NEUER_ORT: Ortsname]
 - Bei Zustandsänderung: [ÄNDERUNG: Charakter - Was]"""

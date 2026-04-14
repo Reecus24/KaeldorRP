@@ -83,6 +83,18 @@ const commands = [
     .addUserOption(o => o.setName('spieler2').setDescription('Zweiter Spieler').setRequired(false)),
 ];
 
+// ── Scene Turn Tracker ──
+// Per-channel: tracks which PCs have posted since last GM response
+// Key: channelId -> { campaignId, pendingActions: [{discordId, pcName, message, timestamp}], lastGmResponse: timestamp, processing: bool }
+const sceneTurns = new Map();
+
+function getSceneTurn(channelId) {
+  if (!sceneTurns.has(channelId)) {
+    sceneTurns.set(channelId, { campaignId: null, pendingActions: [], lastGmResponse: 0, processing: false });
+  }
+  return sceneTurns.get(channelId);
+}
+
 // ── Helpers ──
 async function getActiveCampaign() {
   const { data } = await axios.get(`${API}/campaigns/active`);
@@ -162,6 +174,22 @@ async function trackCharacterChanges(campaignId, response) {
     } catch (e) { /* silent - non-critical */ }
   }
   return changes;
+}
+
+// ── Async Memory Processing (fire-and-forget after GM response) ──
+function processMemory(campaignId, narrative) {
+  // Extract structured memory events
+  axios.post(`${API}/memory/extract-events`, { campaign_id: campaignId, narrative })
+    .catch(e => console.error('Memory extract:', e.message));
+  // Update scene memory
+  axios.post(`${API}/memory/update-scene`, { campaign_id: campaignId, narrative })
+    .catch(e => console.error('Scene update:', e.message));
+  // Track character changes from markers
+  trackCharacterChanges(campaignId, narrative);
+  // Periodic auto-summarize
+  axios.get(`${API}/memory/events`, { params: { campaign_id: campaignId, limit: 100 } })
+    .then(res => { if (res.data.length > 0 && res.data.length % 15 === 0) return axios.post(`${API}/memory/auto-summarize`, { campaign_id: campaignId }); })
+    .catch(() => {});
 }
 
 // ── Character Creation Flow ──
@@ -568,7 +596,7 @@ async function handlePCEdit(interaction) {
       }
     });
 
-    // Message handler - only works with MessageContent intent
+    // Message handler - scene-turn-aware
     client.on('messageCreate', async message => {
       if (message.author.bot || !message.guild) return;
       if (GUILD_ID && message.guildId !== GUILD_ID) return;
@@ -594,56 +622,103 @@ async function handlePCEdit(interaction) {
         if (!allowed.some(p => p.discord_user_id === message.author.id)) return;
         if (isOOC(message.content) || message.content.trim().length < 3) return;
 
-        await message.channel.sendTyping();
-        const { data: result } = await axios.post(`${API}/gm/message-driven`, {
-          campaign_id: campaign.id, player_discord_id: message.author.id,
-          player_message: message.content, channel_id: message.channelId
+        // ── Scene Turn Logic ──
+        // Find which PCs are present in THIS channel/scene
+        const { data: allPCs } = await axios.get(`${API}/player-characters/active`, { params: { campaign_id: campaign.id } });
+        // Determine which allowed players have PCs (these are the expected actors)
+        const scenePlayers = allowed.filter(a => allPCs.some(pc => pc.discord_user_id === a.discord_user_id));
+
+        // Get the active PC for the message author
+        const authorPC = allPCs.find(pc => pc.discord_user_id === message.author.id);
+        const pcName = authorPC?.character_name || message.author.username;
+
+        // Record this player's action for this scene/channel
+        const turn = getSceneTurn(message.channelId);
+        turn.campaignId = campaign.id;
+
+        // Don't duplicate if same player posts again before GM responds
+        const alreadyActed = turn.pendingActions.some(a => a.discordId === message.author.id);
+        if (alreadyActed) {
+          // Replace their previous action with the newer one
+          turn.pendingActions = turn.pendingActions.filter(a => a.discordId !== message.author.id);
+        }
+        turn.pendingActions.push({
+          discordId: message.author.id,
+          pcName,
+          message: message.content,
+          timestamp: Date.now()
         });
 
-        if (result.response) {
-          let text = result.response;
-          const locMatch = text.match(/\[NEUER_ORT:\s*(.+?)\]/);
-          if (locMatch) {
-            const locName = locMatch[1];
-            text = text.replace(/\[NEUER_ORT:\s*.+?\]/g, '').trim();
-            const newCh = await handleLocationChange(message, campaign.id, locName);
-            if (newCh) {
-              await message.channel.send(`*Die Szene wechselt nach **${locName}**... Weiter in <#${newCh.id}>*`);
-              if (text.length <= 2000) { await newCh.send(text); }
-              else { await newCh.send({ embeds: [embed('Spielleiter', text)] }); }
-              return;
-            }
-          }
-          await trackCharacterChanges(campaign.id, text);
+        // Check: have ALL PCs present in this scene acted?
+        // For split scenes: only PCs whose allowed-player is in this channel's scene
+        // Simple heuristic: if there are N allowed players with active PCs, wait for N actions
+        // But if only 1 PC exists or only 1 is configured, respond after 1
+        const expectedCount = scenePlayers.length;
+        const actedCount = turn.pendingActions.length;
+        const allActed = actedCount >= expectedCount;
 
-          // Auto-extract structured memory events (async, non-blocking)
-          axios.post(`${API}/memory/extract-events`, {
-            campaign_id: campaign.id, narrative: result.response
-          }).catch(e => console.error('Memory extract error:', e.message));
+        if (!allActed) {
+          // Not all PCs have acted yet — wait silently
+          return;
+        }
 
-          // Auto-update scene memory from narrative (async, non-blocking)
-          axios.post(`${API}/memory/update-scene`, {
-            campaign_id: campaign.id, narrative: result.response
-          }).catch(e => console.error('Scene update error:', e.message));
+        // All PCs in this scene have acted — generate combined GM response
+        if (turn.processing) return; // Prevent double-processing
+        turn.processing = true;
 
-          // Auto-summarize every 15 events
-          axios.get(`${API}/events`, { params: { campaign_id: campaign.id, limit: 1 } })
-            .then(res => {
-              // Check event count periodically for auto-summarize
-              return axios.get(`${API}/memory/events`, { params: { campaign_id: campaign.id, limit: 100 } });
-            })
-            .then(res => {
-              if (res.data.length > 0 && res.data.length % 15 === 0) {
-                return axios.post(`${API}/memory/auto-summarize`, { campaign_id: campaign.id });
+        try {
+          await message.channel.sendTyping();
+
+          // Build combined action string from all pending actions
+          const combinedActions = turn.pendingActions
+            .map(a => `${a.pcName}: ${a.message}`)
+            .join('\n');
+
+          const { data: result } = await axios.post(`${API}/gm/scene-response`, {
+            campaign_id: campaign.id,
+            channel_id: message.channelId,
+            player_actions: turn.pendingActions.map(a => ({
+              discord_id: a.discordId, pc_name: a.pcName, message: a.message
+            }))
+          });
+
+          // Reset turn tracker for this scene
+          turn.pendingActions = [];
+          turn.lastGmResponse = Date.now();
+          turn.processing = false;
+
+          if (result.response) {
+            let text = result.response;
+
+            // Strip markers for display, process them async
+            const locMatch = text.match(/\[NEUER_ORT:\s*(.+?)\]/);
+            text = text.replace(/\[NEUER_ORT:\s*.+?\]/g, '').replace(/\[ÄNDERUNG:\s*.+?\]/g, '').trim();
+
+            if (locMatch) {
+              const newCh = await handleLocationChange(message, campaign.id, locMatch[1]);
+              if (newCh) {
+                await message.channel.send(`*Die Szene wechselt nach **${locMatch[1]}**... Weiter in <#${newCh.id}>*`);
+                if (text.length <= 2000) await newCh.send(text);
+                else await newCh.send({ embeds: [embed('Spielleiter', text)] });
+                // Fire-and-forget memory processing
+                processMemory(campaign.id, result.response);
+                return;
               }
-            })
-            .catch(() => {});
+            }
 
-          if (text.length <= 2000) {
-            await message.reply({ content: text, allowedMentions: { repliedUser: false } });
-          } else {
-            await message.reply({ embeds: [embed('Spielleiter', text)], allowedMentions: { repliedUser: false } });
+            // Send GM response
+            if (text.length <= 2000) {
+              await message.channel.send(text);
+            } else {
+              await message.channel.send({ embeds: [embed('Spielleiter', text)] });
+            }
+
+            // Fire-and-forget memory processing
+            processMemory(campaign.id, result.response);
           }
+        } catch (innerErr) {
+          turn.processing = false;
+          if (innerErr.response?.status !== 404) console.error('Scene response error:', innerErr.message);
         }
       } catch (err) {
         if (err.response?.status !== 404) console.error('Message handler error:', err.message);

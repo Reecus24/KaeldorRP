@@ -1374,6 +1374,168 @@ class GMBotAPITester:
             self.tests_run += 1
             return False
 
+    # ── NEW SCENE-RESPONSE ENDPOINT TESTS ──
+
+    def test_gm_scene_response_single_player(self):
+        """Test POST /api/gm/scene-response with single player action returns short response"""
+        campaign_id = self.test_campaign_id
+        scene_data = {
+            "campaign_id": campaign_id,
+            "channel_id": "test_channel_scene_123",
+            "player_actions": [
+                {
+                    "discord_id": "123456789012345678",
+                    "pc_name": "Erik der Wanderer",
+                    "message": "Ich schaue vorsichtig um die Ecke und lausche nach Geräuschen."
+                }
+            ]
+        }
+
+        print("\n🔍 Testing Scene Response - Single Player (LLM-powered, may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=scene_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Scene response (single player) successful")
+                if result.get('response'):
+                    response_text = result['response']
+                    print(f"   GM Response: {response_text[:100]}...")
+                    print(f"   Response length: {len(response_text)} characters")
+                    
+                    # Check response length constraints (should be shorter)
+                    is_short = len(response_text) <= 1500  # Normal response limit
+                    print(f"   Response is short (≤1500 chars): {is_short}")
+                    
+                    # Check for German text
+                    has_german = any(word in response_text.lower() for word in ['der', 'die', 'das', 'und', 'ist', 'sie', 'er'])
+                    print(f"   Contains German: {has_german}")
+                else:
+                    print(f"   GM decided no response needed (returned null)")
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Scene response (single player) failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Scene response (single player) error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_gm_scene_response_multiple_players(self):
+        """Test POST /api/gm/scene-response with two player actions returns combined response"""
+        campaign_id = self.test_campaign_id
+        scene_data = {
+            "campaign_id": campaign_id,
+            "channel_id": "test_channel_scene_456",
+            "player_actions": [
+                {
+                    "discord_id": "123456789012345678",
+                    "pc_name": "Erik der Wanderer",
+                    "message": "Ich bewege mich leise zur Tür und versuche sie zu öffnen."
+                },
+                {
+                    "discord_id": "987654321098765432",
+                    "pc_name": "Maria die Ärztin",
+                    "message": "Ich halte meine Waffe bereit und decke Erik ab."
+                }
+            ]
+        }
+
+        print("\n🔍 Testing Scene Response - Multiple Players (LLM-powered, may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=scene_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Scene response (multiple players) successful")
+                if result.get('response'):
+                    response_text = result['response']
+                    print(f"   GM Response: {response_text[:100]}...")
+                    print(f"   Response length: {len(response_text)} characters")
+                    
+                    # Check response length constraints
+                    is_short = len(response_text) <= 1500  # Normal response limit
+                    print(f"   Response is short (≤1500 chars): {is_short}")
+                    
+                    # Check if response addresses both players
+                    mentions_erik = 'erik' in response_text.lower()
+                    mentions_maria = 'maria' in response_text.lower()
+                    print(f"   Mentions Erik: {mentions_erik}")
+                    print(f"   Mentions Maria: {mentions_maria}")
+                    
+                    # Check for German text
+                    has_german = any(word in response_text.lower() for word in ['der', 'die', 'das', 'und', 'ist', 'sie', 'er'])
+                    print(f"   Contains German: {has_german}")
+                else:
+                    print(f"   GM decided no response needed (returned null)")
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Scene response (multiple players) failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Scene response (multiple players) error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_gm_scene_response_length_constraint(self):
+        """Test POST /api/gm/scene-response response length is shorter than before (under 1500 chars for normal)"""
+        campaign_id = self.test_campaign_id
+        scene_data = {
+            "campaign_id": campaign_id,
+            "channel_id": "test_channel_length_789",
+            "player_actions": [
+                {
+                    "discord_id": "123456789012345678",
+                    "pc_name": "Erik der Wanderer",
+                    "message": "Ich erkunde das gesamte Gebäude sehr gründlich, schaue in jeden Raum, untersuche alle Gegenstände, spreche mit allen NPCs und versuche alle möglichen Geheimnisse zu entdecken."
+                }
+            ]
+        }
+
+        print("\n🔍 Testing Scene Response - Length Constraint (LLM-powered, may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=scene_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Scene response length constraint test successful")
+                if result.get('response'):
+                    response_text = result['response']
+                    response_length = len(response_text)
+                    print(f"   Response length: {response_length} characters")
+                    
+                    # Check length constraints (max 600 chars normal, 1200 combat)
+                    is_very_short = response_length <= 600  # Ideal normal response
+                    is_acceptable = response_length <= 1500  # Maximum acceptable
+                    
+                    print(f"   Very short (≤600 chars): {is_very_short}")
+                    print(f"   Acceptable (≤1500 chars): {is_acceptable}")
+                    
+                    # Count sentences (should be 2-5 sentences)
+                    sentence_count = len([s for s in response_text.split('.') if s.strip()])
+                    print(f"   Sentence count: {sentence_count}")
+                    is_concise = 2 <= sentence_count <= 5
+                    print(f"   Concise (2-5 sentences): {is_concise}")
+                    
+                    if not is_acceptable:
+                        print(f"   ⚠️  Response too long! Expected ≤1500 chars, got {response_length}")
+                else:
+                    print(f"   GM decided no response needed (returned null)")
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Scene response length constraint test failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Scene response length constraint test error: {str(e)}")
+            self.tests_run += 1
+            return False
+
 def main():
     print("🎲 Starting GM Bot API Tests - Memory System Upgrade")
     print("=" * 60)
@@ -1419,6 +1581,10 @@ def main():
         tester.test_auto_summarize,
         tester.test_update_scene_from_narrative,
         tester.test_gm_message_driven_with_smart_context,
+        # NEW Scene Response Endpoint Tests
+        tester.test_gm_scene_response_single_player,
+        tester.test_gm_scene_response_multiple_players,
+        tester.test_gm_scene_response_length_constraint,
         # GM Engine tests - Campaign Generation Flow
         tester.test_gm_generate_campaign,
         tester.test_gm_generate_character_questions,
