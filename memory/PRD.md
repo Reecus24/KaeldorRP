@@ -1,36 +1,43 @@
-# Discord RP Game Master Bot - PRD (Updated April 14, 2026)
+# Discord RP Game Master Bot - PRD (April 14, 2026)
 
 ## Architecture
-- **FastAPI Backend**: Admin API + LLM Gateway (GPT-5.2) + MongoDB
-- **Node.js Discord Bot**: discord.js v14 - message-driven + 12 slash commands + auto-fallback for intents
-- **React Frontend**: Admin dashboard (dark obsidian/amber theme, 8 pages)
-- **MongoDB**: Persistent storage (14 collections)
+- **FastAPI Backend**: 60+ endpoints, smart memory system, LLM Gateway (GPT-5.2)
+- **Node.js Discord Bot**: discord.js v14, message-driven + 12 commands, auto intent fallback
+- **React Frontend**: Admin dashboard (8 pages, dark obsidian/amber)
+- **MongoDB**: 18 collections including structured memory
 
-## What's Been Implemented
+## Memory Architecture (NEW)
+### Short-term: scene_memory
+- Active scene state: location, atmosphere, tension, present NPCs, dangers, objectives, time
 
-### Phase 1 - MVP (Initial)
-- Full backend with 40+ endpoints, dice engine, campaign export/import
-- Discord bot with slash commands, React admin dashboard
+### Medium-term: memory_events
+- Structured events: injury, item_lost/gained, clue, faction_change, trust_change, oath, debt, damage, secret, relationship, threat, status
+- Each tagged with visibility (public/gm_only/character_specific), resolved status
 
-### Phase 2 - Message-Driven German GM
-- Message-driven GM: natural IC channel reading, responds only when fictionally appropriate
-- All output in German, Player Character profiles (20+ fields)
-- /campaign command: world generation + guided character creation + relationship + opening scene
-- OOC handling (// and ((...)) markers), allowed player whitelist
+### Long-term: recaps (auto-summarized)
+- Structured summaries: key_consequences, pc_changes, npc_changes, world_changes, unresolved_hooks
 
-### Phase 3 - Current
-- **Location channel auto-creation**: When GM marks [NEUER_ORT: name], bot creates Discord channel under campaign category, registers as IC, posts scene header
-- **Character change tracking**: GM marks [ÄNDERUNG: Charakter - Change] in responses, bot auto-tracks changes to character_changes collection and event log
-- **Graceful intent fallback**: Bot tries MessageContent intent first, falls back to slash-commands-only with clear instructions
-- **Campaign auto_create_channels flag**: Enable/disable location channel creation per campaign
+### Knowledge: knowledge_store
+- GM-only secrets, character-specific knowledge, public discoveries
+- Never revealed unless fictionally appropriate
 
-## Required Discord Setup
-1. Enable **Message Content Intent** at https://discord.com/developers/applications → Bot → Privileged Gateway Intents
-2. Set DISCORD_GUILD_ID in /app/discord-bot/.env
-3. Bot needs: applications.commands, Send Messages, Embed Links, Read Message History, Manage Channels (for location channels)
+### Relationships: relationship_map
+- PC↔PC, PC↔NPC, NPC↔faction with type/value/notes
 
-## Backlog
-- P1: Enable MessageContent intent in portal, test live /campaign flow
-- P2: Auto-apply character changes to PC profiles from tracked changes
-- P2: Quest/inventory management UI
-- P3: Session scheduling, multi-guild support
+### Smart Context Retrieval
+- Replaces raw chat history with focused context packet
+- Loads: scene memory, active PCs, present NPCs, unresolved events, relationships, lore, knowledge, summaries, minimal recent chat
+
+### Auto-Processing Pipeline (after each GM response)
+1. Extract structured memory events from narrative (LLM)
+2. Update scene memory (LLM suggests changes)
+3. Auto-summarize every 15 events
+4. Track character changes
+
+## What's Implemented
+- Full message-driven German GM with smart memory
+- Campaign generation + guided character creation
+- Player Character profiles (20+ fields)
+- Location channel auto-creation
+- Character change tracking
+- 12 slash commands, allowed player whitelist, OOC handling
