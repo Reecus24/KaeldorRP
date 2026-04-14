@@ -1,53 +1,47 @@
 # Discord RP Game Master Bot - PRD
 
 ## Original Problem Statement
-Build a production-ready private Discord roleplay Game Master bot as a full-stack app. Bot acts as neutral GM narrating scenes, controlling NPCs, resolving consequences, tracking world state. Admin dashboard for campaign management.
+Build a production-ready private Discord roleplay Game Master bot. Two players roleplay naturally via normal Discord messages, and the bot acts as neutral GM narrating in German.
 
 ## Architecture
 - **FastAPI Backend** (Python): Admin API + LLM Gateway (GPT-5.2 via emergentintegrations)
-- **Node.js Discord Bot**: discord.js v14 with 12 slash commands
-- **React Frontend**: Dark-themed admin dashboard (obsidian/amber)
+- **Node.js Discord Bot**: discord.js v14 - message-driven + 12 slash commands
+- **React Frontend**: Admin dashboard (dark obsidian/amber theme)
 - **MongoDB**: Persistent storage for all game state
 
-## User Personas
-- **GM Admin**: Manages campaigns, NPCs, lore, rules via dashboard
-- **Discord Players**: Interact via slash commands during roleplay sessions
-
-## Core Requirements
-- [x] Discord bot with 12 slash commands (/gm, /npc, /roll, /check, /scene, /recap, /journal, /rules, /set_tone, /reset_session, /new_campaign, /set_channel_mode)
-- [x] GPT-5.2 powered narration with tone-configurable responses
-- [x] Persistent campaign state (campaigns, NPCs, lore, scenes, events, rules, channels)
-- [x] Dice rolling engine (standard notation: NdS+M, critical success/failure)
-- [x] Admin dashboard with CRUD for all entities
-- [x] Export/import campaign data
-- [x] Channel mode configuration (IC/OOC/Admin)
-- [x] No authentication (admin-only deployment)
-
 ## What's Been Implemented (April 14, 2026)
-- Full FastAPI backend with 30+ API endpoints
-- Discord bot online as "Kaeldor Roleplay#8532" with all 12 commands registered
-- React admin dashboard with 7 pages (Dashboard, Campaigns, NPCs, Lore, Rules & Tone, Channels, Event Log)
-- GPT-5.2 integration for GM narration, NPC dialogue, skill checks, and recap generation
-- Dice engine supporting standard notation
-- Campaign export/import functionality
-- Event log with terminal-style viewer
+
+### Phase 1 - MVP (Initial Build)
+- Full FastAPI backend with 40+ API endpoints
+- Discord bot with 12 slash commands
+- React admin dashboard with 7 pages
+- GPT-5.2 integration for narration
+- Dice engine, campaign export/import
+
+### Phase 2 - Major Refactoring (Current)
+- **Message-driven GM behavior**: Bot reads normal messages in IC channels, responds only when fictionally appropriate
+- **German language**: All RP output in natural German (narration, NPC dialogue, scene descriptions, recaps, checks)
+- **Player Character Profiles**: 20+ fields (background, personality, strengths, weaknesses, injuries, inventory, faction ties, GM secrets, obligations, etc.)
+- **Campaign generation**: `/campaign [prompt]` generates complete world in German (title, tone, world, factions, hooks, opening scene)
+- **Guided character creation**: Step-by-step in-Discord flow with LLM-generated genre-specific questions
+- **Character relationship setup**: Auto-generates meaningful connections between PCs
+- **Opening scene generation**: Atmospheric German opening after character creation
+- **Allowed player whitelist**: Only configured players can trigger GM in IC channels
+- **OOC handling**: Messages starting with // or wrapped in ((...)) are ignored
+- **8 new pages/features** in admin dashboard including Player Characters with tabbed editor
 
 ## Prioritized Backlog
 ### P0 (Done)
-- All slash commands functional
-- Campaign/NPC/Lore CRUD
-- LLM narration pipeline
-- Dice rolling
+- Message-driven RP behavior, German output, PC profiles, campaign generation, character creation
 
-### P1 (Next)
-- Quest/inventory management UI pages
-- Scene creation from dashboard
-- Player character profile management
-- World summary auto-generation
+### P1 (Next - requires user action)
+- Enable MESSAGE_CONTENT privileged intent in Discord Developer Portal for live message-driven RP
+- Configure DISCORD_GUILD_ID for guild restriction
+- Location channel auto-creation (code-ready, needs ManageChannels permission)
 
 ### P2 (Future)
-- Multi-guild support (whitelist)
-- Chat history viewer in dashboard
+- Quest/inventory management UI pages
 - NPC relationship graph visualization
-- Session scheduling integration
-- Campaign template library
+- Character change tracking history
+- Session scheduling with Discord reminders
+- Multi-guild whitelist support
