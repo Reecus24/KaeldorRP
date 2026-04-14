@@ -9,7 +9,7 @@ class GMBotAPITester:
         self.api_url = f"{base_url}/api"
         self.tests_run = 0
         self.tests_passed = 0
-        self.test_campaign_id = "8b32b420-91d5-42ce-aeb2-3589cfc0b8a7"  # Active campaign ID from review
+        self.test_campaign_id = "6e3d6875-c5a0-4887-98d2-1f5510955bd7"  # Test campaign from review (zombie apocalypse)
         self.created_ids = {}  # Track created resources for cleanup
 
     def run_test(self, name, method, endpoint, expected_status, data=None, params=None):
@@ -898,9 +898,485 @@ class GMBotAPITester:
             print(f"   Auto create channels: {response.get('auto_create_channels', False)}")
         return success
 
+    # ── Memory System Tests ──
+
+    def test_create_memory_event(self):
+        """Test POST /api/memory/events creates structured memory event"""
+        campaign_id = self.test_campaign_id
+        event_data = {
+            "campaign_id": campaign_id,
+            "event_type": "injury",
+            "subject": "Test Character",
+            "detail": "Suffered a minor cut on the arm during combat",
+            "visibility": "public",
+            "related_pc": "Test Character",
+            "related_npc": ""
+        }
+        
+        success, response = self.run_test(
+            "Create Memory Event",
+            "POST",
+            "memory/events",
+            200,
+            data=event_data
+        )
+        
+        if success and 'id' in response:
+            self.created_ids['memory_event'] = response['id']
+            print(f"   Created memory event ID: {response['id']}")
+            print(f"   Event type: {response.get('event_type')}")
+            print(f"   Subject: {response.get('subject')}")
+        return success
+
+    def test_list_memory_events(self):
+        """Test GET /api/memory/events lists memory events with filters"""
+        campaign_id = self.test_campaign_id
+        
+        # Test without filters
+        success, response = self.run_test(
+            "List Memory Events",
+            "GET",
+            "memory/events",
+            200,
+            params={"campaign_id": campaign_id}
+        )
+        
+        if success:
+            print(f"   Found {len(response)} memory events")
+            
+            # Test with event_type filter
+            success2, response2 = self.run_test(
+                "List Memory Events (filtered by type)",
+                "GET",
+                "memory/events",
+                200,
+                params={"campaign_id": campaign_id, "event_type": "injury"}
+            )
+            
+            if success2:
+                print(f"   Found {len(response2)} injury events")
+                
+            # Test with resolved filter
+            success3, response3 = self.run_test(
+                "List Memory Events (unresolved)",
+                "GET",
+                "memory/events",
+                200,
+                params={"campaign_id": campaign_id, "resolved": False}
+            )
+            
+            if success3:
+                print(f"   Found {len(response3)} unresolved events")
+                
+        return success
+
+    def test_resolve_memory_event(self):
+        """Test PUT /api/memory/events/{id}/resolve marks event as resolved"""
+        event_id = self.created_ids.get('memory_event')
+        if not event_id:
+            print("   ⚠️  No memory event ID available for resolve test")
+            return True
+        
+        success, response = self.run_test(
+            "Resolve Memory Event",
+            "PUT",
+            f"memory/events/{event_id}/resolve",
+            200
+        )
+        
+        if success:
+            print(f"   Resolved: {response.get('resolved', False)}")
+            print(f"   Resolved at: {response.get('resolved_at', 'N/A')}")
+        return success
+
+    def test_get_scene_memory(self):
+        """Test GET /api/memory/scene-state returns current scene memory"""
+        campaign_id = self.test_campaign_id
+        
+        success, response = self.run_test(
+            "Get Scene Memory",
+            "GET",
+            "memory/scene-state",
+            200,
+            params={"campaign_id": campaign_id}
+        )
+        
+        if success:
+            print(f"   Scene active: {response.get('is_active', False)}")
+            if response.get('location'):
+                print(f"   Location: {response.get('location')}")
+            if response.get('summary'):
+                print(f"   Summary: {response.get('summary')[:50]}...")
+        return success
+
+    def test_update_scene_memory(self):
+        """Test PUT /api/memory/scene-state updates scene memory"""
+        campaign_id = self.test_campaign_id
+        scene_data = {
+            "campaign_id": campaign_id,
+            "location": "Test Location",
+            "summary": "A test scene for API testing",
+            "present_pcs": ["Test Character"],
+            "present_npcs": ["Test NPC"],
+            "immediate_danger": "None",
+            "tension_level": 3,
+            "current_objectives": ["Test the API"],
+            "unresolved_actions": ["Complete testing"],
+            "atmosphere": "Tense but controlled",
+            "time_of_day": "Afternoon"
+        }
+        
+        success, response = self.run_test(
+            "Update Scene Memory",
+            "PUT",
+            "memory/scene-state",
+            200,
+            data=scene_data
+        )
+        
+        if success:
+            print(f"   Updated location: {response.get('location')}")
+            print(f"   Tension level: {response.get('tension_level')}")
+            print(f"   Active: {response.get('is_active')}")
+        return success
+
+    def test_create_relationship(self):
+        """Test POST /api/memory/relationships creates/updates relationship"""
+        campaign_id = self.test_campaign_id
+        relationship_data = {
+            "campaign_id": campaign_id,
+            "entity_a": "Test Character",
+            "entity_a_type": "pc",
+            "entity_b": "Test NPC",
+            "entity_b_type": "npc",
+            "relationship_type": "trust",
+            "value": 75,
+            "notes": "Strong alliance formed during testing"
+        }
+        
+        success, response = self.run_test(
+            "Create Relationship",
+            "POST",
+            "memory/relationships",
+            200,
+            data=relationship_data
+        )
+        
+        if success and 'id' in response:
+            self.created_ids['relationship'] = response['id']
+            print(f"   Created relationship ID: {response['id']}")
+            print(f"   Relationship: {response.get('entity_a')} -> {response.get('entity_b')}")
+            print(f"   Type: {response.get('relationship_type')} ({response.get('value')})")
+        return success
+
+    def test_list_relationships(self):
+        """Test GET /api/memory/relationships lists relationships"""
+        campaign_id = self.test_campaign_id
+        
+        # Test without filters
+        success, response = self.run_test(
+            "List Relationships",
+            "GET",
+            "memory/relationships",
+            200,
+            params={"campaign_id": campaign_id}
+        )
+        
+        if success:
+            print(f"   Found {len(response)} relationships")
+            
+            # Test with entity filter
+            success2, response2 = self.run_test(
+                "List Relationships (filtered by entity)",
+                "GET",
+                "memory/relationships",
+                200,
+                params={"campaign_id": campaign_id, "entity": "Test Character"}
+            )
+            
+            if success2:
+                print(f"   Found {len(response2)} relationships for Test Character")
+                
+        return success
+
+    def test_add_knowledge(self):
+        """Test POST /api/memory/knowledge adds knowledge entry"""
+        campaign_id = self.test_campaign_id
+        knowledge_data = {
+            "campaign_id": campaign_id,
+            "content": "The old warehouse contains a secret passage to the underground tunnels",
+            "visibility": "public",
+            "character_specific_to": "",
+            "category": "clue",
+            "source": "Investigation during testing"
+        }
+        
+        success, response = self.run_test(
+            "Add Knowledge",
+            "POST",
+            "memory/knowledge",
+            200,
+            data=knowledge_data
+        )
+        
+        if success and 'id' in response:
+            self.created_ids['knowledge'] = response['id']
+            print(f"   Created knowledge ID: {response['id']}")
+            print(f"   Category: {response.get('category')}")
+            print(f"   Visibility: {response.get('visibility')}")
+        return success
+
+    def test_add_gm_only_knowledge(self):
+        """Test POST /api/memory/knowledge adds GM-only knowledge entry"""
+        campaign_id = self.test_campaign_id
+        knowledge_data = {
+            "campaign_id": campaign_id,
+            "content": "The NPC Marcus is actually working for the enemy faction",
+            "visibility": "gm_only",
+            "character_specific_to": "",
+            "category": "secret",
+            "source": "GM background information"
+        }
+        
+        success, response = self.run_test(
+            "Add GM-Only Knowledge",
+            "POST",
+            "memory/knowledge",
+            200,
+            data=knowledge_data
+        )
+        
+        if success and 'id' in response:
+            self.created_ids['gm_knowledge'] = response['id']
+            print(f"   Created GM knowledge ID: {response['id']}")
+            print(f"   Category: {response.get('category')}")
+            print(f"   Visibility: {response.get('visibility')}")
+        return success
+
+    def test_list_knowledge(self):
+        """Test GET /api/memory/knowledge lists knowledge with visibility filter"""
+        campaign_id = self.test_campaign_id
+        
+        # Test without filters
+        success, response = self.run_test(
+            "List Knowledge",
+            "GET",
+            "memory/knowledge",
+            200,
+            params={"campaign_id": campaign_id}
+        )
+        
+        if success:
+            print(f"   Found {len(response)} knowledge entries")
+            
+            # Test with visibility filter
+            success2, response2 = self.run_test(
+                "List Knowledge (public only)",
+                "GET",
+                "memory/knowledge",
+                200,
+                params={"campaign_id": campaign_id, "visibility": "public"}
+            )
+            
+            if success2:
+                print(f"   Found {len(response2)} public knowledge entries")
+                
+            # Test with GM-only filter
+            success3, response3 = self.run_test(
+                "List Knowledge (GM-only)",
+                "GET",
+                "memory/knowledge",
+                200,
+                params={"campaign_id": campaign_id, "visibility": "gm_only"}
+            )
+            
+            if success3:
+                print(f"   Found {len(response3)} GM-only knowledge entries")
+                
+        return success
+
+    def test_smart_context(self):
+        """Test POST /api/memory/smart-context returns focused context with stats"""
+        campaign_id = self.test_campaign_id
+        context_data = {
+            "campaign_id": campaign_id,
+            "player_discord_id": "123456789012345678",
+            "current_message": "I look around the room for clues"
+        }
+        
+        print("\n🔍 Testing Smart Context (may be slow due to data processing)...")
+        try:
+            response = requests.post(f"{self.api_url}/memory/smart-context", json=context_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Smart context generated")
+                
+                stats = result.get('stats', {})
+                print(f"   PCs: {stats.get('pcs', 0)}")
+                print(f"   NPCs: {stats.get('npcs', 0)}")
+                print(f"   Unresolved events: {stats.get('unresolved_events', 0)}")
+                print(f"   Relationships: {stats.get('relationships', 0)}")
+                print(f"   Knowledge entries: {stats.get('knowledge_entries', 0)}")
+                print(f"   Summaries: {stats.get('summaries', 0)}")
+                
+                context = result.get('context', '')
+                if context:
+                    print(f"   Context length: {len(context)} characters")
+                    
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Smart context failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Smart context error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_extract_events_from_narrative(self):
+        """Test POST /api/memory/extract-events extracts structured events from narrative"""
+        campaign_id = self.test_campaign_id
+        extract_data = {
+            "campaign_id": campaign_id,
+            "narrative": "Erik suffered a deep cut on his arm while fighting the zombie. Maria lost her medical bag during the escape. They discovered a clue about the safe house location written on a torn piece of paper."
+        }
+        
+        print("\n🔍 Testing Event Extraction (LLM-powered, may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/memory/extract-events", json=extract_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Event extraction completed")
+                print(f"   Extracted events: {result.get('extracted', 0)}")
+                
+                events = result.get('events', [])
+                for i, event in enumerate(events[:3]):  # Show first 3 events
+                    print(f"   Event {i+1}: {event.get('event_type')} - {event.get('subject')} - {event.get('detail')[:50]}...")
+                    
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Event extraction failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Event extraction error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_auto_summarize(self):
+        """Test POST /api/memory/auto-summarize generates structured scene summary"""
+        campaign_id = self.test_campaign_id
+        summarize_data = {
+            "campaign_id": campaign_id
+        }
+        
+        print("\n🔍 Testing Auto Summarize (LLM-powered, may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/memory/auto-summarize", json=summarize_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Auto summarize completed")
+                
+                recap = result.get('recap', {})
+                if recap.get('summary'):
+                    print(f"   Summary: {recap['summary'][:100]}...")
+                    
+                structured = result.get('structured', {})
+                if structured:
+                    print(f"   Structured data keys: {list(structured.keys())}")
+                    
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Auto summarize failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Auto summarize error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_update_scene_from_narrative(self):
+        """Test POST /api/memory/update-scene updates scene memory from narrative"""
+        campaign_id = self.test_campaign_id
+        update_data = {
+            "campaign_id": campaign_id,
+            "narrative": "The group moves from the warehouse to the abandoned hospital. The tension increases as they hear strange noises from the upper floors. Erik and Maria are both present, along with a mysterious figure they just met."
+        }
+        
+        print("\n🔍 Testing Scene Update from Narrative (LLM-powered, may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/memory/update-scene", json=update_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Scene update from narrative completed")
+                
+                if result.get('location'):
+                    print(f"   Updated location: {result.get('location')}")
+                if result.get('tension_level'):
+                    print(f"   Updated tension: {result.get('tension_level')}")
+                if result.get('present_npcs'):
+                    print(f"   Present NPCs: {result.get('present_npcs')}")
+                    
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Scene update from narrative failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Scene update from narrative error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_gm_message_driven_with_smart_context(self):
+        """Test POST /api/gm/message-driven uses smart context for GM response"""
+        campaign_id = self.test_campaign_id
+        message_data = {
+            "campaign_id": campaign_id,
+            "player_discord_id": "123456789012345678",
+            "player_message": "Ich untersuche die Verletzung an meinem Arm und schaue nach Verbandsmaterial.",
+            "channel_id": "test_channel_123"
+        }
+
+        print("\n🔍 Testing Message-Driven GM with Smart Context (LLM-powered, may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/message-driven", json=message_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Message-driven GM with smart context responded")
+                if result.get('response'):
+                    response_text = result['response']
+                    print(f"   GM Response: {response_text[:100]}...")
+                    # Check for German text
+                    has_german = any(word in response_text.lower() for word in ['der', 'die', 'das', 'und', 'ist', 'sie', 'er', 'verletzung', 'arm'])
+                    print(f"   Contains German: {has_german}")
+                    # Check if it references the injury (smart context should include memory events)
+                    references_injury = any(word in response_text.lower() for word in ['verletzung', 'arm', 'schnitt', 'wunde'])
+                    print(f"   References injury from memory: {references_injury}")
+                else:
+                    print(f"   GM decided no response needed (returned null)")
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Message-driven GM with smart context failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Message-driven GM with smart context error: {str(e)}")
+            self.tests_run += 1
+            return False
+
 def main():
-    print("🎲 Starting GM Bot API Tests")
-    print("=" * 50)
+    print("🎲 Starting GM Bot API Tests - Memory System Upgrade")
+    print("=" * 60)
     
     tester = GMBotAPITester()
     
@@ -927,6 +1403,22 @@ def main():
         # Allowed Player tests
         tester.test_add_allowed_player,
         tester.test_list_allowed_players,
+        # Memory System tests - NEW
+        tester.test_create_memory_event,
+        tester.test_list_memory_events,
+        tester.test_resolve_memory_event,
+        tester.test_get_scene_memory,
+        tester.test_update_scene_memory,
+        tester.test_create_relationship,
+        tester.test_list_relationships,
+        tester.test_add_knowledge,
+        tester.test_add_gm_only_knowledge,
+        tester.test_list_knowledge,
+        tester.test_smart_context,
+        tester.test_extract_events_from_narrative,
+        tester.test_auto_summarize,
+        tester.test_update_scene_from_narrative,
+        tester.test_gm_message_driven_with_smart_context,
         # GM Engine tests - Campaign Generation Flow
         tester.test_gm_generate_campaign,
         tester.test_gm_generate_character_questions,
@@ -963,7 +1455,7 @@ def main():
             print(f"❌ {test.__name__} crashed: {str(e)}")
             failed_tests.append(test.__name__)
     
-    print("\n" + "=" * 50)
+    print("\n" + "=" * 60)
     print(f"📊 Test Results: {tester.tests_passed}/{tester.tests_run} passed")
     
     if failed_tests:

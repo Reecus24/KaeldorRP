@@ -615,6 +615,30 @@ async function handlePCEdit(interaction) {
             }
           }
           await trackCharacterChanges(campaign.id, text);
+
+          // Auto-extract structured memory events (async, non-blocking)
+          axios.post(`${API}/memory/extract-events`, {
+            campaign_id: campaign.id, narrative: result.response
+          }).catch(e => console.error('Memory extract error:', e.message));
+
+          // Auto-update scene memory from narrative (async, non-blocking)
+          axios.post(`${API}/memory/update-scene`, {
+            campaign_id: campaign.id, narrative: result.response
+          }).catch(e => console.error('Scene update error:', e.message));
+
+          // Auto-summarize every 15 events
+          axios.get(`${API}/events`, { params: { campaign_id: campaign.id, limit: 1 } })
+            .then(res => {
+              // Check event count periodically for auto-summarize
+              return axios.get(`${API}/memory/events`, { params: { campaign_id: campaign.id, limit: 100 } });
+            })
+            .then(res => {
+              if (res.data.length > 0 && res.data.length % 15 === 0) {
+                return axios.post(`${API}/memory/auto-summarize`, { campaign_id: campaign.id });
+              }
+            })
+            .catch(() => {});
+
           if (text.length <= 2000) {
             await message.reply({ content: text, allowedMentions: { repliedUser: false } });
           } else {

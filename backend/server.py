@@ -255,6 +255,54 @@ class CharacterChangeRequest(BaseModel):
     changes: List[str]
     source: str = ""
 
+class MemoryEventCreate(BaseModel):
+    campaign_id: str
+    event_type: str  # injury, item_lost, item_gained, clue, faction_change, trust_change, oath, debt, damage, secret, relationship, threat, status
+    subject: str
+    detail: str
+    visibility: str = "public"  # gm_only, character_specific, public
+    related_pc: str = ""
+    related_npc: str = ""
+
+class SceneMemoryUpdate(BaseModel):
+    campaign_id: str
+    location: str = ""
+    summary: str = ""
+    present_pcs: List[str] = []
+    present_npcs: List[str] = []
+    immediate_danger: str = ""
+    tension_level: int = 1
+    current_objectives: List[str] = []
+    unresolved_actions: List[str] = []
+    atmosphere: str = ""
+    time_of_day: str = ""
+
+class RelationshipCreate(BaseModel):
+    campaign_id: str
+    entity_a: str
+    entity_a_type: str = "pc"  # pc, npc, faction
+    entity_b: str
+    entity_b_type: str = "npc"
+    relationship_type: str = "neutral"  # trust, hostility, debt, oath, family, rivalry, alliance
+    value: int = 0  # -100 to 100
+    notes: str = ""
+
+class KnowledgeCreate(BaseModel):
+    campaign_id: str
+    content: str
+    visibility: str = "public"  # gm_only, character_specific, public
+    character_specific_to: str = ""
+    category: str = ""  # clue, secret, lore, discovery
+    source: str = ""
+
+class SmartContextRequest(BaseModel):
+    campaign_id: str
+    player_discord_id: str = ""
+    current_message: str = ""
+
+class AutoSummarizeRequest(BaseModel):
+    campaign_id: str
+
 # ── Helper ──
 
 def now_iso():
@@ -262,6 +310,100 @@ def now_iso():
 
 def new_id():
     return str(uuid.uuid4())
+
+async def build_smart_context(campaign_id: str, player_discord_id: str = ""):
+    """Build focused context for GM instead of raw chat history."""
+    campaign = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
+    if not campaign:
+        return None
+
+    # Scene memory (short-term)
+    scene_mem = await db.scene_memory.find_one({"campaign_id": campaign_id, "is_active": True}, {"_id": 0})
+
+    # Active PCs
+    pcs = await db.player_characters.find({"campaign_id": campaign_id, "status": "active"}, {"_id": 0}).to_list(10)
+    active_pc = next((p for p in pcs if p.get("discord_user_id") == player_discord_id), None) if player_discord_id else None
+
+    # NPCs present in scene, or all if no scene memory
+    present_npc_names = scene_mem.get("present_npcs", []) if scene_mem else []
+    if present_npc_names:
+        npcs = await db.npcs.find({"campaign_id": campaign_id, "name": {"$in": present_npc_names}}, {"_id": 0}).to_list(20)
+    else:
+        npcs = await db.npcs.find({"campaign_id": campaign_id}, {"_id": 0}).to_list(20)
+
+    # Active scene from scenes collection (fallback if no scene_memory)
+    scene = await db.scenes.find_one({"campaign_id": campaign_id, "is_active": True}, {"_id": 0}) if not scene_mem else None
+
+    # Recent structured memory events (unresolved first, then recent)
+    unresolved = await db.memory_events.find(
+        {"campaign_id": campaign_id, "resolved": False}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(25)
+
+    recent_events = await db.events.find(
+        {"campaign_id": campaign_id}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(10)
+
+    # Relationships involving PCs
+    pc_names = [p.get("character_name", "") for p in pcs]
+    relationships = await db.relationship_map.find(
+        {"campaign_id": campaign_id, "$or": [{"entity_a": {"$in": pc_names}}, {"entity_b": {"$in": pc_names}}]}, {"_id": 0}
+    ).to_list(50) if pc_names else []
+
+    # Location-specific lore
+    loc = (scene_mem or {}).get("location", "") or (scene or {}).get("location", "")
+    lore = []
+    if loc:
+        lore = await db.lore_entries.find(
+            {"campaign_id": campaign_id, "$or": [
+                {"title": {"$regex": loc, "$options": "i"}},
+                {"content": {"$regex": loc, "$options": "i"}}
+            ]}, {"_id": 0}
+        ).to_list(5)
+
+    # GM-only knowledge
+    gm_knowledge = await db.knowledge_store.find(
+        {"campaign_id": campaign_id, "visibility": "gm_only"}, {"_id": 0}
+    ).to_list(20)
+
+    # Public knowledge
+    public_knowledge = await db.knowledge_store.find(
+        {"campaign_id": campaign_id, "visibility": "public"}, {"_id": 0}
+    ).to_list(15)
+
+    # Character-specific knowledge for active PC
+    pc_knowledge = []
+    if active_pc:
+        pc_knowledge = await db.knowledge_store.find(
+            {"campaign_id": campaign_id, "visibility": "character_specific", "character_specific_to": active_pc.get("character_name", "")}, {"_id": 0}
+        ).to_list(10)
+
+    # Recent scene summaries (last 3)
+    summaries = await db.recaps.find(
+        {"campaign_id": campaign_id}, {"_id": 0}
+    ).sort("created_at", -1).to_list(3)
+
+    # Minimal recent chat for immediate conversational flow
+    chat = await db.chat_history.find(
+        {"campaign_id": campaign_id}, {"_id": 0}
+    ).sort("timestamp", -1).to_list(6)
+
+    return {
+        "campaign": campaign,
+        "scene_memory": scene_mem,
+        "scene": scene,
+        "pcs": pcs,
+        "active_pc": active_pc,
+        "npcs": npcs,
+        "unresolved_events": unresolved,
+        "recent_events": recent_events[::-1],
+        "relationships": relationships,
+        "lore": lore,
+        "gm_knowledge": gm_knowledge,
+        "public_knowledge": public_knowledge,
+        "pc_knowledge": pc_knowledge,
+        "summaries": summaries[::-1],
+        "recent_chat": chat[::-1],
+    }
 
 # ── Campaign Routes ──
 
@@ -699,15 +841,15 @@ async def gm_message_driven(data: MessageDrivenRequest):
     campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
     if not campaign:
         raise HTTPException(404, "Campaign not found")
-    scene = await db.scenes.find_one({"campaign_id": data.campaign_id, "is_active": True}, {"_id": 0})
-    npcs = await db.npcs.find({"campaign_id": data.campaign_id}, {"_id": 0}).to_list(100)
-    events = await db.events.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(20)
-    pcs = await db.player_characters.find({"campaign_id": data.campaign_id, "status": "active"}, {"_id": 0}).to_list(10)
-    active_pc = await db.player_characters.find_one({"campaign_id": data.campaign_id, "discord_user_id": data.player_discord_id, "status": "active"}, {"_id": 0})
-    history = await db.chat_history.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(20)
-    response = await gm.message_driven_response(campaign, scene, npcs, events[::-1], pcs, data.player_message, active_pc, history[::-1])
+    # Build smart context (structured memory retrieval)
+    smart_ctx = await build_smart_context(data.campaign_id, data.player_discord_id)
+    response = await gm.message_driven_response(
+        campaign, None, [], [], smart_ctx.get("pcs", []),
+        data.player_message, smart_ctx.get("active_pc"), [],
+        smart_ctx=smart_ctx
+    )
     ts = now_iso()
-    pc_name = active_pc.get('character_name', '?') if active_pc else data.player_discord_id
+    pc_name = (smart_ctx.get("active_pc") or {}).get('character_name', data.player_discord_id)
     await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "user", "content": f"[{pc_name}] {data.player_message}", "timestamp": ts})
     if response:
         await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "assistant", "content": response, "timestamp": ts})
@@ -755,6 +897,163 @@ async def gm_generate_opening_scene(data: OpeningSceneRequest):
     return {"scene": scene_text}
 
 # ── Character Change Tracking ──
+
+# ── Memory System Routes ──
+
+@api_router.post("/memory/events")
+async def create_memory_event(data: MemoryEventCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["timestamp"] = now_iso()
+    doc["resolved"] = False
+    await db.memory_events.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/memory/events")
+async def list_memory_events(campaign_id: str = Query(...), event_type: str = None, resolved: bool = None, limit: int = 50):
+    q = {"campaign_id": campaign_id}
+    if event_type: q["event_type"] = event_type
+    if resolved is not None: q["resolved"] = resolved
+    return await db.memory_events.find(q, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+
+@api_router.put("/memory/events/{event_id}/resolve")
+async def resolve_memory_event(event_id: str):
+    await db.memory_events.update_one({"id": event_id}, {"$set": {"resolved": True, "resolved_at": now_iso()}})
+    return await db.memory_events.find_one({"id": event_id}, {"_id": 0})
+
+@api_router.get("/memory/scene-state")
+async def get_scene_memory(campaign_id: str = Query(...)):
+    mem = await db.scene_memory.find_one({"campaign_id": campaign_id, "is_active": True}, {"_id": 0})
+    return mem or {"campaign_id": campaign_id, "is_active": False}
+
+@api_router.put("/memory/scene-state")
+async def update_scene_memory(data: SceneMemoryUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v}
+    update["updated_at"] = now_iso()
+    update["is_active"] = True
+    existing = await db.scene_memory.find_one({"campaign_id": data.campaign_id, "is_active": True})
+    if existing:
+        await db.scene_memory.update_one({"campaign_id": data.campaign_id, "is_active": True}, {"$set": update})
+    else:
+        update["id"] = new_id()
+        update["campaign_id"] = data.campaign_id
+        update["created_at"] = now_iso()
+        await db.scene_memory.insert_one(update)
+    return await db.scene_memory.find_one({"campaign_id": data.campaign_id, "is_active": True}, {"_id": 0})
+
+@api_router.post("/memory/relationships")
+async def upsert_relationship(data: RelationshipCreate):
+    existing = await db.relationship_map.find_one({
+        "campaign_id": data.campaign_id,
+        "$or": [
+            {"entity_a": data.entity_a, "entity_b": data.entity_b},
+            {"entity_a": data.entity_b, "entity_b": data.entity_a}
+        ]
+    })
+    doc = data.model_dump()
+    if existing:
+        doc["updated_at"] = now_iso()
+        await db.relationship_map.update_one({"_id": existing["_id"]}, {"$set": doc})
+        return await db.relationship_map.find_one({"_id": existing["_id"]}, {"_id": 0})
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.relationship_map.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/memory/relationships")
+async def list_relationships(campaign_id: str = Query(...), entity: str = None):
+    q = {"campaign_id": campaign_id}
+    if entity: q["$or"] = [{"entity_a": entity}, {"entity_b": entity}]
+    return await db.relationship_map.find(q, {"_id": 0}).to_list(100)
+
+@api_router.post("/memory/knowledge")
+async def add_knowledge(data: KnowledgeCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.knowledge_store.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.get("/memory/knowledge")
+async def list_knowledge(campaign_id: str = Query(...), visibility: str = None, category: str = None):
+    q = {"campaign_id": campaign_id}
+    if visibility: q["visibility"] = visibility
+    if category: q["category"] = category
+    return await db.knowledge_store.find(q, {"_id": 0}).to_list(100)
+
+@api_router.post("/memory/smart-context")
+async def get_smart_context(data: SmartContextRequest):
+    ctx = await build_smart_context(data.campaign_id, data.player_discord_id)
+    if not ctx:
+        raise HTTPException(404, "Campaign not found")
+    formatted = gm.format_smart_context(ctx)
+    return {"context": formatted, "stats": {
+        "pcs": len(ctx["pcs"]), "npcs": len(ctx["npcs"]),
+        "unresolved_events": len(ctx["unresolved_events"]),
+        "relationships": len(ctx["relationships"]),
+        "knowledge_entries": len(ctx["gm_knowledge"]) + len(ctx["public_knowledge"]),
+        "summaries": len(ctx["summaries"])
+    }}
+
+@api_router.post("/memory/extract-events")
+async def extract_events_from_narrative(campaign_id: str = "", narrative: str = "", body: dict = None):
+    if body:
+        campaign_id = body.get("campaign_id", campaign_id)
+        narrative = body.get("narrative", narrative)
+    if not narrative:
+        raise HTTPException(400, "narrative required")
+    extracted = await gm.extract_memory_events(narrative, campaign_id)
+    stored = []
+    for ev in extracted:
+        doc = {
+            "id": new_id(), "campaign_id": campaign_id,
+            "event_type": ev.get("type", "status"), "subject": ev.get("subject", ""),
+            "detail": ev.get("detail", ""), "visibility": ev.get("visibility", "public"),
+            "resolved": False, "timestamp": now_iso()
+        }
+        await db.memory_events.insert_one(doc)
+        doc.pop("_id", None)
+        stored.append(doc)
+    return {"extracted": len(stored), "events": stored}
+
+@api_router.post("/memory/auto-summarize")
+async def auto_summarize(data: AutoSummarizeRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    events = await db.memory_events.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(30)
+    pcs = await db.player_characters.find({"campaign_id": data.campaign_id, "status": "active"}, {"_id": 0}).to_list(10)
+    if not events:
+        return {"summary": "Keine Ereignisse zum Zusammenfassen."}
+    result = await gm.auto_summarize_scene(campaign, events[::-1], pcs)
+    doc = {"id": new_id(), "campaign_id": data.campaign_id, "summary": result.get("summary", str(result)), "structured": result, "created_at": now_iso()}
+    await db.recaps.insert_one(doc)
+    doc.pop("_id", None)
+    return {"recap": doc, "structured": result}
+
+@api_router.post("/memory/update-scene")
+async def update_scene_from_narrative(campaign_id: str = "", narrative: str = "", body: dict = None):
+    if body:
+        campaign_id = body.get("campaign_id", campaign_id)
+        narrative = body.get("narrative", narrative)
+    scene_mem = await db.scene_memory.find_one({"campaign_id": campaign_id, "is_active": True}, {"_id": 0})
+    updates = await gm.suggest_scene_update(narrative, scene_mem)
+    if updates:
+        updates["updated_at"] = now_iso()
+        updates["is_active"] = True
+        if scene_mem:
+            await db.scene_memory.update_one({"campaign_id": campaign_id, "is_active": True}, {"$set": updates})
+        else:
+            updates["id"] = new_id()
+            updates["campaign_id"] = campaign_id
+            updates["created_at"] = now_iso()
+            await db.scene_memory.insert_one(updates)
+    return await db.scene_memory.find_one({"campaign_id": campaign_id, "is_active": True}, {"_id": 0}) or {}
+
+# ── Character Change Tracking (legacy) ──
 
 @api_router.post("/character-changes")
 async def track_character_changes(data: CharacterChangeRequest):

@@ -72,56 +72,207 @@ class GameMasterEngine:
             if p.get(k): b += f"    {l}: {p[k]}\n"
         return b
 
-    # ── Message-Driven Response ──
+    # ── Smart Memory Context ──
 
-    async def message_driven_response(self, campaign, scene, npcs, events, pcs, msg, active_pc, history):
+    def format_smart_context(self, ctx):
+        """Format the smart context dict into a focused prompt section."""
+        c = ctx.get("campaign", {})
+        parts = [f"KAMPAGNE: {c.get('name','?')}\nWELT: {c.get('world_summary','')}"]
+
+        # Scene memory (short-term state)
+        sm = ctx.get("scene_memory") or ctx.get("scene")
+        if sm:
+            parts.append(f"\nAKTUELLE SZENE:\n  Ort: {sm.get('location','?')}\n  Atmosphäre: {sm.get('atmosphere', sm.get('description',''))}\n  Zeit: {sm.get('time_of_day','?')}\n  Spannung: {sm.get('tension_level',1)}/10")
+            if sm.get('immediate_danger'): parts.append(f"  Unmittelbare Gefahr: {sm['immediate_danger']}")
+            if sm.get('current_objectives'): parts.append(f"  Aktuelle Ziele: {', '.join(sm['current_objectives'])}")
+            if sm.get('unresolved_actions'): parts.append(f"  Offene Aktionen: {', '.join(sm['unresolved_actions'])}")
+            if sm.get('present_npcs'): parts.append(f"  Anwesende NPCs: {', '.join(sm['present_npcs'])}")
+            if sm.get('active_threats'): parts.append(f"  Bedrohungen: {', '.join(sm['active_threats'])}")
+
+        # Player characters
+        pcs = ctx.get("pcs", [])
+        if pcs:
+            parts.append("\nSPIELERCHARAKTERE:")
+            for p in pcs:
+                parts.append(self._pc_block(p))
+
+        # NPCs with relationships
+        npcs = ctx.get("npcs", [])
+        rels = ctx.get("relationships", [])
+        if npcs:
+            parts.append("\nANWESENDE / RELEVANTE NPCs:")
+            for n in npcs[:10]:
+                line = f"  {n['name']} ({n.get('role','?')}, {n.get('faction','-')}): {n.get('personality_traits','')}. Motivation: {n.get('motivation','?')}. Status: {n.get('status','lebendig')}. Vertrauen: {n.get('trust_level',0)}"
+                # Add relationship info
+                npc_rels = [r for r in rels if r.get('entity_a') == n['name'] or r.get('entity_b') == n['name']]
+                if npc_rels:
+                    rel_notes = "; ".join([f"{r.get('relationship_type','?')}({r.get('value',0)}) mit {r.get('entity_b') if r.get('entity_a')==n['name'] else r.get('entity_a')}: {r.get('notes','')}" for r in npc_rels[:3]])
+                    line += f"\n    Beziehungen: {rel_notes}"
+                parts.append(line)
+
+        # Unresolved events (persistent memory)
+        unresolved = ctx.get("unresolved_events", [])
+        if unresolved:
+            parts.append("\nUNGELÖSTE EREIGNISSE & KONSEQUENZEN:")
+            for e in unresolved[:20]:
+                vis = "[GEHEIM] " if e.get('visibility') == 'gm_only' else ""
+                parts.append(f"  - {vis}[{e.get('event_type','?')}] {e.get('subject','')}: {e.get('detail','')}")
+
+        # GM knowledge (hidden)
+        gm_k = ctx.get("gm_knowledge", [])
+        if gm_k:
+            parts.append("\n[NUR FÜR DEN SPIELLEITER - NICHT OFFENBAREN OHNE GRUND]:")
+            for k in gm_k[:10]:
+                parts.append(f"  - [{k.get('category','?')}] {k.get('content','')}")
+
+        # Public + PC-specific knowledge
+        pub_k = ctx.get("public_knowledge", [])
+        pc_k = ctx.get("pc_knowledge", [])
+        if pub_k or pc_k:
+            parts.append("\nBEKANNTES WISSEN:")
+            for k in (pub_k + pc_k)[:10]:
+                parts.append(f"  - {k.get('content','')}")
+
+        # Location lore
+        lore = ctx.get("lore", [])
+        if lore:
+            parts.append("\nORTSBEZOGENES WISSEN:")
+            for l in lore[:3]:
+                parts.append(f"  - {l.get('title','')}: {l.get('content','')[:150]}")
+
+        # Recent summaries (long-term memory)
+        sums = ctx.get("summaries", [])
+        if sums:
+            parts.append("\nLETZTE SITZUNGSZUSAMMENFASSUNGEN:")
+            for s in sums:
+                parts.append(f"  [{s.get('created_at','')}] {s.get('summary','')[:200]}")
+
+        # Recent events (medium-term)
+        rev = ctx.get("recent_events", [])
+        if rev:
+            parts.append("\nJÜNGSTE EREIGNISSE:")
+            for e in rev[-10:]:
+                parts.append(f"  - [{e.get('event_type','?')}] {e.get('summary','')}")
+
+        # PC-PC relationships
+        pc_names = [p.get('character_name','') for p in pcs]
+        pc_rels = [r for r in rels if r.get('entity_a') in pc_names and r.get('entity_b') in pc_names]
+        if pc_rels:
+            parts.append("\nBEZIEHUNGEN ZWISCHEN SPIELERCHARAKTEREN:")
+            for r in pc_rels:
+                parts.append(f"  {r.get('entity_a','')} ↔ {r.get('entity_b','')}: {r.get('relationship_type','')}, {r.get('notes','')}")
+
+        return "\n".join(parts)
+
+    # ── Memory Event Extraction ──
+
+    async def extract_memory_events(self, narrative, campaign_name=""):
+        """Extract structured memory events from a GM narrative."""
+        system = f"""Analysiere diese Spielleiter-Erzählung und extrahiere wichtige Zustandsänderungen als strukturierte Ereignisse.
+Antworte NUR mit einem JSON-Array. Jedes Ereignis:
+{{"type":"injury|item_lost|item_gained|clue|faction_change|trust_change|oath|debt|damage|secret|relationship|threat|status","subject":"Wer/Was betroffen","detail":"Was genau passiert ist","visibility":"public|gm_only"}}
+Typen: injury=Verletzung, item_lost=Gegenstand verloren, item_gained=Gegenstand erhalten, clue=Hinweis entdeckt, faction_change=Fraktionsänderung, trust_change=Vertrauensänderung, oath=Eid/Versprechen, debt=Schuld, damage=Ortsschaden, secret=Geheimnis offenbart, relationship=Beziehungsänderung, threat=Bedrohungseskalation, status=Statusänderung
+Wenn keine wichtigen Änderungen: antworte []"""
+        chat = self._chat("mem", system)
+        resp = await chat.send_message(UserMessage(text=f"Erzählung:\n{narrative}"))
+        try:
+            return json.loads(resp)
+        except Exception:
+            m = re.search(r'\[[\s\S]*\]', resp)
+            if m:
+                try: return json.loads(m.group())
+                except Exception: pass
+            return []
+
+    # ── Auto Scene Summarization ──
+
+    async def auto_summarize_scene(self, campaign, events, pcs=None):
+        """Generate structured scene summary for long-term memory."""
+        pc_info = ", ".join([p.get('character_name','?') for p in (pcs or [])])
+        events_text = "\n".join([f"- [{e.get('event_type','?')}] {e.get('subject','')}: {e.get('detail', e.get('summary',''))}" for e in events[-30:]])
+        system = f"""{GERMAN}
+Erstelle eine strukturierte Szenenzusammenfassung für das Langzeitgedächtnis.
+Kampagne: {campaign.get('name','')}. Charaktere: {pc_info}.
+Antworte als JSON:
+{{"summary":"Zusammenfassung der Szene (3-5 Sätze)","key_consequences":["Konsequenz 1","Konsequenz 2"],"pc_changes":["Charakteränderung 1"],"npc_changes":["NPC-Änderung 1"],"world_changes":["Weltänderung 1"],"unresolved_hooks":["Offener Faden 1"],"mood":"Stimmung der Szene in einem Wort"}}"""
+        chat = self._chat("sum", system)
+        resp = await chat.send_message(UserMessage(text=f"Ereignisse:\n{events_text}"))
+        try:
+            return json.loads(resp)
+        except Exception:
+            m = re.search(r'\{[\s\S]*\}', resp)
+            if m:
+                try: return json.loads(m.group())
+                except Exception: pass
+            return {"summary": resp[:300]}
+
+    # ── Update Scene Memory ──
+
+    async def suggest_scene_update(self, narrative, current_scene):
+        """Suggest updates to scene memory based on the latest narrative."""
+        current = json.dumps(current_scene or {}, ensure_ascii=False)[:500]
+        system = f"""Analysiere die Erzählung und schlage Aktualisierungen für den Szenenzustand vor.
+Aktueller Zustand: {current}
+Antworte als JSON mit nur den Feldern die sich geändert haben:
+{{"location":"","summary":"","present_npcs":[],"immediate_danger":"","tension_level":0,"atmosphere":"","time_of_day":""}}
+Leere Felder weglassen. Nur geänderte Werte."""
+        chat = self._chat("scn", system)
+        resp = await chat.send_message(UserMessage(text=f"Erzählung:\n{narrative[:1500]}"))
+        try:
+            return json.loads(resp)
+        except Exception:
+            m = re.search(r'\{[\s\S]*\}', resp)
+            if m:
+                try: return json.loads(m.group())
+                except Exception: pass
+            return {}
+
+    # ── Message-Driven Response (with Smart Memory) ──
+
+    async def message_driven_response(self, campaign, scene, npcs, events, pcs, msg, active_pc, history, smart_ctx=None):
         tone = campaign.get('tone', 'realistic')
         pre_roll = random.randint(1, 20)
         pc_detail = self._pc_block(active_pc) if active_pc else ""
         pc_name = active_pc.get('character_name', '?') if active_pc else 'Unbekannt'
 
+        # Use smart context if available, otherwise fall back to basic context
+        if smart_ctx:
+            world_context = self.format_smart_context(smart_ctx)
+        else:
+            world_context = self._ctx(campaign, scene, npcs, events, pcs)
+
         system = f"""Du bist der Spielleiter einer privaten Tabletop-Rollenspiel-Sitzung.
 {GERMAN}
 {self._rules()}
 {self._tone(tone)}
-{self._ctx(campaign, scene, npcs, events, pcs)}
+
+{world_context}
 
 DER HANDELNDE CHARAKTER:
 {pc_detail}
 
+GEDÄCHTNIS-ANWEISUNGEN:
+- Du ERINNERST dich an alle oben aufgeführten Ereignisse, Verletzungen, Schulden, Versprechen und Beziehungen.
+- Referenziere vergangene Ereignisse wenn sie für die aktuelle Situation relevant sind.
+- NPCs erinnern sich an frühere Interaktionen und reagieren entsprechend.
+- Verletzungen beeinflussen Handlungsfähigkeit. Verlorene Gegenstände sind weg. Versprechen werden erwartet.
+- Offenbare GEHEIMES WISSEN nur wenn es fiktional angemessen entdeckt wird.
+- Beziehungswerte beeinflussen NPC-Verhalten: negativ=misstrauisch/feindlich, positiv=hilfsbereit/loyal.
+
 REAKTIONSLOGIK:
-Du erhältst eine Spielernachricht aus dem IC-Kanal. Entscheide ob eine Spielleiter-Reaktion angemessen ist.
-
-Antworte NUR wenn die Nachricht:
-- Eine Handlung mit unsicherem Ausgang beschreibt
-- Eine Weltreaktion auslöst (Umgebung, Geräusche, Wetter, Gerüche)
-- Eine NPC-Reaktion erfordert
-- Gefahr, Spannung oder Eskalation erzeugt
-- Einen Szenenwechsel bewirkt
-- Eine Regelauflösung erfordert (Kampf, Überzeugung, Heimlichkeit)
-- Wichtige Konsequenzen offenbart
-- Eine dramatische Situation schafft
-
-Antworte NICHT wenn:
-- Nur innerer Monolog ohne Handlung
-- Einfache Beschreibung ohne Konsequenz
-- Keine fiktional sinnvolle Weltreaktion angemessen
-- Der Spieler nur Position beschreibt ohne zu handeln
-
-Wenn KEINE Antwort nötig: antworte exakt [KEINE_ANTWORT]
+Antworte NUR wenn die Nachricht eine fiktional sinnvolle Weltreaktion erfordert.
+Wenn KEINE Antwort nötig: [KEINE_ANTWORT]
 
 Wenn Antwort nötig:
-- Erzähle Weltreaktion, Konsequenzen, NPC-Verhalten oder Szenenveränderung
-- Bei unsicherem Ausgang: verwende den vorgewürfelten Wert {pre_roll} (1W20) und erzähle das Ergebnis narrativ
-- Zeige sichtbare Würfelergebnisse so: [Wurf: 1W20 = {pre_roll}]
-- 1-4 Absätze, lebendig aber prägnant
-- Ende mit offener Situation
-- Wenn der Charakter einen wichtigen neuen Ort betritt, markiere: [NEUER_ORT: Ortsname]
-- Wenn sich der Zustand eines Charakters ändert (Verletzung, Inventar, Ruf, Beziehung, Wissen), markiere: [ÄNDERUNG: Charakter - Was sich geändert hat]
-  Beispiele: [ÄNDERUNG: Erik - Verletzung: Schnittwunde am Arm], [ÄNDERUNG: Maria - Inventar: Schwert verloren], [ÄNDERUNG: Erik - Ruf: Von den Wachen als Verdächtiger notiert]"""
+- 1-4 Absätze, lebendig, prägnant, konsequent
+- Bei unsicherem Ausgang: verwende Vorwurf {pre_roll} (1W20), erzähle narrativ
+- Zeige: [Wurf: 1W20 = {pre_roll}]
+- Bei Ortswechsel: [NEUER_ORT: Ortsname]
+- Bei Zustandsänderung: [ÄNDERUNG: Charakter - Was]"""
 
         hist = ""
-        for m in history[-12:]:
+        chat_msgs = (smart_ctx or {}).get("recent_chat", history[-6:]) if smart_ctx else history[-6:]
+        for m in chat_msgs:
             pf = pc_name if m.get('role') == 'user' else "SPIELLEITER"
             hist += f"{pf}: {m.get('content','')}\n\n"
         prompt = f"{hist}{pc_name}: {msg}" if hist else f"{pc_name}: {msg}"
