@@ -9,14 +9,33 @@ const API = process.env.API_URL || 'http://localhost:8001/api';
 
 if (!TOKEN || !CLIENT_ID) { console.error('Missing DISCORD_BOT_TOKEN or DISCORD_CLIENT_ID'); process.exit(1); }
 
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
-});
+// Try to connect with MessageContent intent first, fallback to without
+let HAS_MESSAGE_CONTENT = true;
 
-// MessageContent intent requires manual enable in Discord Developer Portal:
-// https://discord.com/developers/applications -> Bot -> Privileged Gateway Intents -> Message Content Intent
-// The bot will still work for slash commands without it, but message-driven RP requires it.
-const HAS_MESSAGE_CONTENT = true;
+async function startBot() {
+  try {
+    const fullClient = new Client({
+      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+    });
+    await fullClient.login(TOKEN);
+    console.log('MessageContent intent available - message-driven RP active');
+    return fullClient;
+  } catch (err) {
+    if (err.message?.includes('disallowed intents') || err.code === 4014) {
+      console.log('MessageContent intent not enabled - falling back to slash commands only');
+      console.log('Enable it at: https://discord.com/developers/applications -> Bot -> Privileged Gateway Intents');
+      HAS_MESSAGE_CONTENT = false;
+      const basicClient = new Client({
+        intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+      });
+      await basicClient.login(TOKEN);
+      return basicClient;
+    }
+    throw err;
+  }
+}
+
+let client;
 
 // ── Character Creation State ──
 const creationSessions = new Map(); // channelId -> session
@@ -144,75 +163,6 @@ async function trackCharacterChanges(campaignId, response) {
   }
   return changes;
 }
-
-// ── Message Handler ──
-client.on('messageCreate', async message => {
-  if (message.author.bot || !message.guild) return;
-  if (GUILD_ID && message.guildId !== GUILD_ID) return;
-  const content = message.content || '';
-  if (!content) return;
-
-  // Check character creation mode FIRST
-  const session = creationSessions.get(message.channelId);
-  if (session && session.phase !== 'done') {
-    await handleCreationMessage(message, session);
-    return;
-  }
-
-  // Normal IC message handling
-  try {
-    const campaign = await getActiveCampaign().catch(() => null);
-    if (!campaign) return;
-
-    const { data: channels } = await axios.get(`${API}/channels`, { params: { campaign_id: campaign.id } });
-    const chCfg = channels.find(c => c.channel_id === message.channelId);
-    if (!chCfg || chCfg.mode !== 'ic') return;
-
-    const { data: allowed } = await axios.get(`${API}/allowed-players`, { params: { campaign_id: campaign.id } });
-    if (!allowed.some(p => p.discord_user_id === message.author.id)) return;
-
-    if (isOOC(message.content) || message.content.trim().length < 3) return;
-
-    await message.channel.sendTyping();
-    const { data: result } = await axios.post(`${API}/gm/message-driven`, {
-      campaign_id: campaign.id,
-      player_discord_id: message.author.id,
-      player_message: message.content,
-      channel_id: message.channelId
-    });
-
-    if (result.response) {
-      let text = result.response;
-      // Check for location markers and auto-create channels
-      const locMatch = text.match(/\[NEUER_ORT:\s*(.+?)\]/);
-      if (locMatch) {
-        const locName = locMatch[1];
-        text = text.replace(/\[NEUER_ORT:\s*.+?\]/g, '').trim();
-        const newCh = await handleLocationChange(message, campaign.id, locName);
-        if (newCh) {
-          await message.channel.send(`*Die Szene wechselt nach **${locName}**... Weiter in <#${newCh.id}>*`);
-          // Post the GM narration in the new channel instead
-          if (text.length <= 2000) {
-            await newCh.send(text);
-          } else {
-            await newCh.send({ embeds: [embed('Spielleiter', text)] });
-          }
-          return;
-        }
-      }
-      // Track character changes from GM response
-      await trackCharacterChanges(campaign.id, text);
-
-      if (text.length <= 2000) {
-        await message.reply({ content: text, allowedMentions: { repliedUser: false } });
-      } else {
-        await message.reply({ embeds: [embed('Spielleiter', text)], allowedMentions: { repliedUser: false } });
-      }
-    }
-  } catch (err) {
-    if (err.response?.status !== 404) console.error('Message handler error:', err.message);
-  }
-});
 
 // ── Character Creation Flow ──
 async function handleCreationMessage(message, session) {
@@ -575,45 +525,112 @@ async function handlePCEdit(interaction) {
   } catch (err) { await interaction.editReply(`**Fehler:** ${err.message}`); }
 }
 
-// ── Event Handlers ──
-client.once('ready', async () => {
-  console.log(`Bot online als ${client.user.tag}`);
+// ── Start Bot ──
+(async () => {
   try {
-    const rest = new REST().setToken(TOKEN);
-    const body = commands.map(c => c.toJSON());
-    if (GUILD_ID) {
-      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body });
-      console.log(`${body.length} Guild-Befehle registriert`);
-    } else {
-      await rest.put(Routes.applicationCommands(CLIENT_ID), { body });
-      console.log(`${body.length} globale Befehle registriert`);
-    }
-  } catch (err) { console.error('Befehlsregistrierung fehlgeschlagen:', err); }
-});
+    client = await startBot();
 
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-  if (GUILD_ID && interaction.guildId !== GUILD_ID) {
-    return interaction.reply({ content: 'Bot nicht für diesen Server konfiguriert.', ephemeral: true });
-  }
-  const h = {
-    campaign: handleCampaign, new_campaign: handleNewCampaign, scene: handleScene,
-    recap: handleRecap, rules: handleRules, set_tone: handleSetTone,
-    reset_session: handleResetSession, set_channel_mode: handleSetChannelMode,
-    pc_create: handlePCCreate, pc_view: handlePCView, pc_edit: handlePCEdit,
-    start_character_creation: handleStartCharCreation,
-  };
-  const handler = h[interaction.commandName];
-  if (handler) {
-    try { await handler(interaction); }
-    catch (err) {
-      console.error(`Fehler /${interaction.commandName}:`, err);
-      const fn = interaction.deferred || interaction.replied ? interaction.editReply.bind(interaction) : interaction.reply.bind(interaction);
-      await fn({ content: 'Ein Fehler ist aufgetreten.', ephemeral: true }).catch(() => {});
-    }
-  }
-});
+    client.once('ready', async () => {
+      console.log(`Bot online als ${client.user.tag}`);
+      try {
+        const rest = new REST().setToken(TOKEN);
+        const body = commands.map(c => c.toJSON());
+        if (GUILD_ID) {
+          await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body });
+          console.log(`${body.length} Guild-Befehle registriert`);
+        } else {
+          await rest.put(Routes.applicationCommands(CLIENT_ID), { body });
+          console.log(`${body.length} globale Befehle registriert`);
+        }
+      } catch (err) { console.error('Befehlsregistrierung fehlgeschlagen:', err); }
+    });
 
-client.on('error', err => console.error('Client error:', err));
+    client.on('interactionCreate', async interaction => {
+      if (!interaction.isChatInputCommand()) return;
+      if (GUILD_ID && interaction.guildId !== GUILD_ID) {
+        return interaction.reply({ content: 'Bot nicht für diesen Server konfiguriert.', ephemeral: true });
+      }
+      const h = {
+        campaign: handleCampaign, new_campaign: handleNewCampaign, scene: handleScene,
+        recap: handleRecap, rules: handleRules, set_tone: handleSetTone,
+        reset_session: handleResetSession, set_channel_mode: handleSetChannelMode,
+        pc_create: handlePCCreate, pc_view: handlePCView, pc_edit: handlePCEdit,
+        start_character_creation: handleStartCharCreation,
+      };
+      const handler = h[interaction.commandName];
+      if (handler) {
+        try { await handler(interaction); }
+        catch (err) {
+          console.error(`Fehler /${interaction.commandName}:`, err);
+          const fn = interaction.deferred || interaction.replied ? interaction.editReply.bind(interaction) : interaction.reply.bind(interaction);
+          await fn({ content: 'Ein Fehler ist aufgetreten.', ephemeral: true }).catch(() => {});
+        }
+      }
+    });
+
+    // Message handler - only works with MessageContent intent
+    client.on('messageCreate', async message => {
+      if (message.author.bot || !message.guild) return;
+      if (GUILD_ID && message.guildId !== GUILD_ID) return;
+      const content = message.content || '';
+      if (!content) return;
+
+      // Check character creation mode FIRST
+      const session = creationSessions.get(message.channelId);
+      if (session && session.phase !== 'done') {
+        await handleCreationMessage(message, session);
+        return;
+      }
+
+      // Normal IC message handling
+      if (!HAS_MESSAGE_CONTENT) return;
+      try {
+        const campaign = await getActiveCampaign().catch(() => null);
+        if (!campaign) return;
+        const { data: channels } = await axios.get(`${API}/channels`, { params: { campaign_id: campaign.id } });
+        const chCfg = channels.find(c => c.channel_id === message.channelId);
+        if (!chCfg || chCfg.mode !== 'ic') return;
+        const { data: allowed } = await axios.get(`${API}/allowed-players`, { params: { campaign_id: campaign.id } });
+        if (!allowed.some(p => p.discord_user_id === message.author.id)) return;
+        if (isOOC(message.content) || message.content.trim().length < 3) return;
+
+        await message.channel.sendTyping();
+        const { data: result } = await axios.post(`${API}/gm/message-driven`, {
+          campaign_id: campaign.id, player_discord_id: message.author.id,
+          player_message: message.content, channel_id: message.channelId
+        });
+
+        if (result.response) {
+          let text = result.response;
+          const locMatch = text.match(/\[NEUER_ORT:\s*(.+?)\]/);
+          if (locMatch) {
+            const locName = locMatch[1];
+            text = text.replace(/\[NEUER_ORT:\s*.+?\]/g, '').trim();
+            const newCh = await handleLocationChange(message, campaign.id, locName);
+            if (newCh) {
+              await message.channel.send(`*Die Szene wechselt nach **${locName}**... Weiter in <#${newCh.id}>*`);
+              if (text.length <= 2000) { await newCh.send(text); }
+              else { await newCh.send({ embeds: [embed('Spielleiter', text)] }); }
+              return;
+            }
+          }
+          await trackCharacterChanges(campaign.id, text);
+          if (text.length <= 2000) {
+            await message.reply({ content: text, allowedMentions: { repliedUser: false } });
+          } else {
+            await message.reply({ embeds: [embed('Spielleiter', text)], allowedMentions: { repliedUser: false } });
+          }
+        }
+      } catch (err) {
+        if (err.response?.status !== 404) console.error('Message handler error:', err.message);
+      }
+    });
+
+    client.on('error', err => console.error('Client error:', err));
+  } catch (err) {
+    console.error('Bot startup failed:', err);
+    process.exit(1);
+  }
+})();
+
 process.on('unhandledRejection', err => console.error('Unhandled:', err));
-client.login(TOKEN);
