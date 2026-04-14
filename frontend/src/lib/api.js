@@ -69,4 +69,15 @@ export const importCampaign = (data) => api.post('/import', data);
 // Bot Status
 export const getBotStatus = () => api.get('/bot/status');
 
+// Player Characters
+export const getPlayerCharacters = (campaignId) => api.get('/player-characters', { params: { campaign_id: campaignId } });
+export const createPlayerCharacter = (data) => api.post('/player-characters', data);
+export const updatePlayerCharacter = (id, data) => api.put(`/player-characters/${id}`, data);
+export const deletePlayerCharacter = (id) => api.delete(`/player-characters/${id}`);
+
+// Allowed Players
+export const getAllowedPlayers = (campaignId) => api.get('/allowed-players', { params: { campaign_id: campaignId } });
+export const addAllowedPlayer = (data) => api.post('/allowed-players', data);
+export const removeAllowedPlayer = (id) => api.delete(`/allowed-players/${id}`);
+
 export default api;

@@ -5,6 +5,7 @@ import Sidebar from "@/components/Sidebar";
 import Dashboard from "@/pages/Dashboard";
 import CampaignManager from "@/pages/CampaignManager";
 import NPCManager from "@/pages/NPCManager";
+import PlayerCharacters from "@/pages/PlayerCharacters";
 import LoreManager from "@/pages/LoreManager";
 import RulesSettings from "@/pages/RulesSettings";
 import ChannelConfig from "@/pages/ChannelConfig";
@@ -53,6 +54,7 @@ function App() {
         <Route element={<Layout activeCampaign={activeCampaign} campaigns={campaigns} setActiveCampaign={setActiveCampaign} refreshCampaigns={refreshCampaigns} />}>
           <Route index element={<Dashboard />} />
           <Route path="/campaigns" element={<CampaignManager />} />
+          <Route path="/characters" element={<PlayerCharacters />} />
           <Route path="/npcs" element={<NPCManager />} />
           <Route path="/lore" element={<LoreManager />} />
           <Route path="/rules" element={<RulesSettings />} />

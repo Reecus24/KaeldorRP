@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, BookOpen, Shield, Radio, ScrollText, Swords, Settings, Download } from 'lucide-react';
+import { LayoutDashboard, Users, BookOpen, Shield, Radio, ScrollText, Swords, Settings, UserCircle } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/campaigns', icon: Swords, label: 'Campaigns' },
+  { to: '/characters', icon: UserCircle, label: 'Characters' },
   { to: '/npcs', icon: Users, label: 'NPCs' },
   { to: '/lore', icon: BookOpen, label: 'Lore' },
   { to: '/rules', icon: Shield, label: 'Rules & Tone' },

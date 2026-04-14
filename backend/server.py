@@ -169,6 +169,86 @@ class ResetSessionRequest(BaseModel):
 class RecapRequest(BaseModel):
     campaign_id: str
 
+class PlayerCharacterCreate(BaseModel):
+    campaign_id: str
+    discord_user_id: str = ""
+    character_name: str
+    status: str = "active"
+    short_description: str = ""
+    appearance: str = ""
+    personality_traits: str = ""
+    background: str = ""
+    goals: str = ""
+    fears: str = ""
+    strengths: str = ""
+    weaknesses: str = ""
+    skills: str = ""
+    injuries_conditions: str = ""
+    inventory: str = ""
+    faction_ties: str = ""
+    relationship_notes: str = ""
+    gm_secrets: str = ""
+    public_knowledge: str = ""
+    private_knowledge: str = ""
+    current_location: str = ""
+    reputation: str = ""
+    obligations_notes: str = ""
+
+class PlayerCharacterUpdate(BaseModel):
+    character_name: Optional[str] = None
+    discord_user_id: Optional[str] = None
+    status: Optional[str] = None
+    short_description: Optional[str] = None
+    appearance: Optional[str] = None
+    personality_traits: Optional[str] = None
+    background: Optional[str] = None
+    goals: Optional[str] = None
+    fears: Optional[str] = None
+    strengths: Optional[str] = None
+    weaknesses: Optional[str] = None
+    skills: Optional[str] = None
+    injuries_conditions: Optional[str] = None
+    inventory: Optional[str] = None
+    faction_ties: Optional[str] = None
+    relationship_notes: Optional[str] = None
+    gm_secrets: Optional[str] = None
+    public_knowledge: Optional[str] = None
+    private_knowledge: Optional[str] = None
+    current_location: Optional[str] = None
+    reputation: Optional[str] = None
+    obligations_notes: Optional[str] = None
+
+class AllowedPlayerCreate(BaseModel):
+    campaign_id: str
+    discord_user_id: str
+    discord_username: str = ""
+
+class MessageDrivenRequest(BaseModel):
+    campaign_id: str
+    player_discord_id: str
+    player_message: str
+    channel_id: str = ""
+
+class CampaignGenerateRequest(BaseModel):
+    prompt: str
+
+class CharacterQuestionsRequest(BaseModel):
+    campaign_id: str
+
+class ConfirmCharStepRequest(BaseModel):
+    campaign_id: str
+    field: str
+    answer: str
+    accumulated: dict = {}
+
+class RelationshipRequest(BaseModel):
+    campaign_id: str
+    pc1_data: dict
+    pc2_data: dict
+
+class OpeningSceneRequest(BaseModel):
+    campaign_id: str
+
 # ── Helper ──
 
 def now_iso():
@@ -221,7 +301,7 @@ async def update_campaign(campaign_id: str, data: CampaignUpdate):
 @api_router.delete("/campaigns/{campaign_id}")
 async def delete_campaign(campaign_id: str):
     await db.campaigns.delete_one({"id": campaign_id})
-    for col_name in ["npcs", "lore_entries", "scenes", "events", "recaps", "rules", "quests", "chat_history", "channel_configs"]:
+    for col_name in ["npcs", "lore_entries", "scenes", "events", "recaps", "rules", "quests", "chat_history", "channel_configs", "player_characters", "allowed_players"]:
         await db[col_name].delete_many({"campaign_id": campaign_id})
     return {"status": "deleted"}
 
@@ -549,13 +629,134 @@ async def gm_reset_session(data: ResetSessionRequest):
 
 # ── Export / Import ──
 
+# ── Player Character Routes ──
+
+@api_router.get("/player-characters")
+async def list_player_characters(campaign_id: str = Query(...)):
+    return await db.player_characters.find({"campaign_id": campaign_id}, {"_id": 0}).to_list(100)
+
+@api_router.get("/player-characters/active")
+async def get_active_pcs(campaign_id: str = Query(...)):
+    return await db.player_characters.find({"campaign_id": campaign_id, "status": "active"}, {"_id": 0}).to_list(20)
+
+@api_router.post("/player-characters")
+async def create_player_character(data: PlayerCharacterCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    doc["updated_at"] = now_iso()
+    await db.player_characters.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/player-characters/{pc_id}")
+async def update_player_character(pc_id: str, data: PlayerCharacterUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    update["updated_at"] = now_iso()
+    result = await db.player_characters.update_one({"id": pc_id}, {"$set": update})
+    if result.matched_count == 0:
+        raise HTTPException(404, "Player character not found")
+    return await db.player_characters.find_one({"id": pc_id}, {"_id": 0})
+
+@api_router.delete("/player-characters/{pc_id}")
+async def delete_player_character(pc_id: str):
+    await db.player_characters.delete_one({"id": pc_id})
+    return {"status": "deleted"}
+
+# ── Allowed Players Routes ──
+
+@api_router.get("/allowed-players")
+async def list_allowed_players(campaign_id: str = Query(...)):
+    return await db.allowed_players.find({"campaign_id": campaign_id}, {"_id": 0}).to_list(100)
+
+@api_router.post("/allowed-players")
+async def add_allowed_player(data: AllowedPlayerCreate):
+    existing = await db.allowed_players.find_one({"campaign_id": data.campaign_id, "discord_user_id": data.discord_user_id})
+    if existing:
+        return await db.allowed_players.find_one({"campaign_id": data.campaign_id, "discord_user_id": data.discord_user_id}, {"_id": 0})
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.allowed_players.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.delete("/allowed-players/{player_id}")
+async def remove_allowed_player(player_id: str):
+    await db.allowed_players.delete_one({"id": player_id})
+    return {"status": "deleted"}
+
+# ── Message-Driven GM ──
+
+@api_router.post("/gm/message-driven")
+async def gm_message_driven(data: MessageDrivenRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    scene = await db.scenes.find_one({"campaign_id": data.campaign_id, "is_active": True}, {"_id": 0})
+    npcs = await db.npcs.find({"campaign_id": data.campaign_id}, {"_id": 0}).to_list(100)
+    events = await db.events.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(20)
+    pcs = await db.player_characters.find({"campaign_id": data.campaign_id, "status": "active"}, {"_id": 0}).to_list(10)
+    active_pc = await db.player_characters.find_one({"campaign_id": data.campaign_id, "discord_user_id": data.player_discord_id, "status": "active"}, {"_id": 0})
+    history = await db.chat_history.find({"campaign_id": data.campaign_id}, {"_id": 0}).sort("timestamp", -1).to_list(20)
+    response = await gm.message_driven_response(campaign, scene, npcs, events[::-1], pcs, data.player_message, active_pc, history[::-1])
+    ts = now_iso()
+    pc_name = active_pc.get('character_name', '?') if active_pc else data.player_discord_id
+    await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "user", "content": f"[{pc_name}] {data.player_message}", "timestamp": ts})
+    if response:
+        await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "assistant", "content": response, "timestamp": ts})
+        await db.events.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "event_type": "action", "summary": f"{pc_name}: {data.player_message[:150]}", "details": response[:500], "timestamp": ts})
+    return {"response": response}
+
+# ── Campaign Generation ──
+
+@api_router.post("/gm/generate-campaign")
+async def gm_generate_campaign(data: CampaignGenerateRequest):
+    result = await gm.generate_campaign(data.prompt)
+    return result
+
+@api_router.post("/gm/generate-character-questions")
+async def gm_generate_character_questions(data: CharacterQuestionsRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    questions = await gm.generate_character_questions(campaign)
+    return {"questions": questions}
+
+@api_router.post("/gm/confirm-character-step")
+async def gm_confirm_character_step(data: ConfirmCharStepRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    confirmation = await gm.confirm_character_step(campaign, data.field, data.answer, data.accumulated)
+    return {"confirmation": confirmation}
+
+@api_router.post("/gm/generate-relationship")
+async def gm_generate_relationship(data: RelationshipRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    result = await gm.generate_relationship(campaign, data.pc1_data, data.pc2_data)
+    return {"relationship": result}
+
+@api_router.post("/gm/generate-opening-scene")
+async def gm_generate_opening_scene(data: OpeningSceneRequest):
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if not campaign:
+        raise HTTPException(404, "Campaign not found")
+    pcs = await db.player_characters.find({"campaign_id": data.campaign_id, "status": "active"}, {"_id": 0}).to_list(10)
+    scene_text = await gm.generate_opening_scene(campaign, pcs)
+    return {"scene": scene_text}
+
+# ── Export / Import (updated) ──
+
 @api_router.get("/export/{campaign_id}")
 async def export_campaign(campaign_id: str):
     campaign = await db.campaigns.find_one({"id": campaign_id}, {"_id": 0})
     if not campaign:
         raise HTTPException(404, "Campaign not found")
     data = {"campaign": campaign}
-    for col_name in ["npcs", "lore_entries", "scenes", "events", "recaps", "rules", "quests", "channel_configs"]:
+    for col_name in ["npcs", "lore_entries", "scenes", "events", "recaps", "rules", "quests", "channel_configs", "player_characters", "allowed_players"]:
         data[col_name] = await db[col_name].find({"campaign_id": campaign_id}, {"_id": 0}).to_list(1000)
     return data
 
@@ -570,7 +771,7 @@ async def import_campaign(data: dict):
     await db.campaigns.update_many({}, {"$set": {"is_active": False}})
     await db.campaigns.insert_one(campaign)
     cid = campaign["id"]
-    for col_name in ["npcs", "lore_entries", "scenes", "events", "recaps", "rules", "quests", "channel_configs"]:
+    for col_name in ["npcs", "lore_entries", "scenes", "events", "recaps", "rules", "quests", "channel_configs", "player_characters", "allowed_players"]:
         items = data.get(col_name, [])
         for item in items:
             item["id"] = new_id()
@@ -587,8 +788,9 @@ async def bot_status():
     campaign_count = await db.campaigns.count_documents({})
     npc_count = await db.npcs.count_documents({})
     event_count = await db.events.count_documents({})
+    pc_count = await db.player_characters.count_documents({})
     active = await db.campaigns.find_one({"is_active": True}, {"_id": 0})
-    return {"campaigns": campaign_count, "npcs": npc_count, "events": event_count, "active_campaign": active}
+    return {"campaigns": campaign_count, "npcs": npc_count, "events": event_count, "player_characters": pc_count, "active_campaign": active}
 
 @api_router.get("/")
 async def root():
