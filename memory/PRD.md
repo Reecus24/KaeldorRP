@@ -1,83 +1,56 @@
-# Discord RP Game Master Bot - PRD (April 14, 2026)
+# GM Bot — Product Requirements Document
+
+## Original Problem Statement
+Build a production-ready private Discord roleplay Game Master bot. Two human players roleplay in-character in Discord channels, and the bot acts as the neutral, consequence-driven Game Master. Needs Node.js Discord bot, FastAPI backend, MongoDB, and a lightweight React admin dashboard.
 
 ## Architecture
-- FastAPI Backend: 65+ endpoints, smart memory, scene-turn logic, LLM (GPT-5.2)
-- Node.js Discord Bot: discord.js v14, per-scene turn tracking, message-driven + 12 commands
-- React Frontend: Admin dashboard (8 pages)
-- MongoDB: 18+ collections
+- **Backend**: FastAPI (Python) — `/app/backend/server.py`, `/app/backend/gm_engine.py`, `/app/backend/dice.py`
+- **Discord Bot**: Node.js discord.js v14 — `/app/discord-bot/index.js`
+- **Frontend**: React + Shadcn UI — `/app/frontend/`
+- **Database**: MongoDB
+- **LLM**: OpenAI GPT-5.2 via `emergentintegrations` (Emergent LLM Key)
 
-## Live Play Refinements (Phase 4)
-### Per-Scene Turn Logic
-- Each IC channel tracks pending player actions independently
-- GM waits until ALL PCs present in a scene have acted before responding
-- Combined multi-player response: one cohesive GM reply addressing both actions
-- Split scenes process independently (no cross-blocking)
-- OOC messages don't count as actions
+## Core Features (Implemented)
+- [x] Discord bot with slash commands (campaign, scene, recap, rules, tone, etc.)
+- [x] Guided `/campaign` generation + PC creation flow
+- [x] Per-scene turn logic (split vs shared scenes, multi-player formatting)
+- [x] Memory system (short/long-term event extraction, auto-summarization)
+- [x] Sandbox economy (inventory, finances, properties, transactions)
+- [x] Transparent dice resolution (1W20 with SG display)
+- [x] Location auto-creation (channel per location)
+- [x] React admin dashboard (Campaigns, PCs, NPCs, Lore, Config)
 
-### Response Length
-- Default: 2-5 sentences (max ~600 chars normal, ~1200 for combat/reveals)
-- Combined responses slightly longer to address both players
-- Clean formatting: short paragraphs, NPC dialog in quotes, actions in *italics*
+## Implemented (Feb 2026)
+- [x] **Violence & PC Lethality** — PCs can die, NPCs have no plot armor, injury states (leicht verletzt → tot), world reacts to violence (witnesses, revenge, law)
+- [x] **Non-repetitive German Writing Style** — Banned generic AI phrases, varied sentence structure, specific sensory details, short/concrete responses
+- [x] **Character Background Enforcement** — Background/profession determines abilities, spontaneous claims rejected, high SG for out-of-background actions
+- [x] **`/Inventar` Slash Command** — Categorized inventory display (Ausgerüstet, Mitgeführt, Gelagert, Verbrauchsgüter, Werkzeuge, Wertsachen, Dokumente, Handelswaren) + Finanzen + Besitz
+- [x] **`/TW` (Tagwechsel) Slash Command** — Day change processing: profession-based wages, property rent, recurring costs, debt display, balance update, day counter
 
-### Scene-Per-Channel Isolation
-- sceneTurns Map tracks per-channel state: pendingActions, processing lock
-- Each channel/scene has independent turn cycle
-- No memory leakage between separate location channels
+## Key API Endpoints
+- `POST /api/gm/scene-response` — Combined turn-based GM response
+- `POST /api/gm/message-driven` — Single-message GM response
+- `GET /api/sandbox/inventar/{pc_id}` — Categorized inventory + finances
+- `POST /api/sandbox/tagwechsel` — Day change processing
+- `POST /api/campaigns`, `GET /api/campaigns/active`
+- `POST /api/player-characters`, `GET /api/player-characters/active`
+- `POST /api/inventory`, `POST /api/finances`, `POST /api/properties`
+- `POST /api/transactions`
 
-### New Endpoint
-- POST /api/gm/scene-response - combined multi-player turn response
+## DB Schema
+- campaigns: {id, name, tone, world_summary, is_active, current_day}
+- player_characters: {id, campaign_id, discord_user_id, character_name, status, background, skills, injuries_conditions, ...}
+- inventory: {id, campaign_id, owner_pc_id, item_name, category, quantity, condition, location, value}
+- finances: {id, campaign_id, pc_id, balance, currency, debts, recurring_costs}
+- properties: {id, campaign_id, owner_pc_id, name, property_type, status, rent_cost, rent_currency}
+- transactions: {id, campaign_id, pc_id, transaction_type, amount, currency, description}
+- memory_events, scene_memory, relationship_map, knowledge_store, npcs, lore_entries, events, recaps
 
-## Memory System (Phase 3)
-- Smart context retrieval (scene_memory + memory_events + relationship_map + knowledge_store)
-- Auto event extraction, scene updates, periodic summarization
-- GM-only vs public vs character-specific knowledge separation
+## Backlog
+- Refactoring: `discord-bot/index.js` (800+ lines) could be split into modules
+- No other pending tasks
 
-## Core Features
-- Message-driven German GM, campaign generation, guided character creation
-- Player Character profiles (20+ fields), NPC system, dice engine
-- Location channel auto-creation, character change tracking
-- Export/import, event log, recap generation
-
-## Phase 5: Output Formatting Refinement (April 15, 2026)
-### Player Section Markers
-- Multi-player: **Name**: header per player section with paragraph breaks
-- Solo-player: no header, direct narration
-- Modes: label (bold name), mention (@user), smart (auto-detect same vs split scene)
-- Config: PLAYER_SECTION_MODE, SUPPRESS_MENTION_NOTIFICATIONS
-
-### NPC Dialogue
-- German quotes „..." with italic action *descriptions*
-- Dialogue and narration never blended in one sentence
-
-### Ending Prompts
-- Open atmospheric situations, not option-lists
-- No "Was macht ihr: A/B/C?" format
-
-### Response Length
-- 2-4 sentences per player section (max 500 chars/section)
-- Longer only for scene openings, reveals, combat peaks
-
-## Phase 6: Sandbox World + Dice Overhaul (April 15, 2026)
-
-### Sandbox Systems
-- **Inventory**: Items with category, condition, location (carried/stored/equipped/vehicle), quantity, value
-- **Properties**: Rentals, buildings, businesses with status, rent, features
-- **Finances**: Per-PC balance, debts, recurring costs, world-appropriate currency
-- **Transactions**: Auto-balance updates on income/expense, full log
-- **Economy**: GM generates work opportunities, trade, prices, reputation effects naturally
-- **Open World**: No forced plot, players can work/trade/build/socialize/explore freely
-
-### Dice Resolution
-- Clear German output: Wurf / Modifikator / Gesamt / Schwierigkeit / Ergebnis
-- Categories: Kritischer Erfolg / Erfolg / Teilerfolg / Fehlschlag / Kritischer Fehlschlag
-- Nat 20 = auto success (configurable), Nat 1 = auto fail (configurable)
-- Impossible actions: nat 20 gives "best possible outcome with explanation"
-- Narration MUST match dice result — never silently contradict
-
-### New Collections
-inventory, properties, finances, transactions
-
-### Bot Dual-Instance Fix
-- Emergent bot instance stopped — only Hetzner runs
-- Global commands cleared to prevent duplicate registrations
-- handleCampaign uses channel fallback if deferReply fails
+## Important Notes
+- Discord bot on Emergent is STOPPED — user runs it on Hetzner
+- All GM output must be in German
+- The `emergentintegrations` package is installed via custom extra-index-url
