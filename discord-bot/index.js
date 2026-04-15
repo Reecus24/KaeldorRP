@@ -401,14 +401,18 @@ async function finalizeCreation(channel, session) {
 
 // ── Slash Command Handlers ──
 async function handleCampaign(interaction) {
-  await interaction.deferReply();
+  // MUST defer immediately — LLM calls take 10-30 seconds
+  try { await interaction.deferReply(); } catch (e) {
+    console.error('Failed to defer /campaign:', e.message);
+    return; // Interaction already expired
+  }
   const setting = interaction.options.getString('setting');
   const p1 = interaction.options.getUser('spieler1');
   const p2 = interaction.options.getUser('spieler2');
 
   try {
     // Generate campaign via LLM
-    const { data: genData } = await axios.post(`${API}/gm/generate-campaign`, { prompt: setting });
+    const { data: genData } = await axios.post(`${API}/gm/generate-campaign`, { prompt: setting }, { timeout: 60000 });
     // Create campaign in DB
     const { data: campaign } = await axios.post(`${API}/campaigns`, {
       name: genData.title || setting, world_summary: genData.world_summary || '',
@@ -449,7 +453,7 @@ async function handleCampaign(interaction) {
     }
 
     // Generate character questions
-    const { data: qData } = await axios.post(`${API}/gm/generate-character-questions`, { campaign_id: campaign.id });
+    const { data: qData } = await axios.post(`${API}/gm/generate-character-questions`, { campaign_id: campaign.id }, { timeout: 60000 });
     const questions = qData.questions || qData;
 
     // Start character creation
@@ -465,12 +469,16 @@ async function handleCampaign(interaction) {
     }
   } catch (err) {
     const msg = err.response?.data?.detail || err.message;
-    await interaction.editReply({ content: `**Fehler:** ${msg}` });
+    console.error('Campaign creation error:', msg);
+    try { await interaction.editReply({ content: `**Fehler:** ${msg}` }); } catch (e) {
+      // Interaction may have expired — send to channel directly
+      try { await interaction.channel.send(`**Fehler bei Kampagnenerstellung:** ${msg}`); } catch (e2) {}
+    }
   }
 }
 
 async function handleStartCharCreation(interaction) {
-  await interaction.deferReply();
+  try { await interaction.deferReply(); } catch (e) { return; }
   const p1 = interaction.options.getUser('spieler1');
   const p2 = interaction.options.getUser('spieler2');
   const players = [];
@@ -485,7 +493,7 @@ async function handleStartCharCreation(interaction) {
         campaign_id: campaign.id, discord_user_id: pl.id, discord_username: pl.username
       }).catch(() => {});
     }
-    const { data: qData } = await axios.post(`${API}/gm/generate-character-questions`, { campaign_id: campaign.id });
+    const { data: qData } = await axios.post(`${API}/gm/generate-character-questions`, { campaign_id: campaign.id }, { timeout: 60000 });
     const questions = qData.questions || qData;
 
     creationSessions.set(interaction.channelId, {
@@ -505,7 +513,7 @@ async function handleStartCharCreation(interaction) {
 }
 
 async function handleScene(interaction) {
-  await interaction.deferReply();
+  try { await interaction.deferReply(); } catch(e) { return; }
   try {
     const campaign = await getActiveCampaign();
     const { data } = await axios.get(`${API}/gm/scene-summary`, { params: { campaign_id: campaign.id } });
@@ -519,7 +527,7 @@ async function handleScene(interaction) {
 }
 
 async function handleRecap(interaction) {
-  await interaction.deferReply();
+  try { await interaction.deferReply(); } catch(e) { return; }
   try {
     const campaign = await getActiveCampaign();
     const { data } = await axios.post(`${API}/gm/generate-recap`, { campaign_id: campaign.id });
@@ -528,7 +536,7 @@ async function handleRecap(interaction) {
 }
 
 async function handleRules(interaction) {
-  await interaction.deferReply();
+  try { await interaction.deferReply(); } catch(e) { return; }
   try {
     const campaign = await getActiveCampaign();
     const { data } = await axios.get(`${API}/rules`, { params: { campaign_id: campaign.id } });
@@ -548,7 +556,7 @@ async function handleSetTone(interaction) {
 }
 
 async function handleResetSession(interaction) {
-  await interaction.deferReply({ ephemeral: true });
+  try { await interaction.deferReply({ flags: 64 }); } catch(e) { return; }
   try {
     const campaign = await getActiveCampaign();
     await axios.post(`${API}/gm/reset-session`, { campaign_id: campaign.id });
@@ -557,7 +565,7 @@ async function handleResetSession(interaction) {
 }
 
 async function handleNewCampaign(interaction) {
-  await interaction.deferReply({ ephemeral: true });
+  try { await interaction.deferReply({ flags: 64 }); } catch(e) { return; }
   try {
     const { data } = await axios.post(`${API}/campaigns`, {
       name: interaction.options.getString('name'),
@@ -581,7 +589,7 @@ async function handleSetChannelMode(interaction) {
 }
 
 async function handlePCCreate(interaction) {
-  await interaction.deferReply({ ephemeral: true });
+  try { await interaction.deferReply({ flags: 64 }); } catch(e) { return; }
   const player = interaction.options.getUser('player');
   const name = interaction.options.getString('name');
   try {
@@ -594,7 +602,7 @@ async function handlePCCreate(interaction) {
 }
 
 async function handlePCView(interaction) {
-  await interaction.deferReply();
+  try { await interaction.deferReply(); } catch(e) { return; }
   const name = interaction.options.getString('name');
   try {
     const campaign = await getActiveCampaign();
@@ -609,7 +617,7 @@ async function handlePCView(interaction) {
 }
 
 async function handlePCEdit(interaction) {
-  await interaction.deferReply({ ephemeral: true });
+  try { await interaction.deferReply({ flags: 64 }); } catch(e) { return; }
   const name = interaction.options.getString('name');
   const field = interaction.options.getString('field');
   const value = interaction.options.getString('value');
