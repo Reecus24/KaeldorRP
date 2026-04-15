@@ -122,6 +122,8 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(o => o.setName('spieler1').setDescription('Erster Spieler').setRequired(true))
     .addUserOption(o => o.setName('spieler2').setDescription('Zweiter Spieler').setRequired(false)),
+  new SlashCommandBuilder().setName('inventar').setDescription('Inventar und Finanzen deines Charakters anzeigen'),
+  new SlashCommandBuilder().setName('tw').setDescription('Tagwechsel — neuer Tag, Lohn, Miete, Ausgaben verarbeiten'),
 ];
 
 // ── Scene Turn Tracker ──
@@ -621,6 +623,138 @@ async function handlePCEdit(interaction) {
   } catch (err) { await interaction.editReply(`**Fehler:** ${err.message}`); }
 }
 
+async function handleInventar(interaction) {
+  try { await interaction.deferReply(); } catch(e) { return; }
+  try {
+    const campaign = await getActiveCampaign();
+    const { data: pcs } = await axios.get(`${API}/player-characters`, { params: { campaign_id: campaign.id } });
+    const pc = pcs.find(p => p.discord_user_id === interaction.user.id && p.status === 'active');
+    if (!pc) { await interaction.editReply('Kein aktiver Charakter gefunden.'); return; }
+
+    const { data: inv } = await axios.get(`${API}/sandbox/inventar/${pc.id}`);
+
+    // Build categorized embed
+    const categoryOrder = [
+      'Ausgerüstet', 'Mitgeführt', 'Gelagert', 'Verbrauchsgüter',
+      'Werkzeuge', 'Wertsachen', 'Dokumente / Schlüssel', 'Handelswaren'
+    ];
+    let desc = '';
+    for (const cat of categoryOrder) {
+      const items = (inv.categories || {})[cat];
+      if (items && items.length > 0) {
+        desc += `**${cat}:**\n`;
+        for (const item of items) {
+          desc += `  - ${item}\n`;
+        }
+        desc += '\n';
+      }
+    }
+    // Also show any categories not in the predefined order
+    for (const [cat, items] of Object.entries(inv.categories || {})) {
+      if (!categoryOrder.includes(cat) && items.length > 0) {
+        desc += `**${cat}:**\n`;
+        for (const item of items) {
+          desc += `  - ${item}\n`;
+        }
+        desc += '\n';
+      }
+    }
+
+    // Finances
+    const fin = inv.finances || {};
+    if (fin.balance !== undefined || fin.debts || fin.recurring_costs) {
+      desc += '**Geld / Währung:**\n';
+      if (fin.balance !== undefined) desc += `  Guthaben: ${fin.balance} ${fin.currency || ''}\n`;
+      if (fin.debts) desc += `  Schulden: ${fin.debts}\n`;
+      if (fin.recurring_costs) desc += `  Laufende Kosten: ${fin.recurring_costs}\n`;
+      desc += '\n';
+    }
+
+    // Properties
+    if (inv.properties && inv.properties.length > 0) {
+      desc += '**Besitz / Mietobjekte:**\n';
+      for (const prop of inv.properties) {
+        desc += `  - ${prop}\n`;
+      }
+      desc += '\n';
+    }
+
+    if (!desc) desc = '*Kein Inventar vorhanden.*';
+
+    await interaction.editReply({ embeds: [embed(`Inventar: ${inv.character_name}`, desc, 0x10B981)] });
+  } catch (err) {
+    await interaction.editReply(`**Fehler:** ${err.response?.data?.detail || err.message}`);
+  }
+}
+
+async function handleTagwechsel(interaction) {
+  try { await interaction.deferReply(); } catch(e) { return; }
+  try {
+    const campaign = await getActiveCampaign();
+    const { data: pcs } = await axios.get(`${API}/player-characters/active`, { params: { campaign_id: campaign.id } });
+
+    if (pcs.length === 0) {
+      await interaction.editReply('Keine aktiven Charaktere gefunden.');
+      return;
+    }
+
+    // Process day change for each active PC
+    const results = [];
+    for (const pc of pcs) {
+      try {
+        const { data: tw } = await axios.post(`${API}/sandbox/tagwechsel`, {
+          campaign_id: campaign.id, pc_id: pc.id
+        });
+        results.push(tw);
+      } catch (e) {
+        results.push({ character_name: pc.character_name, error: e.response?.data?.detail || e.message });
+      }
+    }
+
+    // Build embed
+    let desc = '';
+    const newDay = results[0]?.new_day || '?';
+    desc += `**Tag ${newDay}**\n\n`;
+
+    for (const r of results) {
+      if (r.error) {
+        desc += `**${r.character_name}:** Fehler — ${r.error}\n\n`;
+        continue;
+      }
+      desc += `**${r.character_name}:**\n`;
+
+      // Income
+      const incomes = (r.transactions || []).filter(t => t.amount > 0);
+      if (incomes.length > 0) {
+        for (const t of incomes) {
+          desc += `  + ${t.amount} ${r.currency} (${t.description})\n`;
+        }
+      }
+
+      // Expenses
+      const expenses = (r.transactions || []).filter(t => t.amount < 0);
+      if (expenses.length > 0) {
+        for (const t of expenses) {
+          desc += `  - ${Math.abs(t.amount)} ${r.currency} (${t.description})\n`;
+        }
+      }
+
+      // Debts
+      if (r.debts && r.debts.length > 0) {
+        desc += `  Schulden: ${r.debts.join(', ')}\n`;
+      }
+
+      // Summary
+      const sign = r.net_change >= 0 ? '+' : '';
+      desc += `  **Saldo:** ${r.new_balance} ${r.currency} (${sign}${r.net_change})\n\n`;
+    }
+
+    await interaction.editReply({ embeds: [embed(`Tagwechsel`, desc.trim(), 0xD97706)] });
+  } catch (err) {
+    await interaction.editReply(`**Fehler:** ${err.response?.data?.detail || err.message}`);
+  }
+}
+
 // ── Event Handlers ──
 client.once('ready', async () => {
   console.log(`Bot online als ${client.user.tag}`);
@@ -652,6 +786,8 @@ client.on('interactionCreate', async interaction => {
     reset_session: handleResetSession, set_channel_mode: handleSetChannelMode,
     pc_create: handlePCCreate, pc_view: handlePCView, pc_edit: handlePCEdit,
     start_character_creation: handleStartCharCreation,
+    inventar: handleInventar,
+    tw: handleTagwechsel,
   };
   const handler = h[interaction.commandName];
   if (handler) {

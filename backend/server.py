@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
 import uuid
+import re
 from datetime import datetime, timezone
 
 ROOT_DIR = Path(__file__).parent
@@ -1065,6 +1066,89 @@ async def get_finances(campaign_id: str = Query(...), pc_id: str = None):
     if pc_id: q["pc_id"] = pc_id
     return await db.finances.find(q, {"_id": 0}).to_list(20)
 
+# ── Inventar (categorized overview for Discord) ──
+
+@api_router.get("/sandbox/inventar/{pc_id}")
+async def get_inventar(pc_id: str):
+    """Return categorized inventory + finances for a PC, structured for display."""
+    pc = await db.player_characters.find_one({"id": pc_id}, {"_id": 0})
+    if not pc:
+        raise HTTPException(404, "Charakter nicht gefunden")
+    campaign_id = pc.get("campaign_id", "")
+
+    # Fetch inventory items
+    items = await db.inventory.find({"campaign_id": campaign_id, "owner_pc_id": pc_id}, {"_id": 0}).to_list(500)
+
+    # Categorize items
+    category_map = {
+        "ausgeruestet": "Ausgerüstet",
+        "equipment": "Ausgerüstet",
+        "weapon": "Ausgerüstet",
+        "getragen": "Mitgeführt",
+        "misc": "Mitgeführt",
+        "gelagert": "Gelagert",
+        "consumable": "Verbrauchsgüter",
+        "medical": "Verbrauchsgüter",
+        "tool": "Werkzeuge",
+        "valuable": "Wertsachen",
+        "document": "Dokumente / Schlüssel",
+        "trade_good": "Handelswaren",
+    }
+    categories = {}
+    for item in items:
+        loc = item.get("location", "getragen")
+        cat = item.get("category", "misc")
+        # Determine display category — location overrides category for some cases
+        if loc.startswith("ausgerüstet") or loc == "ausgeruestet":
+            display_cat = "Ausgerüstet"
+        elif loc.startswith("gelagert"):
+            display_cat = "Gelagert"
+        else:
+            display_cat = category_map.get(cat, "Mitgeführt")
+        if display_cat not in categories:
+            categories[display_cat] = []
+        entry = item.get("item_name", "?")
+        if item.get("quantity", 1) > 1:
+            entry += f" x{item['quantity']}"
+        if item.get("condition") and item["condition"] not in ("gut", "neu", ""):
+            entry += f" ({item['condition']})"
+        if loc.startswith("gelagert:"):
+            entry += f" [{loc}]"
+        categories[display_cat].append(entry)
+
+    # Fetch finances
+    finance = await db.finances.find_one({"campaign_id": campaign_id, "pc_id": pc_id}, {"_id": 0})
+
+    # Fetch properties
+    properties = await db.properties.find({"campaign_id": campaign_id, "owner_pc_id": pc_id}, {"_id": 0}).to_list(20)
+
+    # Build finance section
+    finance_info = {}
+    if finance:
+        finance_info["balance"] = finance.get("balance", 0)
+        finance_info["currency"] = finance.get("currency", "")
+        if finance.get("debts"):
+            finance_info["debts"] = finance["debts"]
+        if finance.get("recurring_costs"):
+            finance_info["recurring_costs"] = finance["recurring_costs"]
+
+    # Build property section
+    property_list = []
+    for prop in properties:
+        entry = f"{prop.get('name', '?')} ({prop.get('property_type', '?')})"
+        if prop.get("rent_cost"):
+            entry += f" — Miete: {prop['rent_cost']} {prop.get('rent_currency', '')}"
+        if prop.get("status"):
+            entry += f" [{prop['status']}]"
+        property_list.append(entry)
+
+    return {
+        "character_name": pc.get("character_name", "?"),
+        "categories": categories,
+        "finances": finance_info,
+        "properties": property_list,
+    }
+
 @api_router.post("/finances")
 async def upsert_finances(data: FinanceUpdate):
     existing = await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id})
@@ -1097,6 +1181,154 @@ async def add_transaction(data: TransactionCreate):
         delta = data.amount if data.transaction_type in ["einnahme", "lohn", "handel", "tilgung"] else -data.amount
         await db.finances.update_one({"_id": fin["_id"]}, {"$inc": {"balance": delta}})
     return doc
+
+# ── Tagwechsel (Day Change) ──
+
+class TagwechselRequest(BaseModel):
+    campaign_id: str
+    pc_id: str
+
+@api_router.post("/sandbox/tagwechsel")
+async def process_tagwechsel(data: TagwechselRequest):
+    """Process a day change: wages, rent, upkeep, debts, business costs."""
+    pc = await db.player_characters.find_one({"id": data.pc_id, "campaign_id": data.campaign_id}, {"_id": 0})
+    if not pc:
+        raise HTTPException(404, "Charakter nicht gefunden")
+
+    # Get current finances
+    fin = await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id}, {"_id": 0})
+    if not fin:
+        # Create default finances
+        fin = {"id": new_id(), "campaign_id": data.campaign_id, "pc_id": data.pc_id,
+               "balance": 0, "currency": "", "debts": "", "recurring_costs": "",
+               "created_at": now_iso(), "updated_at": now_iso()}
+        await db.finances.insert_one(fin)
+        fin.pop("_id", None)
+
+    old_balance = fin.get("balance", 0)
+    currency = fin.get("currency", "")
+    transactions = []
+    total_income = 0
+    total_expenses = 0
+
+    # Get properties for rent
+    properties = await db.properties.find({"campaign_id": data.campaign_id, "owner_pc_id": data.pc_id}, {"_id": 0}).to_list(20)
+
+    # Process rent for each property
+    for prop in properties:
+        if prop.get("rent_cost", 0) > 0 and prop.get("status") in ("gemietet", "gekauft"):
+            cost = prop["rent_cost"]
+            total_expenses += cost
+            t = {"id": new_id(), "campaign_id": data.campaign_id, "pc_id": data.pc_id,
+                 "pc_name": pc.get("character_name", "?"), "transaction_type": "miete",
+                 "amount": cost, "currency": prop.get("rent_currency", currency),
+                 "description": f"Miete: {prop.get('name', '?')}", "counterparty": "",
+                 "timestamp": now_iso()}
+            await db.transactions.insert_one(t)
+            t.pop("_id", None)
+            transactions.append({"type": "miete", "description": f"Miete: {prop.get('name', '?')}", "amount": -cost})
+
+    # Parse recurring_costs string for additional daily costs
+    recurring = fin.get("recurring_costs", "")
+    if recurring:
+        # Try to extract costs like "Lagermiete: 5 Silber/Tag, Unterhalt: 2 Silber/Tag"
+        cost_pattern = re.compile(r'([^,;]+?):\s*([\d.]+)')
+        for match in cost_pattern.finditer(recurring):
+            desc = match.group(1).strip()
+            amount = float(match.group(2))
+            # Skip if it's already covered by property rent
+            if any(desc.lower() in (p.get('name', '').lower()) for p in properties):
+                continue
+            total_expenses += amount
+            t = {"id": new_id(), "campaign_id": data.campaign_id, "pc_id": data.pc_id,
+                 "pc_name": pc.get("character_name", "?"), "transaction_type": "ausgabe",
+                 "amount": amount, "currency": currency,
+                 "description": f"Laufend: {desc}", "counterparty": "",
+                 "timestamp": now_iso()}
+            await db.transactions.insert_one(t)
+            t.pop("_id", None)
+            transactions.append({"type": "ausgabe", "description": f"Laufend: {desc}", "amount": -amount})
+
+    # Parse debts for interest/payment
+    debts = fin.get("debts", "")
+    debt_changes = []
+    if debts:
+        debt_pattern = re.compile(r'([\d.]+)\s*(\S*)\s*(?:an|bei|für)\s*(.+)')
+        for match in debt_pattern.finditer(debts):
+            debt_amount = float(match.group(1))
+            debt_currency = match.group(2)
+            creditor = match.group(3).strip()
+            # Debts don't auto-deduct daily, but we note them
+            debt_changes.append(f"{debt_amount} {debt_currency} an {creditor}")
+
+    # Calculate wage based on background/profession keywords
+    background = (pc.get("background", "") + " " + pc.get("skills", "")).lower()
+    daily_wage = 0
+    wage_source = ""
+
+    # Simple profession-based wage estimation
+    wage_map = [
+        (["händler", "kaufmann", "handel"], 8, "Handelseinnahmen"),
+        (["schmied", "schmiede"], 6, "Schmiedearbeit"),
+        (["wirt", "gastwirt", "taverne", "gasthaus"], 5, "Taverneneinnahmen"),
+        (["arzt", "heiler", "medizin", "apotheker"], 7, "Heilkunst"),
+        (["soldat", "söldner", "wache", "gardist"], 4, "Sold"),
+        (["handwerker", "zimmermann", "tischler", "schreiner"], 5, "Handwerksarbeit"),
+        (["bauer", "landwirt", "farmer"], 2, "Landarbeit"),
+        (["dieb", "gauner", "taschendieb"], 0, ""),  # No legit income
+        (["gelehrter", "schreiber", "magier"], 4, "Gelehrtenarbeit"),
+        (["jäger", "waldläufer"], 3, "Jagd & Pelze"),
+        (["fischer"], 2, "Fischfang"),
+        (["bergmann", "minenarbeiter"], 4, "Bergarbeit"),
+    ]
+    for keywords, wage, source in wage_map:
+        if any(kw in background for kw in keywords):
+            daily_wage = wage
+            wage_source = source
+            break
+
+    if daily_wage > 0:
+        total_income += daily_wage
+        t = {"id": new_id(), "campaign_id": data.campaign_id, "pc_id": data.pc_id,
+             "pc_name": pc.get("character_name", "?"), "transaction_type": "lohn",
+             "amount": daily_wage, "currency": currency,
+             "description": wage_source, "counterparty": "",
+             "timestamp": now_iso()}
+        await db.transactions.insert_one(t)
+        t.pop("_id", None)
+        transactions.append({"type": "lohn", "description": wage_source, "amount": daily_wage})
+
+    # Update balance
+    net_change = total_income - total_expenses
+    new_balance = old_balance + net_change
+    await db.finances.update_one(
+        {"campaign_id": data.campaign_id, "pc_id": data.pc_id},
+        {"$set": {"balance": new_balance, "updated_at": now_iso()}}
+    )
+
+    # Advance campaign day counter
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    current_day = campaign.get("current_day", 1) if campaign else 1
+    new_day = current_day + 1
+    await db.campaigns.update_one({"id": data.campaign_id}, {"$set": {"current_day": new_day, "updated_at": now_iso()}})
+
+    # Log as event
+    summary = f"Tagwechsel Tag {new_day}: {pc.get('character_name','?')} — Einnahmen: +{total_income}, Ausgaben: -{total_expenses}, Saldo: {new_balance}"
+    await db.events.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "event_type": "tagwechsel",
+                                "summary": summary, "details": str(transactions), "timestamp": now_iso()})
+
+    return {
+        "character_name": pc.get("character_name", "?"),
+        "new_day": new_day,
+        "old_balance": old_balance,
+        "new_balance": new_balance,
+        "currency": currency,
+        "total_income": total_income,
+        "total_expenses": total_expenses,
+        "net_change": net_change,
+        "transactions": transactions,
+        "debts": debt_changes,
+    }
 
 # ── Memory System Routes ──
 
