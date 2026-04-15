@@ -255,6 +255,69 @@ class CharacterChangeRequest(BaseModel):
     changes: List[str]
     source: str = ""
 
+# ── Sandbox Models ──
+
+class InventoryItemCreate(BaseModel):
+    campaign_id: str
+    owner_pc_id: str = ""
+    owner_name: str = ""
+    item_name: str
+    category: str = "misc"  # weapon, tool, consumable, medical, valuable, document, trade_good, equipment, misc
+    quantity: int = 1
+    condition: str = "gut"  # neu, gut, abgenutzt, beschädigt, kaputt
+    location: str = "getragen"  # getragen, ausgerüstet, gelagert:{ort}, wagen, versteck
+    description: str = ""
+    value: float = 0
+
+class InventoryItemUpdate(BaseModel):
+    item_name: Optional[str] = None
+    category: Optional[str] = None
+    quantity: Optional[int] = None
+    condition: Optional[str] = None
+    location: Optional[str] = None
+    description: Optional[str] = None
+    value: Optional[float] = None
+
+class PropertyCreate(BaseModel):
+    campaign_id: str
+    owner_pc_id: str = ""
+    owner_name: str = ""
+    name: str
+    property_type: str = "wohnung"  # wohnung, werkstatt, laden, lager, versteck, klinik, gasthaus
+    location: str = ""
+    status: str = "gemietet"  # gemietet, gekauft, beansprucht, verlassen
+    rent_cost: float = 0
+    rent_currency: str = ""
+    condition: str = "bewohnbar"
+    description: str = ""
+    features: List[str] = []
+
+class PropertyUpdate(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+    rent_cost: Optional[float] = None
+    condition: Optional[str] = None
+    description: Optional[str] = None
+    features: Optional[List[str]] = None
+
+class TransactionCreate(BaseModel):
+    campaign_id: str
+    pc_id: str = ""
+    pc_name: str = ""
+    transaction_type: str = "ausgabe"  # einnahme, ausgabe, lohn, miete, handel, bestechung, schuld, tilgung
+    amount: float
+    currency: str = ""
+    description: str = ""
+    counterparty: str = ""
+
+class FinanceUpdate(BaseModel):
+    campaign_id: str
+    pc_id: str
+    balance: Optional[float] = None
+    currency: Optional[str] = None
+    debts: Optional[str] = None
+    recurring_costs: Optional[str] = None
+
 class MemoryEventCreate(BaseModel):
     campaign_id: str
     event_type: str  # injury, item_lost, item_gained, clue, faction_change, trust_change, oath, debt, damage, secret, relationship, threat, status
@@ -394,6 +457,12 @@ async def build_smart_context(campaign_id: str, player_discord_id: str = ""):
         {"campaign_id": campaign_id}, {"_id": 0}
     ).sort("timestamp", -1).to_list(6)
 
+    # Sandbox: inventory, finances, properties for active PCs
+    pc_ids = [p.get("id", "") for p in pcs]
+    inventory = await db.inventory.find({"campaign_id": campaign_id, "owner_pc_id": {"$in": pc_ids}}, {"_id": 0}).to_list(50) if pc_ids else []
+    finances = await db.finances.find({"campaign_id": campaign_id}, {"_id": 0}).to_list(10)
+    properties = await db.properties.find({"campaign_id": campaign_id}, {"_id": 0}).to_list(20)
+
     return {
         "campaign": campaign,
         "scene_memory": scene_mem,
@@ -410,6 +479,9 @@ async def build_smart_context(campaign_id: str, player_discord_id: str = ""):
         "pc_knowledge": pc_knowledge,
         "summaries": summaries[::-1],
         "recent_chat": chat[::-1],
+        "inventory": inventory,
+        "finances": finances,
+        "properties": properties,
     }
 
 # ── Campaign Routes ──
@@ -927,6 +999,104 @@ async def gm_generate_opening_scene(data: OpeningSceneRequest):
     return {"scene": scene_text}
 
 # ── Character Change Tracking ──
+
+# ── Sandbox Routes ──
+
+@api_router.get("/inventory")
+async def list_inventory(campaign_id: str = Query(...), owner_pc_id: str = None, location: str = None):
+    q = {"campaign_id": campaign_id}
+    if owner_pc_id: q["owner_pc_id"] = owner_pc_id
+    if location: q["location"] = {"$regex": location, "$options": "i"}
+    return await db.inventory.find(q, {"_id": 0}).to_list(500)
+
+@api_router.post("/inventory")
+async def add_inventory_item(data: InventoryItemCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.inventory.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/inventory/{item_id}")
+async def update_inventory_item(item_id: str, data: InventoryItemUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    update["updated_at"] = now_iso()
+    result = await db.inventory.update_one({"id": item_id}, {"$set": update})
+    if result.matched_count == 0: raise HTTPException(404, "Item not found")
+    return await db.inventory.find_one({"id": item_id}, {"_id": 0})
+
+@api_router.delete("/inventory/{item_id}")
+async def delete_inventory_item(item_id: str):
+    await db.inventory.delete_one({"id": item_id})
+    return {"status": "deleted"}
+
+@api_router.get("/properties")
+async def list_properties(campaign_id: str = Query(...), owner_pc_id: str = None):
+    q = {"campaign_id": campaign_id}
+    if owner_pc_id: q["owner_pc_id"] = owner_pc_id
+    return await db.properties.find(q, {"_id": 0}).to_list(100)
+
+@api_router.post("/properties")
+async def add_property(data: PropertyCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.properties.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+@api_router.put("/properties/{prop_id}")
+async def update_property(prop_id: str, data: PropertyUpdate):
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    update["updated_at"] = now_iso()
+    result = await db.properties.update_one({"id": prop_id}, {"$set": update})
+    if result.matched_count == 0: raise HTTPException(404, "Property not found")
+    return await db.properties.find_one({"id": prop_id}, {"_id": 0})
+
+@api_router.delete("/properties/{prop_id}")
+async def delete_property(prop_id: str):
+    await db.properties.delete_one({"id": prop_id})
+    return {"status": "deleted"}
+
+@api_router.get("/finances")
+async def get_finances(campaign_id: str = Query(...), pc_id: str = None):
+    q = {"campaign_id": campaign_id}
+    if pc_id: q["pc_id"] = pc_id
+    return await db.finances.find(q, {"_id": 0}).to_list(20)
+
+@api_router.post("/finances")
+async def upsert_finances(data: FinanceUpdate):
+    existing = await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id})
+    update = {k: v for k, v in data.model_dump().items() if v is not None}
+    update["updated_at"] = now_iso()
+    if existing:
+        await db.finances.update_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id}, {"$set": update})
+    else:
+        update["id"] = new_id()
+        update["created_at"] = now_iso()
+        await db.finances.insert_one(update)
+    return await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id}, {"_id": 0})
+
+@api_router.get("/transactions")
+async def list_transactions(campaign_id: str = Query(...), pc_id: str = None, limit: int = 50):
+    q = {"campaign_id": campaign_id}
+    if pc_id: q["pc_id"] = pc_id
+    return await db.transactions.find(q, {"_id": 0}).sort("timestamp", -1).to_list(limit)
+
+@api_router.post("/transactions")
+async def add_transaction(data: TransactionCreate):
+    doc = data.model_dump()
+    doc["id"] = new_id()
+    doc["timestamp"] = now_iso()
+    await db.transactions.insert_one(doc)
+    doc.pop("_id", None)
+    # Auto-update balance
+    fin = await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id})
+    if fin:
+        delta = data.amount if data.transaction_type in ["einnahme", "lohn", "handel", "tilgung"] else -data.amount
+        await db.finances.update_one({"_id": fin["_id"]}, {"$inc": {"balance": delta}})
+    return doc
 
 # ── Memory System Routes ──
 

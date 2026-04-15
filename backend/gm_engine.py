@@ -162,6 +162,38 @@ class GameMasterEngine:
             for r in pc_rels:
                 parts.append(f"  {r.get('entity_a','')} ↔ {r.get('entity_b','')}: {r.get('relationship_type','')}, {r.get('notes','')}")
 
+        # Sandbox: Inventory
+        inv = ctx.get("inventory", [])
+        if inv:
+            parts.append("\nINVENTAR:")
+            by_owner = {}
+            for i in inv:
+                owner = i.get('owner_name', '?')
+                if owner not in by_owner: by_owner[owner] = []
+                loc = f" [{i.get('location','?')}]" if i.get('location') != 'getragen' else ""
+                qty = f" x{i['quantity']}" if i.get('quantity', 1) > 1 else ""
+                cond = f" ({i['condition']})" if i.get('condition') not in ('gut', 'neu', '') else ""
+                by_owner[owner].append(f"{i['item_name']}{qty}{cond}{loc}")
+            for owner, items in by_owner.items():
+                parts.append(f"  {owner}: {', '.join(items[:15])}")
+
+        # Sandbox: Finances
+        fins = ctx.get("finances", [])
+        if fins:
+            parts.append("\nFINANZEN:")
+            for f in fins:
+                parts.append(f"  {f.get('pc_id','?')}: {f.get('balance',0)} {f.get('currency','')}")
+                if f.get('debts'): parts.append(f"    Schulden: {f['debts']}")
+                if f.get('recurring_costs'): parts.append(f"    Laufende Kosten: {f['recurring_costs']}")
+
+        # Sandbox: Properties
+        props = ctx.get("properties", [])
+        if props:
+            parts.append("\nBESITZ / MIETOBJEKTE:")
+            for p in props:
+                rent = f" (Miete: {p['rent_cost']} {p.get('rent_currency','')})" if p.get('rent_cost') else ""
+                parts.append(f"  {p.get('name','?')} ({p.get('property_type','?')}, {p.get('status','?')}){rent}: {p.get('description','')[:80]}")
+
         return "\n".join(parts)
 
     # ── Memory Event Extraction ──
@@ -322,11 +354,31 @@ AKTIONS-LEBENSZYKLUS (STRIKT):
 - Aktive Konsequenzen KURZ als Zustand erwähnen, nicht als neues Ereignis.
 - Erzähle VORWÄRTS.
 
-WÜRFEL:
-- Bei unsicherem Ausgang: verwende {pre_roll} oder {pre_roll_2} (1W20).
-- Zeige: [Wurf: 1W20 = X]
-- Bei Ortswechsel: [NEUER_ORT: Name]
-- Bei Zustandsänderung: [ÄNDERUNG: Charakter - Was]
+WÜRFEL UND PROBEN:
+- Bei unsicherem Ausgang: verwende den vorgewürfelten Wert {pre_roll} (oder {pre_roll_2} für zweiten Charakter) als 1W20-Ergebnis.
+- Zeige das Ergebnis IMMER transparent:
+  **Wurf:** 1W20 = [Wert]
+  **Schwierigkeit:** [SG]
+  **Ergebnis:** [Kategorie]
+- Ergebniskategorien: Kritischer Erfolg / Erfolg / Teilerfolg / Fehlschlag / Kritischer Fehlschlag
+- NATÜRLICHE 20 = Kritischer Erfolg. Die Handlung gelingt bestmöglich. Erzähle NIEMALS einen normalen Fehlschlag bei einer 20.
+- Falls die Aktion unmöglich ist (z.B. den Mond herunterziehen), darf eine 20 ein Teilerfolg sein — aber erkläre WARUM klar: „Kritischer Erfolg mit begrenzter Wirkung: [Grund]"
+- NATÜRLICHE 1 = Kritischer Fehlschlag. Komplikationen, Pech, unerwartete Konsequenzen.
+- Die Erzählung MUSS zum Würfelergebnis passen. Widerspreche NIEMALS still dem Ergebnis.
+
+SANDBOX-WELT:
+- Die Welt ist OFFEN. Kein erzwungener Hauptplot. Kein Railroading.
+- Spieler dürfen arbeiten, handeln, mieten, bauen, Beziehungen pflegen, oder einfach im Alltag leben.
+- Generiere natürlich: Arbeitsmöglichkeiten, Gerüchte, Marktpreise, soziale Gelegenheiten, Gefahren.
+- Arbeit bringt Geld/Waren/Ruf. Arbeit kann riskant sein.
+- Preise und Verfügbarkeit hängen vom Setting ab.
+- Finanzen und Besitz der Spieler beachten (siehe INVENTAR/FINANZEN/BESITZ oben).
+- Bei Handel/Kauf/Verkauf: Zeige Preis und Ergebnis klar. Markiere: [TRANSAKTION: Charakter, Typ, Betrag, Beschreibung]
+- Bei Inventaränderung: [INVENTAR: Charakter, +/-Gegenstand, Ort]
+- Die Welt lebt weiter, egal was die Spieler tun. Fraktionen, NPCs, Wirtschaft, Wetter, Gerüchte entwickeln sich.
+
+Bei Ortswechsel: [NEUER_ORT: Name]
+Bei Zustandsänderung: [ÄNDERUNG: Charakter - Was]
 
 Wenn KEINE Reaktion der Welt angemessen ist: [KEINE_ANTWORT]"""
 

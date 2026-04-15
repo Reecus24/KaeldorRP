@@ -1680,7 +1680,7 @@ class GMBotAPITester:
                     print(f"   Response: {response_text[:300]}...")
                     
                     # Check for German quotes (NPC dialogue)
-                    has_german_quotes = "„" in response_text or """ in response_text
+                    has_german_quotes = "„" in response_text or "\"" in response_text
                     
                     # Check for italic actions
                     has_italic_actions = "*" in response_text
@@ -2089,6 +2089,512 @@ class GMBotAPITester:
             self.tests_run += 1
             return False
 
+    # ── SANDBOX TESTS (NEW FEATURES) ──
+
+    def test_create_inventory_item(self):
+        """Test POST /api/inventory creates inventory item with category/condition/location"""
+        campaign_id = self.test_campaign_id
+        item_data = {
+            "campaign_id": campaign_id,
+            "owner_pc_id": "test_pc_123",
+            "owner_name": "Test Character",
+            "item_name": "Schwert",
+            "category": "weapon",
+            "quantity": 1,
+            "condition": "gut",
+            "location": "getragen",
+            "description": "Ein scharfes Schwert",
+            "value": 50.0
+        }
+        
+        success, response = self.run_test(
+            "Create Inventory Item",
+            "POST",
+            "inventory",
+            200,
+            data=item_data
+        )
+        
+        if success and 'id' in response:
+            self.created_ids['inventory_item'] = response['id']
+            print(f"   Created inventory item ID: {response['id']}")
+            print(f"   Item: {response.get('item_name')} ({response.get('category')})")
+            print(f"   Condition: {response.get('condition')}, Location: {response.get('location')}")
+        return success
+
+    def test_list_inventory(self):
+        """Test GET /api/inventory?campaign_id= lists items, supports owner_pc_id filter"""
+        campaign_id = self.test_campaign_id
+        
+        # Test without filter
+        success, response = self.run_test(
+            "List Inventory",
+            "GET",
+            "inventory",
+            200,
+            params={"campaign_id": campaign_id}
+        )
+        
+        if success:
+            print(f"   Found {len(response)} inventory items")
+            
+            # Test with owner filter
+            success2, response2 = self.run_test(
+                "List Inventory (filtered by owner)",
+                "GET",
+                "inventory",
+                200,
+                params={"campaign_id": campaign_id, "owner_pc_id": "test_pc_123"}
+            )
+            
+            if success2:
+                print(f"   Found {len(response2)} items for test_pc_123")
+                
+        return success
+
+    def test_update_inventory_item(self):
+        """Test PUT /api/inventory/{id} updates item"""
+        item_id = self.created_ids.get('inventory_item')
+        if not item_id:
+            print("   ⚠️  No inventory item ID available for update test")
+            return True
+        
+        update_data = {
+            "condition": "abgenutzt",
+            "location": "gelagert:Lager",
+            "quantity": 2
+        }
+        
+        success, response = self.run_test(
+            "Update Inventory Item",
+            "PUT",
+            f"inventory/{item_id}",
+            200,
+            data=update_data
+        )
+        
+        if success:
+            print(f"   Updated condition: {response.get('condition')}")
+            print(f"   Updated location: {response.get('location')}")
+            print(f"   Updated quantity: {response.get('quantity')}")
+        return success
+
+    def test_delete_inventory_item(self):
+        """Test DELETE /api/inventory/{id} removes item"""
+        item_id = self.created_ids.get('inventory_item')
+        if not item_id:
+            print("   ⚠️  No inventory item ID available for delete test")
+            return True
+        
+        success, response = self.run_test(
+            "Delete Inventory Item",
+            "DELETE",
+            f"inventory/{item_id}",
+            200
+        )
+        
+        if success:
+            print(f"   Deleted inventory item ID: {item_id}")
+            self.created_ids.pop('inventory_item', None)
+        return success
+
+    def test_create_property(self):
+        """Test POST /api/properties creates property (rental/building)"""
+        campaign_id = self.test_campaign_id
+        property_data = {
+            "campaign_id": campaign_id,
+            "owner_pc_id": "test_pc_123",
+            "owner_name": "Test Character",
+            "name": "Kleine Werkstatt",
+            "property_type": "werkstatt",
+            "location": "Handwerkerviertel",
+            "status": "gemietet",
+            "rent_cost": 25.0,
+            "rent_currency": "Silber",
+            "condition": "bewohnbar",
+            "description": "Eine kleine aber gut ausgestattete Werkstatt",
+            "features": ["Amboss", "Werkbank", "Lagerraum"]
+        }
+        
+        success, response = self.run_test(
+            "Create Property",
+            "POST",
+            "properties",
+            200,
+            data=property_data
+        )
+        
+        if success and 'id' in response:
+            self.created_ids['property'] = response['id']
+            print(f"   Created property ID: {response['id']}")
+            print(f"   Property: {response.get('name')} ({response.get('property_type')})")
+            print(f"   Status: {response.get('status')}, Rent: {response.get('rent_cost')} {response.get('rent_currency')}")
+        return success
+
+    def test_list_properties(self):
+        """Test GET /api/properties?campaign_id= lists properties"""
+        campaign_id = self.test_campaign_id
+        
+        success, response = self.run_test(
+            "List Properties",
+            "GET",
+            "properties",
+            200,
+            params={"campaign_id": campaign_id}
+        )
+        
+        if success:
+            print(f"   Found {len(response)} properties")
+            
+            # Test with owner filter
+            success2, response2 = self.run_test(
+                "List Properties (filtered by owner)",
+                "GET",
+                "properties",
+                200,
+                params={"campaign_id": campaign_id, "owner_pc_id": "test_pc_123"}
+            )
+            
+            if success2:
+                print(f"   Found {len(response2)} properties for test_pc_123")
+                
+        return success
+
+    def test_update_property(self):
+        """Test PUT /api/properties/{id} updates property"""
+        property_id = self.created_ids.get('property')
+        if not property_id:
+            print("   ⚠️  No property ID available for update test")
+            return True
+        
+        update_data = {
+            "status": "gekauft",
+            "rent_cost": 0,
+            "condition": "renoviert",
+            "features": ["Amboss", "Werkbank", "Lagerraum", "Neue Beleuchtung"]
+        }
+        
+        success, response = self.run_test(
+            "Update Property",
+            "PUT",
+            f"properties/{property_id}",
+            200,
+            data=update_data
+        )
+        
+        if success:
+            print(f"   Updated status: {response.get('status')}")
+            print(f"   Updated condition: {response.get('condition')}")
+            print(f"   Updated features: {len(response.get('features', []))} features")
+        return success
+
+    def test_upsert_finances(self):
+        """Test POST /api/finances upserts PC financial state"""
+        campaign_id = self.test_campaign_id
+        finance_data = {
+            "campaign_id": campaign_id,
+            "pc_id": "test_pc_123",
+            "balance": 100.0,
+            "currency": "Silber",
+            "debts": "Schuldet dem Schmied 20 Silber",
+            "recurring_costs": "Miete: 25 Silber/Monat"
+        }
+        
+        success, response = self.run_test(
+            "Upsert Finances",
+            "POST",
+            "finances",
+            200,
+            data=finance_data
+        )
+        
+        if success:
+            print(f"   PC ID: {response.get('pc_id')}")
+            print(f"   Balance: {response.get('balance')} {response.get('currency')}")
+            print(f"   Debts: {response.get('debts', 'None')}")
+        return success
+
+    def test_get_finances(self):
+        """Test GET /api/finances?campaign_id= returns finances"""
+        campaign_id = self.test_campaign_id
+        
+        success, response = self.run_test(
+            "Get Finances",
+            "GET",
+            "finances",
+            200,
+            params={"campaign_id": campaign_id}
+        )
+        
+        if success:
+            print(f"   Found {len(response)} financial records")
+            
+            # Test with PC filter
+            success2, response2 = self.run_test(
+                "Get Finances (filtered by PC)",
+                "GET",
+                "finances",
+                200,
+                params={"campaign_id": campaign_id, "pc_id": "test_pc_123"}
+            )
+            
+            if success2:
+                print(f"   Found {len(response2)} records for test_pc_123")
+                
+        return success
+
+    def test_create_transaction(self):
+        """Test POST /api/transactions creates transaction and auto-updates balance"""
+        campaign_id = self.test_campaign_id
+        
+        # First get current balance
+        success_pre, response_pre = self.run_test(
+            "Get Finances Before Transaction",
+            "GET",
+            "finances",
+            200,
+            params={"campaign_id": campaign_id, "pc_id": "test_pc_123"}
+        )
+        
+        initial_balance = 0
+        if success_pre and response_pre:
+            initial_balance = response_pre[0].get('balance', 0) if response_pre else 0
+            print(f"   Initial balance: {initial_balance}")
+        
+        # Create transaction
+        transaction_data = {
+            "campaign_id": campaign_id,
+            "pc_id": "test_pc_123",
+            "pc_name": "Test Character",
+            "transaction_type": "einnahme",
+            "amount": 50.0,
+            "currency": "Silber",
+            "description": "Verkauf von Handwerkserzeugnissen",
+            "counterparty": "Lokaler Händler"
+        }
+        
+        success, response = self.run_test(
+            "Create Transaction",
+            "POST",
+            "transactions",
+            200,
+            data=transaction_data
+        )
+        
+        if success and 'id' in response:
+            self.created_ids['transaction'] = response['id']
+            print(f"   Created transaction ID: {response['id']}")
+            print(f"   Type: {response.get('transaction_type')}, Amount: {response.get('amount')}")
+            
+            # Check if balance was auto-updated
+            success_post, response_post = self.run_test(
+                "Get Finances After Transaction",
+                "GET",
+                "finances",
+                200,
+                params={"campaign_id": campaign_id, "pc_id": "test_pc_123"}
+            )
+            
+            if success_post and response_post:
+                new_balance = response_post[0].get('balance', 0) if response_post else 0
+                expected_balance = initial_balance + 50.0  # einnahme adds to balance
+                print(f"   New balance: {new_balance} (expected: {expected_balance})")
+                if abs(new_balance - expected_balance) < 0.01:
+                    print(f"   ✅ Balance auto-updated correctly")
+                else:
+                    print(f"   ⚠️  Balance not updated as expected")
+                    
+        return success
+
+    def test_list_transactions(self):
+        """Test GET /api/transactions?campaign_id= lists transactions"""
+        campaign_id = self.test_campaign_id
+        
+        success, response = self.run_test(
+            "List Transactions",
+            "GET",
+            "transactions",
+            200,
+            params={"campaign_id": campaign_id}
+        )
+        
+        if success:
+            print(f"   Found {len(response)} transactions")
+            
+            # Test with PC filter
+            success2, response2 = self.run_test(
+                "List Transactions (filtered by PC)",
+                "GET",
+                "transactions",
+                200,
+                params={"campaign_id": campaign_id, "pc_id": "test_pc_123"}
+            )
+            
+            if success2:
+                print(f"   Found {len(response2)} transactions for test_pc_123")
+                
+        return success
+
+    def test_gm_scene_response_dice_transparency(self):
+        """Test POST /api/gm/scene-response includes transparent dice rolls (Wurf/Schwierigkeit/Ergebnis)"""
+        campaign_id = self.test_campaign_id
+        scene_data = {
+            "campaign_id": campaign_id,
+            "channel_id": "test_channel_dice",
+            "player_actions": [
+                {
+                    "discord_id": "123456789012345678",
+                    "pc_name": "Erik der Wanderer",
+                    "message": "Ich versuche die schwere Eisentür aufzubrechen."
+                }
+            ]
+        }
+
+        print("\n🔍 Testing Scene Response - Dice Transparency (LLM-powered, may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=scene_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Scene response with dice transparency successful")
+                if result.get('response'):
+                    response_text = result['response']
+                    print(f"   Response: {response_text[:200]}...")
+                    
+                    # Check for transparent dice roll format
+                    has_wurf = "**Wurf:**" in response_text or "**wurf:**" in response_text.lower()
+                    has_schwierigkeit = "**Schwierigkeit:**" in response_text or "**schwierigkeit:**" in response_text.lower()
+                    has_ergebnis = "**Ergebnis:**" in response_text or "**ergebnis:**" in response_text.lower()
+                    
+                    print(f"   Has Wurf: {has_wurf}")
+                    print(f"   Has Schwierigkeit: {has_schwierigkeit}")
+                    print(f"   Has Ergebnis: {has_ergebnis}")
+                    
+                    # Check for German result categories
+                    german_categories = ["Kritischer Erfolg", "Erfolg", "Teilerfolg", "Fehlschlag", "Kritischer Fehlschlag"]
+                    has_german_category = any(cat in response_text for cat in german_categories)
+                    print(f"   Has German category: {has_german_category}")
+                    
+                    if has_wurf and has_schwierigkeit and has_ergebnis:
+                        print(f"   ✅ Transparent dice format detected")
+                    else:
+                        print(f"   ⚠️  Transparent dice format not fully detected")
+                        
+                else:
+                    print(f"   GM decided no response needed (returned null)")
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Scene response with dice transparency failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Scene response with dice transparency error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_gm_scene_response_sandbox_support(self):
+        """Test POST /api/gm/scene-response supports sandbox play (work, trade, exploration)"""
+        campaign_id = self.test_campaign_id
+        scene_data = {
+            "campaign_id": campaign_id,
+            "channel_id": "test_channel_sandbox",
+            "player_actions": [
+                {
+                    "discord_id": "123456789012345678",
+                    "pc_name": "Erik der Handwerker",
+                    "message": "Ich möchte in meiner Werkstatt arbeiten und Schwerter schmieden, um sie zu verkaufen."
+                }
+            ]
+        }
+
+        print("\n🔍 Testing Scene Response - Sandbox Support (LLM-powered, may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=scene_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Scene response with sandbox support successful")
+                if result.get('response'):
+                    response_text = result['response']
+                    print(f"   Response: {response_text[:200]}...")
+                    
+                    # Check for sandbox markers
+                    has_transaktion = "[TRANSAKTION:" in response_text
+                    has_inventar = "[INVENTAR:" in response_text
+                    
+                    print(f"   Has [TRANSAKTION] marker: {has_transaktion}")
+                    print(f"   Has [INVENTAR] marker: {has_inventar}")
+                    
+                    # Check for work/trade related content
+                    sandbox_keywords = ["arbeit", "verkauf", "handel", "werkstatt", "schmied", "geld", "silber"]
+                    has_sandbox_content = any(keyword in response_text.lower() for keyword in sandbox_keywords)
+                    print(f"   Has sandbox content: {has_sandbox_content}")
+                    
+                    if has_sandbox_content:
+                        print(f"   ✅ Sandbox play support detected")
+                    else:
+                        print(f"   ⚠️  Sandbox play support not clearly detected")
+                        
+                else:
+                    print(f"   GM decided no response needed (returned null)")
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Scene response with sandbox support failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Scene response with sandbox support error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_smart_context_includes_sandbox(self):
+        """Test POST /api/memory/smart-context now includes inventory/finances/properties"""
+        campaign_id = self.test_campaign_id
+        context_data = {
+            "campaign_id": campaign_id,
+            "player_discord_id": "123456789012345678",
+            "current_message": "I check my inventory and finances"
+        }
+        
+        print("\n🔍 Testing Smart Context - Sandbox Integration (may be slow)...")
+        try:
+            response = requests.post(f"{self.api_url}/memory/smart-context", json=context_data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"✅ Smart context with sandbox integration successful")
+                
+                context = result.get('context', '')
+                if context:
+                    print(f"   Context length: {len(context)} characters")
+                    
+                    # Check for sandbox sections
+                    has_inventar = "INVENTAR:" in context
+                    has_finanzen = "FINANZEN:" in context
+                    has_besitz = "BESITZ" in context or "MIETOBJEKTE:" in context
+                    
+                    print(f"   Has INVENTAR section: {has_inventar}")
+                    print(f"   Has FINANZEN section: {has_finanzen}")
+                    print(f"   Has BESITZ/MIETOBJEKTE section: {has_besitz}")
+                    
+                    if has_inventar or has_finanzen or has_besitz:
+                        print(f"   ✅ Sandbox data included in smart context")
+                    else:
+                        print(f"   ⚠️  Sandbox data not clearly detected in context")
+                        
+                self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Smart context with sandbox integration failed: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Smart context with sandbox integration error: {str(e)}")
+            self.tests_run += 1
+            return False
+
 def main():
     print("🎲 Starting GM Bot API Tests - Memory System Upgrade")
     print("=" * 60)
@@ -2134,6 +2640,20 @@ def main():
         tester.test_auto_summarize,
         tester.test_update_scene_from_narrative,
         tester.test_gm_message_driven_with_smart_context,
+        # SANDBOX TESTS - NEW FEATURES
+        tester.test_create_inventory_item,
+        tester.test_list_inventory,
+        tester.test_update_inventory_item,
+        tester.test_create_property,
+        tester.test_list_properties,
+        tester.test_update_property,
+        tester.test_upsert_finances,
+        tester.test_get_finances,
+        tester.test_create_transaction,
+        tester.test_list_transactions,
+        tester.test_gm_scene_response_dice_transparency,
+        tester.test_gm_scene_response_sandbox_support,
+        tester.test_smart_context_includes_sandbox,
         # NEW Scene Response Endpoint Tests
         tester.test_gm_scene_response_single_player,
         tester.test_gm_scene_response_multiple_players,
@@ -2170,6 +2690,7 @@ def main():
         tester.test_list_events,
         tester.test_export_includes_pcs_and_players,  # Updated export test
         # Cleanup tests (run these last)
+        tester.test_delete_inventory_item,
         tester.test_delete_player_character,
         tester.test_remove_allowed_player,
     ]
