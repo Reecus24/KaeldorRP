@@ -1163,6 +1163,11 @@ async def init_inventory_from_character(data: InitFromCharacterRequest):
     if not pc:
         raise HTTPException(404, "Charakter nicht gefunden")
 
+    # Guard: skip if structured items already exist
+    existing_count = await db.inventory.count_documents({"campaign_id": data.campaign_id, "owner_pc_id": data.pc_id})
+    if existing_count > 0:
+        return {"character_name": pc.get("character_name", "?"), "items_created": 0, "items": [], "money_detected": 0, "currency": "", "skipped": True, "reason": f"already has {existing_count} items"}
+
     inv_text = pc.get("inventory", "")
     pc_name = pc.get("character_name", "?")
     created_items = []
@@ -1280,19 +1285,24 @@ async def init_inventory_from_character(data: InitFromCharacterRequest):
             created_items.append(doc)
 
     # Create finance record if money was detected or just init with 0
-    if detected_money > 0 or not await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id}):
+    # Also pull debts/obligations from PC text fields
+    debts_text = pc.get("obligations_notes", "")
+    if detected_money > 0 or debts_text or not await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id}):
         fin_doc = {
             "id": new_id(), "campaign_id": data.campaign_id,
             "pc_id": data.pc_id, "balance": detected_money,
             "currency": detected_currency or "Silber",
-            "debts": "", "recurring_costs": "",
+            "debts": debts_text, "recurring_costs": "",
             "created_at": now_iso(), "updated_at": now_iso(),
         }
         existing_fin = await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id})
         if existing_fin:
+            update_fields = {"balance": detected_money, "currency": detected_currency or "Silber", "updated_at": now_iso()}
+            if debts_text:
+                update_fields["debts"] = debts_text
             await db.finances.update_one(
                 {"campaign_id": data.campaign_id, "pc_id": data.pc_id},
-                {"$set": {"balance": detected_money, "currency": detected_currency or "Silber", "updated_at": now_iso()}}
+                {"$set": update_fields}
             )
         else:
             await db.finances.insert_one(fin_doc)
@@ -1649,6 +1659,21 @@ async def extract_events_from_narrative(campaign_id: str = "", narrative: str = 
         await db.memory_events.insert_one(doc)
         doc.pop("_id", None)
         stored.append(doc)
+
+        # Auto-update NPC/PC status on death events
+        if ev.get("type") in ("death", "kill") and campaign_id:
+            subject = ev.get("subject", "")
+            if subject:
+                # Try updating NPC status to dead
+                await db.npcs.update_many(
+                    {"campaign_id": campaign_id, "name": {"$regex": f"^{re.escape(subject)}$", "$options": "i"}},
+                    {"$set": {"status": "dead", "updated_at": now_iso()}}
+                )
+                # Try updating PC status if it's a PC death
+                await db.player_characters.update_many(
+                    {"campaign_id": campaign_id, "character_name": {"$regex": f"^{re.escape(subject)}$", "$options": "i"}},
+                    {"$set": {"status": "dead", "injuries_conditions": "tot", "updated_at": now_iso()}}
+                )
     return {"extracted": len(stored), "events": stored}
 
 @api_router.post("/memory/auto-summarize")
