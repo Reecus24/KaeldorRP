@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { getPlayerCharacters, getInventar, getInventoryItems, createInventoryItem, updateInventoryItem, deleteInventoryItem, getTransactions, getProperties, upsertFinances } from '@/lib/api';
+import api from '@/lib/api';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -81,19 +82,32 @@ export default function FinanceDashboard() {
     if (!selectedPcId || !activeCampaign?.id) return;
     setLoading(true);
     try {
-      const [invRes, itemsRes, txRes, propRes] = await Promise.all([
-        getInventar(selectedPcId).catch(() => ({ data: null })),
-        getInventoryItems(activeCampaign.id, selectedPcId).catch(() => ({ data: [] })),
-        getTransactions(activeCampaign.id, selectedPcId, 200).catch(() => ({ data: [] })),
-        getProperties(activeCampaign.id, selectedPcId).catch(() => ({ data: [] })),
+      let [invData, items, txData, propData] = await Promise.all([
+        getInventar(selectedPcId).then(r => r.data).catch(() => null),
+        getInventoryItems(activeCampaign.id, selectedPcId).then(r => r.data || []).catch(() => []),
+        getTransactions(activeCampaign.id, selectedPcId, 200).then(r => r.data || []).catch(() => []),
+        getProperties(activeCampaign.id, selectedPcId).then(r => r.data || []).catch(() => []),
       ]);
-      setInventar(invRes.data);
-      setInventoryItems(itemsRes.data || []);
-      setTransactions(txRes.data || []);
-      setProperties(propRes.data || []);
+
+      // Auto-init: if PC has inventory text but 0 structured items, trigger init
+      if (items.length === 0) {
+        const pc = pcs.find(p => p.id === selectedPcId);
+        if (pc && pc.inventory && pc.inventory.trim()) {
+          try {
+            await api.post('/sandbox/init-from-character', { pc_id: selectedPcId, campaign_id: activeCampaign.id });
+            items = await getInventoryItems(activeCampaign.id, selectedPcId).then(r => r.data || []).catch(() => []);
+            invData = await getInventar(selectedPcId).then(r => r.data).catch(() => null);
+          } catch (e) { /* silent */ }
+        }
+      }
+
+      setInventar(invData);
+      setInventoryItems(items);
+      setTransactions(txData);
+      setProperties(propData);
     } catch (e) { /* silent */ }
     setLoading(false);
-  }, [selectedPcId, activeCampaign]);
+  }, [selectedPcId, activeCampaign, pcs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
