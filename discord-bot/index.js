@@ -637,6 +637,19 @@ async function handleInventar(interaction) {
 
     const { data: inv } = await axios.get(`${API}/sandbox/inventar/${pc.id}`);
 
+    // Auto-init: if no items but PC has inventory text, trigger init first
+    const hasNoItems = !inv.categories || Object.keys(inv.categories).length === 0;
+    if (hasNoItems && pc.inventory && pc.inventory.trim()) {
+      try {
+        await axios.post(`${API}/sandbox/init-from-character`, {
+          pc_id: pc.id, campaign_id: campaign.id
+        });
+        // Reload after init
+        const { data: reloaded } = await axios.get(`${API}/sandbox/inventar/${pc.id}`);
+        Object.assign(inv, reloaded);
+      } catch (e) { /* silent */ }
+    }
+
     // Build categorized embed
     const categoryOrder = [
       'Ausgerüstet', 'Mitgeführt', 'Gelagert', 'Verbrauchsgüter',

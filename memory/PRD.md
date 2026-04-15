@@ -1,7 +1,7 @@
 # GM Bot — Product Requirements Document
 
 ## Original Problem Statement
-Build a production-ready private Discord roleplay Game Master bot with persistent inventory and finance tracking.
+Build a production-ready private Discord roleplay Game Master bot with real lethality, persistent economy, and no hidden mercy logic.
 
 ## Architecture
 - **Backend**: FastAPI — `server.py`, `gm_engine.py`, `dice.py`
@@ -17,25 +17,29 @@ Build a production-ready private Discord roleplay Game Master bot with persisten
 - [x] Memory system (event extraction, auto-summarization)
 - [x] Sandbox economy (inventory, finances, properties, transactions)
 - [x] Transparent dice resolution
-- [x] Violence & PC Lethality
-- [x] Non-repetitive German Writing Style
-- [x] Character Background Enforcement
 - [x] `/Inventar` + `/TW` Slash Commands
 - [x] Finance & Inventory Dashboard (`/finances`)
-- [x] **Character creation → Inventory/Finance auto-init** (Feb 2026)
-  - `POST /api/sandbox/init-from-character` parses inventory text into structured items
-  - Detects money (10 Silbermünzen, praller Beutel, 25 Goldmünzen)
-  - Classifies items (weapon, tool, medical, consumable, valuable, document, equipment)
-  - Creates finance record with detected currency and balance
-  - Called automatically after Discord character creation
+- [x] Character creation → auto-init inventory + finances
+- [x] **True PC Lethality** — no hidden mercy, no last-second saves, explicit death triggers
+- [x] **Scene State Rules** — success = real state change, anti-loop enforcement
+- [x] **Anti-Repetition** — no recycled threats, forced progression every turn
+- [x] **Discord Formatting** — clean paragraphs, separated dice blocks
 
-## Key API Endpoints
-- `POST /api/sandbox/init-from-character` — Parse PC inventory text → structured items + finances
-- `GET/POST/PUT/DELETE /api/inventory` — Full CRUD
-- `GET /api/sandbox/inventar/{pc_id}` — Categorized view
-- `POST /api/sandbox/tagwechsel` — Day change
-- `GET/POST /api/transactions` — Transaction history
-- `GET/POST /api/finances` — Finance records
+## GM Rules (gm_engine.py)
+Key rule sections in system prompts:
+- `_lethality()`: PC death triggers, forbidden mercy behaviors, wound chain
+- `_scene_state_rules()`: Success must change tactical state, anti-loop rules, forced progression
+- `_writing_style()`: Discord formatting, anti-KI-Floskeln, anti-repetition
+- `_background_enforcement()`: Profession/skills binding, spontaneous claims rejection
+
+## Inventory Persistence
+- **Storage**: MongoDB `inventory` collection
+- **Auto-init**: Character creation text parsed into structured items + finances
+- **3 fallback layers**:
+  1. Discord bot `finalizeCreation` → calls `init-from-character`
+  2. Discord `/inventar` command → auto-init if 0 items but text exists
+  3. Dashboard `loadAll()` → auto-init if 0 items but text exists
+- **Sync**: Dashboard and Discord both read/write same MongoDB collection
 
 ## Backlog
 - discord-bot/index.js modularization (optional)
@@ -43,4 +47,3 @@ Build a production-ready private Discord roleplay Game Master bot with persisten
 ## Notes
 - Discord bot on Emergent is STOPPED
 - All GM output in German
-- Tagwechsel uses `advance_day` flag for multi-PC
