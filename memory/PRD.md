@@ -37,3 +37,22 @@
 - Player Character profiles (20+ fields), NPC system, dice engine
 - Location channel auto-creation, character change tracking
 - Export/import, event log, recap generation
+
+## Phase 5: Output Formatting Refinement (April 15, 2026)
+### Player Section Markers
+- Multi-player: **Name**: header per player section with paragraph breaks
+- Solo-player: no header, direct narration
+- Modes: label (bold name), mention (@user), smart (auto-detect same vs split scene)
+- Config: PLAYER_SECTION_MODE, SUPPRESS_MENTION_NOTIFICATIONS
+
+### NPC Dialogue
+- German quotes „..." with italic action *descriptions*
+- Dialogue and narration never blended in one sentence
+
+### Ending Prompts
+- Open atmospheric situations, not option-lists
+- No "Was macht ihr: A/B/C?" format
+
+### Response Length
+- 2-4 sentences per player section (max 500 chars/section)
+- Longer only for scene openings, reveals, combat peaks
