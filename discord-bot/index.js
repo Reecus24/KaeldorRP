@@ -72,32 +72,11 @@ function escapeRegex(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// Try to connect with MessageContent intent first, fallback to without
-let HAS_MESSAGE_CONTENT = true;
-let client;
-
-async function startBot() {
-  // Try with MessageContent first
-  try {
-    const c = new Client({
-      intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
-    });
-    await c.login(TOKEN);
-    console.log('MessageContent intent available - message-driven RP active');
-    return c;
-  } catch (err) {
-    if (err.code === 4014 || (err.message && err.message.includes('disallowed'))) {
-      console.log('MessageContent intent not enabled - slash commands only');
-      HAS_MESSAGE_CONTENT = false;
-      const c = new Client({
-        intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
-      });
-      await c.login(TOKEN);
-      return c;
-    }
-    throw err;
-  }
-}
+// Single client — no fallback dance
+const HAS_MESSAGE_CONTENT = true;
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+});
 
 // ── Character Creation State ──
 const creationSessions = new Map(); // channelId -> session
@@ -642,197 +621,138 @@ async function handlePCEdit(interaction) {
   } catch (err) { await interaction.editReply(`**Fehler:** ${err.message}`); }
 }
 
-// ── Start Bot ──
-(async () => {
+// ── Event Handlers ──
+client.once('ready', async () => {
+  console.log(`Bot online als ${client.user.tag}`);
   try {
-    client = await startBot();
+    const rest = new REST().setToken(TOKEN);
+    const body = commands.map(c => c.toJSON());
 
-    client.once('ready', async () => {
-      console.log(`Bot online als ${client.user.tag}`);
-      try {
-        const rest = new REST().setToken(TOKEN);
-        const body = commands.map(c => c.toJSON());
+    // Clear global commands to prevent duplicates
+    await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] }).catch(() => {});
 
-        // Clear global commands to prevent conflicts
-        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] }).catch(() => {});
+    if (GUILD_ID) {
+      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body });
+      console.log(`${body.length} Guild-Befehle registriert für ${GUILD_ID}`);
+    } else {
+      await rest.put(Routes.applicationCommands(CLIENT_ID), { body });
+      console.log(`${body.length} globale Befehle registriert`);
+    }
+  } catch (err) { console.error('Befehlsregistrierung fehlgeschlagen:', err); }
+});
 
-        if (GUILD_ID) {
-          await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body });
-          console.log(`${body.length} Guild-Befehle registriert für ${GUILD_ID}`);
-        } else {
-          await rest.put(Routes.applicationCommands(CLIENT_ID), { body });
-          console.log(`${body.length} globale Befehle registriert`);
-        }
-      } catch (err) { console.error('Befehlsregistrierung fehlgeschlagen:', err); }
-    });
-
-    client.on('interactionCreate', async interaction => {
-      if (!interaction.isChatInputCommand()) return;
-      if (GUILD_ID && interaction.guildId !== GUILD_ID) {
-        return interaction.reply({ content: 'Bot nicht für diesen Server konfiguriert.', ephemeral: true });
-      }
-      const h = {
-        campaign: handleCampaign, new_campaign: handleNewCampaign, scene: handleScene,
-        recap: handleRecap, rules: handleRules, set_tone: handleSetTone,
-        reset_session: handleResetSession, set_channel_mode: handleSetChannelMode,
-        pc_create: handlePCCreate, pc_view: handlePCView, pc_edit: handlePCEdit,
-        start_character_creation: handleStartCharCreation,
-      };
-      const handler = h[interaction.commandName];
-      if (handler) {
-        try { await handler(interaction); }
-        catch (err) {
-          console.error(`Fehler /${interaction.commandName}:`, err);
-          const fn = interaction.deferred || interaction.replied ? interaction.editReply.bind(interaction) : interaction.reply.bind(interaction);
-          await fn({ content: 'Ein Fehler ist aufgetreten.', ephemeral: true }).catch(() => {});
-        }
-      }
-    });
-
-    // Message handler - scene-turn-aware
-    client.on('messageCreate', async message => {
-      if (message.author.bot || !message.guild) return;
-      if (GUILD_ID && message.guildId !== GUILD_ID) return;
-      const content = message.content || '';
-      if (!content) return;
-
-      // Check character creation mode FIRST
-      const session = creationSessions.get(message.channelId);
-      if (session && session.phase !== 'done') {
-        await handleCreationMessage(message, session);
-        return;
-      }
-
-      // Normal IC message handling
-      if (!HAS_MESSAGE_CONTENT) return;
-      try {
-        const campaign = await getActiveCampaign().catch(() => null);
-        if (!campaign) return;
-        const { data: channels } = await axios.get(`${API}/channels`, { params: { campaign_id: campaign.id } });
-        const chCfg = channels.find(c => c.channel_id === message.channelId);
-        if (!chCfg || chCfg.mode !== 'ic') return;
-        const { data: allowed } = await axios.get(`${API}/allowed-players`, { params: { campaign_id: campaign.id } });
-        if (!allowed.some(p => p.discord_user_id === message.author.id)) return;
-        if (isOOC(message.content) || message.content.trim().length < 3) return;
-
-        // ── Scene Turn Logic ──
-        // Find which PCs are present in THIS channel/scene
-        const { data: allPCs } = await axios.get(`${API}/player-characters/active`, { params: { campaign_id: campaign.id } });
-        // Determine which allowed players have PCs (these are the expected actors)
-        const scenePlayers = allowed.filter(a => allPCs.some(pc => pc.discord_user_id === a.discord_user_id));
-
-        // Get the active PC for the message author
-        const authorPC = allPCs.find(pc => pc.discord_user_id === message.author.id);
-        const pcName = authorPC?.character_name || message.author.username;
-
-        // Record this player's action for this scene/channel
-        const turn = getSceneTurn(message.channelId);
-        turn.campaignId = campaign.id;
-
-        // Don't duplicate if same player posts again before GM responds
-        const alreadyActed = turn.pendingActions.some(a => a.discordId === message.author.id);
-        if (alreadyActed) {
-          // Replace their previous action with the newer one
-          turn.pendingActions = turn.pendingActions.filter(a => a.discordId !== message.author.id);
-        }
-        turn.pendingActions.push({
-          discordId: message.author.id,
-          pcName,
-          message: message.content,
-          timestamp: Date.now()
-        });
-
-        // Check: have ALL PCs present in this scene acted?
-        // For split scenes: only PCs whose allowed-player is in this channel's scene
-        // Simple heuristic: if there are N allowed players with active PCs, wait for N actions
-        // But if only 1 PC exists or only 1 is configured, respond after 1
-        const expectedCount = scenePlayers.length;
-        const actedCount = turn.pendingActions.length;
-        const allActed = actedCount >= expectedCount;
-
-        if (!allActed) {
-          // Not all PCs have acted yet — wait silently
-          return;
-        }
-
-        // All PCs in this scene have acted — generate combined GM response
-        if (turn.processing) return; // Prevent double-processing
-        turn.processing = true;
-
-        try {
-          await message.channel.sendTyping();
-
-          // Build combined action string from all pending actions
-          const combinedActions = turn.pendingActions
-            .map(a => `${a.pcName}: ${a.message}`)
-            .join('\n');
-
-          const { data: result } = await axios.post(`${API}/gm/scene-response`, {
-            campaign_id: campaign.id,
-            channel_id: message.channelId,
-            player_actions: turn.pendingActions.map(a => ({
-              discord_id: a.discordId, pc_name: a.pcName, message: a.message
-            })),
-            resolved_last_turn: turn.resolvedActions.map(a => ({
-              pc_name: a.pcName, message: a.message
-            })),
-            last_gm_response: turn.lastGmText || ''
-          });
-
-          // Lifecycle: pending → resolved, old resolved → consumed (dropped)
-          turn.resolvedActions = [...turn.pendingActions];
-          turn.pendingActions = [];
-          turn.lastGmResponse = Date.now();
-          turn.lastGmText = result.response || '';
-          turn.processing = false;
-
-          if (result.response) {
-            // Determine if this is a split scene (only 1 player acted)
-            const isSplit = turn.resolvedActions.length <= 1 && turn.pendingActions.length <= 1;
-            let text = formatGmOutput(result.response, turn.resolvedActions, isSplit);
-
-            // Handle location markers (already stripped by formatGmOutput, check raw)
-            const locMatch = result.response.match(/\[NEUER_ORT:\s*(.+?)\]/);
-            if (locMatch) {
-              const newCh = await handleLocationChange(message, campaign.id, locMatch[1]);
-              if (newCh) {
-                await message.channel.send(`*Die Szene wechselt nach **${locMatch[1]}**... Weiter in <#${newCh.id}>*`);
-                if (text.length <= 2000) await newCh.send(text);
-                else await newCh.send({ embeds: [embed('Spielleiter', text)] });
-                processMemory(campaign.id, result.response);
-                return;
-              }
-            }
-
-            // Send GM response — prefer plain text for readability, embed only if too long
-            if (text.length <= 2000) {
-              await message.channel.send({
-                content: text,
-                allowedMentions: SUPPRESS_MENTIONS ? { parse: [] } : undefined
-              });
-            } else {
-              await message.channel.send({
-                embeds: [embed('Spielleiter', text)],
-                allowedMentions: SUPPRESS_MENTIONS ? { parse: [] } : undefined
-              });
-            }
-
-            processMemory(campaign.id, result.response);
-          }
-        } catch (innerErr) {
-          turn.processing = false;
-          if (innerErr.response?.status !== 404) console.error('Scene response error:', innerErr.message);
-        }
-      } catch (err) {
-        if (err.response?.status !== 404) console.error('Message handler error:', err.message);
-      }
-    });
-
-    client.on('error', err => console.error('Client error:', err));
-  } catch (err) {
-    console.error('Bot startup failed:', err);
-    process.exit(1);
+client.on('interactionCreate', async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  if (GUILD_ID && interaction.guildId !== GUILD_ID) {
+    return interaction.reply({ content: 'Bot nicht für diesen Server konfiguriert.', ephemeral: true });
   }
-})();
+  const h = {
+    campaign: handleCampaign, new_campaign: handleNewCampaign, scene: handleScene,
+    recap: handleRecap, rules: handleRules, set_tone: handleSetTone,
+    reset_session: handleResetSession, set_channel_mode: handleSetChannelMode,
+    pc_create: handlePCCreate, pc_view: handlePCView, pc_edit: handlePCEdit,
+    start_character_creation: handleStartCharCreation,
+  };
+  const handler = h[interaction.commandName];
+  if (handler) {
+    try { await handler(interaction); }
+    catch (err) {
+      console.error(`Fehler /${interaction.commandName}:`, err.message);
+      const fn = interaction.deferred || interaction.replied ? interaction.editReply.bind(interaction) : interaction.reply.bind(interaction);
+      await fn({ content: 'Ein Fehler ist aufgetreten.', ephemeral: true }).catch(() => {});
+    }
+  }
+});
 
+// Message handler
+client.on('messageCreate', async message => {
+  if (message.author.bot || !message.guild) return;
+  if (GUILD_ID && message.guildId !== GUILD_ID) return;
+  const content = message.content || '';
+  if (!content) return;
+
+  // Check character creation mode FIRST
+  const session = creationSessions.get(message.channelId);
+  if (session && session.phase !== 'done') {
+    await handleCreationMessage(message, session);
+    return;
+  }
+
+  // Normal IC message handling
+  if (!HAS_MESSAGE_CONTENT) return;
+  try {
+    const campaign = await getActiveCampaign().catch(() => null);
+    if (!campaign) return;
+    const { data: channels } = await axios.get(`${API}/channels`, { params: { campaign_id: campaign.id } });
+    const chCfg = channels.find(c => c.channel_id === message.channelId);
+    if (!chCfg || chCfg.mode !== 'ic') return;
+    const { data: allowed } = await axios.get(`${API}/allowed-players`, { params: { campaign_id: campaign.id } });
+    if (!allowed.some(p => p.discord_user_id === message.author.id)) return;
+    if (isOOC(message.content) || message.content.trim().length < 3) return;
+
+    // Scene Turn Logic
+    const { data: allPCs } = await axios.get(`${API}/player-characters/active`, { params: { campaign_id: campaign.id } });
+    const scenePlayers = allowed.filter(a => allPCs.some(pc => pc.discord_user_id === a.discord_user_id));
+    const authorPC = allPCs.find(pc => pc.discord_user_id === message.author.id);
+    const pcName = authorPC?.character_name || message.author.username;
+
+    const turn = getSceneTurn(message.channelId);
+    turn.campaignId = campaign.id;
+    turn.pendingActions = turn.pendingActions.filter(a => a.discordId !== message.author.id);
+    turn.pendingActions.push({ discordId: message.author.id, pcName, message: message.content, timestamp: Date.now() });
+
+    const expectedCount = scenePlayers.length;
+    if (turn.pendingActions.length < expectedCount) return;
+    if (turn.processing) return;
+    turn.processing = true;
+
+    try {
+      await message.channel.sendTyping();
+      const { data: result } = await axios.post(`${API}/gm/scene-response`, {
+        campaign_id: campaign.id,
+        channel_id: message.channelId,
+        player_actions: turn.pendingActions.map(a => ({ discord_id: a.discordId, pc_name: a.pcName, message: a.message })),
+        resolved_last_turn: turn.resolvedActions.map(a => ({ pc_name: a.pcName, message: a.message })),
+        last_gm_response: turn.lastGmText || ''
+      });
+
+      turn.resolvedActions = [...turn.pendingActions];
+      turn.pendingActions = [];
+      turn.lastGmResponse = Date.now();
+      turn.lastGmText = result.response || '';
+      turn.processing = false;
+
+      if (result.response) {
+        const isSplit = turn.resolvedActions.length <= 1;
+        let text = formatGmOutput(result.response, turn.resolvedActions, isSplit);
+        const locMatch = result.response.match(/\[NEUER_ORT:\s*(.+?)\]/);
+        if (locMatch) {
+          const newCh = await handleLocationChange(message, campaign.id, locMatch[1]);
+          if (newCh) {
+            await message.channel.send(`*Die Szene wechselt nach **${locMatch[1]}**... Weiter in <#${newCh.id}>*`);
+            if (text.length <= 2000) await newCh.send(text);
+            else await newCh.send({ embeds: [embed('Spielleiter', text)] });
+            processMemory(campaign.id, result.response);
+            return;
+          }
+        }
+        if (text.length <= 2000) {
+          await message.channel.send({ content: text, allowedMentions: SUPPRESS_MENTIONS ? { parse: [] } : undefined });
+        } else {
+          await message.channel.send({ embeds: [embed('Spielleiter', text)], allowedMentions: SUPPRESS_MENTIONS ? { parse: [] } : undefined });
+        }
+        processMemory(campaign.id, result.response);
+      }
+    } catch (innerErr) {
+      turn.processing = false;
+      if (innerErr.response?.status !== 404) console.error('Scene response error:', innerErr.message);
+    }
+  } catch (err) {
+    if (err.response?.status !== 404) console.error('Message handler error:', err.message);
+  }
+});
+
+client.on('error', err => console.error('Client error:', err));
 process.on('unhandledRejection', err => console.error('Unhandled:', err));
+
+client.login(TOKEN);
