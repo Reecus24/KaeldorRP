@@ -1674,6 +1674,35 @@ async def extract_events_from_narrative(campaign_id: str = "", narrative: str = 
                     {"campaign_id": campaign_id, "character_name": {"$regex": f"^{re.escape(subject)}$", "$options": "i"}},
                     {"$set": {"status": "dead", "injuries_conditions": "tot", "updated_at": now_iso()}}
                 )
+
+        # Auto-update injuries/status on injury/status events
+        if ev.get("type") in ("injury", "status") and campaign_id:
+            subject = ev.get("subject", "")
+            detail = ev.get("detail", "").lower()
+            if subject:
+                # Determine new injury state from detail text
+                state_keywords = {
+                    "tot": ("dead", "tot"),
+                    "sterbend": ("active", "sterbend"),
+                    "blutend": ("active", "blutend"),
+                    "kampfunfähig": ("active", "kampfunfähig"),
+                    "schwer verletzt": ("active", "schwer verletzt"),
+                    "leicht verletzt": ("active", "leicht verletzt"),
+                }
+                for keyword, (status, injury) in state_keywords.items():
+                    if keyword in detail:
+                        update_fields = {"injuries_conditions": injury, "updated_at": now_iso()}
+                        if status == "dead":
+                            update_fields["status"] = "dead"
+                        await db.player_characters.update_many(
+                            {"campaign_id": campaign_id, "character_name": {"$regex": f"^{re.escape(subject)}$", "$options": "i"}},
+                            {"$set": update_fields}
+                        )
+                        await db.npcs.update_many(
+                            {"campaign_id": campaign_id, "name": {"$regex": f"^{re.escape(subject)}$", "$options": "i"}},
+                            {"$set": {"status": "dead" if status == "dead" else "alive", "updated_at": now_iso()}}
+                        )
+                        break
     return {"extracted": len(stored), "events": stored}
 
 @api_router.post("/memory/auto-summarize")
