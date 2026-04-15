@@ -75,6 +75,11 @@ export const createPlayerCharacter = (data) => api.post('/player-characters', da
 export const updatePlayerCharacter = (id, data) => api.put(`/player-characters/${id}`, data);
 export const deletePlayerCharacter = (id) => api.delete(`/player-characters/${id}`);
 
+// Sandbox: Inventory, Finances, Transactions, Properties
+export const getInventar = (pcId) => api.get(`/sandbox/inventar/${pcId}`);
+export const getFinances = (campaignId, pcId) => api.get('/finances', { params: { campaign_id: campaignId, pc_id: pcId } });
+export const getTransactions = (campaignId, pcId, limit = 100) => api.get('/transactions', { params: { campaign_id: campaignId, pc_id: pcId, limit } });
+export const getProperties = (campaignId, pcId) => api.get('/properties', { params: { campaign_id: campaignId, owner_pc_id: pcId } });
 // Allowed Players
 export const getAllowedPlayers = (campaignId) => api.get('/allowed-players', { params: { campaign_id: campaignId } });
 export const addAllowedPlayer = (data) => api.post('/allowed-players', data);

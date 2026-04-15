@@ -1173,6 +1173,11 @@ async def add_transaction(data: TransactionCreate):
     doc = data.model_dump()
     doc["id"] = new_id()
     doc["timestamp"] = now_iso()
+    doc["source"] = doc.get("source", "gameplay")
+    # Add campaign day if available
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    if campaign and "day" not in doc:
+        doc["day"] = campaign.get("current_day", 1)
     await db.transactions.insert_one(doc)
     doc.pop("_id", None)
     # Auto-update balance
@@ -1212,6 +1217,11 @@ async def process_tagwechsel(data: TagwechselRequest):
     total_income = 0
     total_expenses = 0
 
+    # Determine the day this tagwechsel applies to
+    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
+    current_day = campaign.get("current_day", 1) if campaign else 1
+    tw_day = current_day + 1 if data.advance_day else current_day
+
     # Get properties for rent
     properties = await db.properties.find({"campaign_id": data.campaign_id, "owner_pc_id": data.pc_id}, {"_id": 0}).to_list(20)
 
@@ -1224,6 +1234,7 @@ async def process_tagwechsel(data: TagwechselRequest):
                  "pc_name": pc.get("character_name", "?"), "transaction_type": "miete",
                  "amount": cost, "currency": prop.get("rent_currency", currency),
                  "description": f"Miete: {prop.get('name', '?')}", "counterparty": "",
+                 "day": tw_day, "source": "tagwechsel",
                  "timestamp": now_iso()}
             await db.transactions.insert_one(t)
             t.pop("_id", None)
@@ -1245,6 +1256,7 @@ async def process_tagwechsel(data: TagwechselRequest):
                  "pc_name": pc.get("character_name", "?"), "transaction_type": "ausgabe",
                  "amount": amount, "currency": currency,
                  "description": f"Laufend: {desc}", "counterparty": "",
+                 "day": tw_day, "source": "tagwechsel",
                  "timestamp": now_iso()}
             await db.transactions.insert_one(t)
             t.pop("_id", None)
@@ -1294,6 +1306,7 @@ async def process_tagwechsel(data: TagwechselRequest):
              "pc_name": pc.get("character_name", "?"), "transaction_type": "lohn",
              "amount": daily_wage, "currency": currency,
              "description": wage_source, "counterparty": "",
+             "day": tw_day, "source": "tagwechsel",
              "timestamp": now_iso()}
         await db.transactions.insert_one(t)
         t.pop("_id", None)
@@ -1308,13 +1321,11 @@ async def process_tagwechsel(data: TagwechselRequest):
     )
 
     # Advance campaign day counter ONLY if advance_day is set
-    campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
-    current_day = campaign.get("current_day", 1) if campaign else 1
     if data.advance_day:
-        new_day = current_day + 1
+        new_day = tw_day
         await db.campaigns.update_one({"id": data.campaign_id}, {"$set": {"current_day": new_day, "updated_at": now_iso()}})
     else:
-        new_day = current_day
+        new_day = tw_day
 
     # Log as event
     summary = f"Tagwechsel Tag {new_day}: {pc.get('character_name','?')} — Einnahmen: +{total_income}, Ausgaben: -{total_expenses}, Saldo: {new_balance}"

@@ -10,6 +10,7 @@ import LoreManager from "@/pages/LoreManager";
 import RulesSettings from "@/pages/RulesSettings";
 import ChannelConfig from "@/pages/ChannelConfig";
 import EventLog from "@/pages/EventLog";
+import FinanceDashboard from "@/pages/FinanceDashboard";
 import { getActiveCampaign, getCampaigns } from "@/lib/api";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -55,6 +56,7 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="/campaigns" element={<CampaignManager />} />
           <Route path="/characters" element={<PlayerCharacters />} />
+          <Route path="/finances" element={<FinanceDashboard />} />
           <Route path="/npcs" element={<NPCManager />} />
           <Route path="/lore" element={<LoreManager />} />
           <Route path="/rules" element={<RulesSettings />} />
