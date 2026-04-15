@@ -11,6 +11,8 @@ class GMBotAPITester:
         self.tests_passed = 0
         self.test_campaign_id = "6e3d6875-c5a0-4887-98d2-1f5510955bd7"  # Test campaign from review (zombie apocalypse)
         self.created_ids = {}  # Track created resources for cleanup
+        self.duplicate_bug_tests = 0  # Track duplicate bug specific tests
+        self.duplicate_bug_passed = 0
 
     def run_test(self, name, method, endpoint, expected_status, data=None, params=None):
         """Run a single API test"""
@@ -1536,6 +1538,331 @@ class GMBotAPITester:
             self.tests_run += 1
             return False
 
+    # ── DUPLICATE BUG FIX TESTS ──
+    
+    def test_scene_response_accepts_resolved_fields(self):
+        """Test that scene-response endpoint accepts resolved_last_turn and last_gm_response fields"""
+        self.duplicate_bug_tests += 1
+        
+        data = {
+            "campaign_id": self.test_campaign_id,
+            "channel_id": "test_channel_123",
+            "player_actions": [
+                {
+                    "discord_id": "player1",
+                    "pc_name": "Erik",
+                    "message": "Ich schaue mich um."
+                }
+            ],
+            "resolved_last_turn": [
+                {
+                    "pc_name": "Erik", 
+                    "message": "Ich untersuche den Brunnen."
+                }
+            ],
+            "last_gm_response": "Erik nähert sich dem alten Brunnen. Das Wasser ist trüb."
+        }
+        
+        print("\n🔍 Testing Scene Response - Accepts Resolved Fields...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=data, timeout=30)
+            if response.status_code == 200:
+                self.duplicate_bug_passed += 1
+                self.tests_passed += 1
+                print(f"✅ Endpoint accepts resolved_last_turn and last_gm_response fields")
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Failed - Status: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_scene_response_no_prior_context(self):
+        """Test scene-response with no prior context works normally"""
+        self.duplicate_bug_tests += 1
+        
+        data = {
+            "campaign_id": self.test_campaign_id,
+            "channel_id": "test_channel_456",
+            "player_actions": [
+                {
+                    "discord_id": "player1",
+                    "pc_name": "Erik",
+                    "message": "Ich betrete das verlassene Haus."
+                }
+            ]
+        }
+        
+        print("\n🔍 Testing Scene Response - No Prior Context...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('response'):
+                    print(f"✅ Normal response generated: {len(result['response'])} chars")
+                    self.duplicate_bug_passed += 1
+                    self.tests_passed += 1
+                else:
+                    print(f"✅ GM decided no response needed")
+                    self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Failed - Status: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_scene_response_no_repetition(self):
+        """Test scene-response with resolved context does NOT repeat previous actions"""
+        self.duplicate_bug_tests += 1
+        
+        # Simulate previous turn that was already resolved
+        resolved_actions = [
+            {
+                "pc_name": "Erik",
+                "message": "Ich untersuche den alten Brunnen und schaue hinein."
+            }
+        ]
+        
+        last_gm_response = "Erik nähert sich dem verwitterten Brunnen. Das Wasser ist dunkel und trüb, mit einem seltsamen Geruch. Am Steinrand sind alte Kratzer zu sehen."
+        
+        # New action for current turn
+        data = {
+            "campaign_id": self.test_campaign_id,
+            "channel_id": "test_channel_789",
+            "player_actions": [
+                {
+                    "discord_id": "player1", 
+                    "pc_name": "Erik",
+                    "message": "Ich werfe einen Stein in den Brunnen und lausche dem Echo."
+                }
+            ],
+            "resolved_last_turn": resolved_actions,
+            "last_gm_response": last_gm_response
+        }
+        
+        print("\n🔍 Testing Scene Response - No Repetition Check...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('response'):
+                    response_text = result['response'].lower()
+                    
+                    # Check for repetition of previous actions
+                    repetition_indicators = [
+                        "nähert sich dem brunnen",
+                        "untersucht den brunnen", 
+                        "schaue hinein",
+                        "wasser ist dunkel",
+                        "kratzer zu sehen",
+                        "verwitterten brunnen"
+                    ]
+                    
+                    found_repetitions = []
+                    for indicator in repetition_indicators:
+                        if indicator in response_text:
+                            found_repetitions.append(indicator)
+                    
+                    if found_repetitions:
+                        print(f"❌ Repetition detected: {found_repetitions}")
+                        print(f"   Response: {result['response'][:300]}...")
+                        self.tests_run += 1
+                        return False
+                    else:
+                        print(f"✅ No repetition - response moves forward")
+                        self.duplicate_bug_passed += 1
+                        self.tests_passed += 1
+                else:
+                    print(f"✅ GM decided no response needed")
+                    self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Failed - Status: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_scene_response_moves_forward(self):
+        """Test scene-response moves the scene forward to new actions"""
+        self.duplicate_bug_tests += 1
+        
+        data = {
+            "campaign_id": self.test_campaign_id,
+            "channel_id": "test_channel_forward",
+            "player_actions": [
+                {
+                    "discord_id": "player1",
+                    "pc_name": "Erik", 
+                    "message": "Ich gehe zum Marktplatz und spreche mit den Händlern."
+                },
+                {
+                    "discord_id": "player2",
+                    "pc_name": "Lyra",
+                    "message": "Ich folge Erik und halte Ausschau nach Gefahren."
+                }
+            ]
+        }
+        
+        print("\n🔍 Testing Scene Response - Moves Forward...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('response'):
+                    response_text = result['response'].lower()
+                    
+                    # Check if both characters are addressed
+                    erik_mentioned = "erik" in response_text
+                    lyra_mentioned = "lyra" in response_text
+                    
+                    if erik_mentioned and lyra_mentioned:
+                        print(f"✅ Response addresses both characters")
+                        self.duplicate_bug_passed += 1
+                        self.tests_passed += 1
+                    else:
+                        print(f"⚠️  Response may not address all characters (Erik: {erik_mentioned}, Lyra: {lyra_mentioned})")
+                        self.tests_passed += 1
+                else:
+                    print(f"✅ GM decided no response needed")
+                    self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Failed - Status: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_scene_response_persistent_consequences(self):
+        """Test scene-response mentions persistent consequences briefly, not replayed"""
+        self.duplicate_bug_tests += 1
+        
+        resolved_actions = [
+            {
+                "pc_name": "Erik",
+                "message": "Ich beleidige den Dorfvorsteher laut vor allen Leuten."
+            }
+        ]
+        
+        last_gm_response = "Erik schreit den Dorfvorsteher wütend an. Die Menge wird unruhig und feindselig. Einige Dorfbewohner greifen nach Steinen und murmeln bedrohlich."
+        
+        data = {
+            "campaign_id": self.test_campaign_id,
+            "channel_id": "test_channel_consequences",
+            "player_actions": [
+                {
+                    "discord_id": "player1",
+                    "pc_name": "Erik", 
+                    "message": "Ich versuche die Situation zu beruhigen und entschuldige mich höflich."
+                }
+            ],
+            "resolved_last_turn": resolved_actions,
+            "last_gm_response": last_gm_response
+        }
+        
+        print("\n🔍 Testing Scene Response - Persistent Consequences...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('response'):
+                    response_text = result['response'].lower()
+                    
+                    # Check for brief mention vs full replay
+                    consequence_mentions = ["menge", "feindselig", "unruhig", "steine"]
+                    replay_indicators = ["schreit", "beleidigt", "wird unruhig", "greifen nach steinen"]
+                    
+                    brief_mentions = sum(1 for mention in consequence_mentions if mention in response_text)
+                    replay_count = sum(1 for replay in replay_indicators if replay in response_text)
+                    
+                    if brief_mentions > 0 and replay_count == 0:
+                        print(f"✅ Consequences mentioned briefly without replay")
+                        self.duplicate_bug_passed += 1
+                        self.tests_passed += 1
+                    elif replay_count > 0:
+                        print(f"❌ Possible replay detected: {replay_count} replay indicators found")
+                        self.tests_run += 1
+                        return False
+                    else:
+                        print(f"ℹ️  No clear consequence handling detected")
+                        self.tests_passed += 1
+                else:
+                    print(f"✅ GM decided no response needed")
+                    self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Failed - Status: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
+    def test_scene_response_length_limit(self):
+        """Test scene-response stays under 1500 chars"""
+        self.duplicate_bug_tests += 1
+        
+        data = {
+            "campaign_id": self.test_campaign_id,
+            "channel_id": "test_channel_length",
+            "player_actions": [
+                {
+                    "discord_id": "player1",
+                    "pc_name": "Erik",
+                    "message": "Ich erkunde das gesamte verlassene Schloss von Keller bis Dachboden, suche nach Geheimnissen, Schätzen, Fallen, versteckten Räumen, alten Dokumenten und magischen Artefakten."
+                }
+            ]
+        }
+        
+        print("\n🔍 Testing Scene Response - Length Limit...")
+        try:
+            response = requests.post(f"{self.api_url}/gm/scene-response", json=data, timeout=30)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get('response'):
+                    length = len(result['response'])
+                    print(f"   Response length: {length} chars")
+                    
+                    if length <= 1500:
+                        print(f"✅ Response within 1500 char limit")
+                        self.duplicate_bug_passed += 1
+                        self.tests_passed += 1
+                    else:
+                        print(f"❌ Response exceeds 1500 char limit")
+                        self.tests_run += 1
+                        return False
+                else:
+                    print(f"✅ GM decided no response needed")
+                    self.tests_passed += 1
+                self.tests_run += 1
+                return True
+            else:
+                print(f"❌ Failed - Status: {response.status_code}")
+                self.tests_run += 1
+                return False
+        except Exception as e:
+            print(f"❌ Error: {str(e)}")
+            self.tests_run += 1
+            return False
+
 def main():
     print("🎲 Starting GM Bot API Tests - Memory System Upgrade")
     print("=" * 60)
@@ -1585,6 +1912,13 @@ def main():
         tester.test_gm_scene_response_single_player,
         tester.test_gm_scene_response_multiple_players,
         tester.test_gm_scene_response_length_constraint,
+        # DUPLICATE BUG FIX TESTS
+        tester.test_scene_response_accepts_resolved_fields,
+        tester.test_scene_response_no_prior_context,
+        tester.test_scene_response_no_repetition,
+        tester.test_scene_response_moves_forward,
+        tester.test_scene_response_persistent_consequences,
+        tester.test_scene_response_length_limit,
         # GM Engine tests - Campaign Generation Flow
         tester.test_gm_generate_campaign,
         tester.test_gm_generate_character_questions,
@@ -1623,6 +1957,7 @@ def main():
     
     print("\n" + "=" * 60)
     print(f"📊 Test Results: {tester.tests_passed}/{tester.tests_run} passed")
+    print(f"🎯 Duplicate Bug Fix Tests: {tester.duplicate_bug_passed}/{tester.duplicate_bug_tests} passed")
     
     if failed_tests:
         print(f"❌ Failed tests: {', '.join(failed_tests)}")

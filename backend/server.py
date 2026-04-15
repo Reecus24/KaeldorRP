@@ -304,6 +304,8 @@ class SceneResponseRequest(BaseModel):
     campaign_id: str
     channel_id: str = ""
     player_actions: List[dict]  # [{discord_id, pc_name, message}]
+    resolved_last_turn: List[dict] = []  # [{pc_name, message}] - already narrated
+    last_gm_response: str = ""  # the GM's previous response text
 
 class AutoSummarizeRequest(BaseModel):
     campaign_id: str
@@ -870,7 +872,11 @@ async def gm_scene_response(data: SceneResponseRequest):
         raise HTTPException(404, "Campaign not found")
     first_player = data.player_actions[0]["discord_id"] if data.player_actions else ""
     smart_ctx = await build_smart_context(data.campaign_id, first_player)
-    response = await gm.scene_turn_response(campaign, data.player_actions, smart_ctx)
+    response = await gm.scene_turn_response(
+        campaign, data.player_actions, smart_ctx,
+        resolved_last_turn=data.resolved_last_turn,
+        last_gm_response=data.last_gm_response
+    )
     ts = now_iso()
     for action in data.player_actions:
         await db.chat_history.insert_one({"id": new_id(), "campaign_id": data.campaign_id, "role": "user", "content": f"[{action.get('pc_name','?')}] {action.get('message','')}", "timestamp": ts})

@@ -84,13 +84,20 @@ const commands = [
 ];
 
 // ── Scene Turn Tracker ──
-// Per-channel: tracks which PCs have posted since last GM response
-// Key: channelId -> { campaignId, pendingActions: [{discordId, pcName, message, timestamp}], lastGmResponse: timestamp, processing: bool }
+// Per-channel: tracks action lifecycle (pending → resolved → consumed)
+// Key: channelId -> { campaignId, pendingActions, resolvedActions, lastGmResponse, lastGmText, processing }
 const sceneTurns = new Map();
 
 function getSceneTurn(channelId) {
   if (!sceneTurns.has(channelId)) {
-    sceneTurns.set(channelId, { campaignId: null, pendingActions: [], lastGmResponse: 0, processing: false });
+    sceneTurns.set(channelId, {
+      campaignId: null,
+      pendingActions: [],    // current turn: awaiting GM response
+      resolvedActions: [],   // previous turn: already narrated (kept for 1 cycle as context)
+      lastGmResponse: 0,
+      lastGmText: '',        // the GM's last response text, so the prompt can say "you already said this"
+      processing: false,
+    });
   }
   return sceneTurns.get(channelId);
 }
@@ -679,12 +686,18 @@ async function handlePCEdit(interaction) {
             channel_id: message.channelId,
             player_actions: turn.pendingActions.map(a => ({
               discord_id: a.discordId, pc_name: a.pcName, message: a.message
-            }))
+            })),
+            resolved_last_turn: turn.resolvedActions.map(a => ({
+              pc_name: a.pcName, message: a.message
+            })),
+            last_gm_response: turn.lastGmText || ''
           });
 
-          // Reset turn tracker for this scene
+          // Lifecycle: pending → resolved, old resolved → consumed (dropped)
+          turn.resolvedActions = [...turn.pendingActions];
           turn.pendingActions = [];
           turn.lastGmResponse = Date.now();
+          turn.lastGmText = result.response || '';
           turn.processing = false;
 
           if (result.response) {

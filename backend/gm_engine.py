@@ -229,18 +229,31 @@ Leere Felder weglassen. Nur geänderte Werte."""
 
     # ── Scene Turn Response (combined multi-player, short output) ──
 
-    async def scene_turn_response(self, campaign, player_actions, smart_ctx):
-        """Respond to combined player actions in a shared scene. Short, disciplined output."""
+    async def scene_turn_response(self, campaign, player_actions, smart_ctx, resolved_last_turn=None, last_gm_response=""):
+        """Respond to combined player actions in a shared scene. Strict action lifecycle."""
         tone = campaign.get('tone', 'realistic')
         pre_roll = random.randint(1, 20)
         pre_roll_2 = random.randint(1, 20)
 
         world_context = self.format_smart_context(smart_ctx) if smart_ctx else ""
 
-        # Build the combined actions block
-        actions_block = ""
+        # Build NEW actions block (these are what we must react to)
+        new_actions = ""
         for a in player_actions:
-            actions_block += f"**{a.get('pc_name', '?')}**: {a.get('message', '')}\n"
+            new_actions += f"  {a.get('pc_name', '?')}: {a.get('message', '')}\n"
+
+        # Build RESOLVED context (already narrated — DO NOT re-narrate)
+        resolved_block = ""
+        if resolved_last_turn:
+            resolved_block = "BEREITS AUFGELÖST (letzte Runde — NICHT erneut erzählen):\n"
+            for a in resolved_last_turn:
+                resolved_block += f"  {a.get('pc_name', '?')}: {a.get('message', '')}\n"
+
+        last_gm_block = ""
+        if last_gm_response:
+            # Truncate to keep prompt lean, just enough for the LLM to know what was said
+            truncated = last_gm_response[:400] + ("..." if len(last_gm_response) > 400 else "")
+            last_gm_block = f"DEINE LETZTE ANTWORT (bereits erzählt — NICHT wiederholen):\n  {truncated}\n"
 
         system = f"""Du bist der Spielleiter einer privaten Rollenspiel-Sitzung für zwei Spieler.
 {GERMAN}
@@ -254,35 +267,37 @@ ANTWORT-STIL:
 - Längere Antworten (3-4 kurze Absätze) NUR bei: Szeneneröffnungen, großen Enthüllungen, Kampfhöhepunkten.
 - KEINE Textwände. KEIN halber Roman. KEIN übermäßiges Beschreiben.
 - Atmosphärisch, aber knapp. Jeder Satz zählt.
-- Absätze kurz halten. Zwischen NPC-Dialog und Erzählung trennen.
 - NPC-Dialog in Anführungszeichen, kursive Handlungsbeschreibung.
 - MAXIMAL 600 Zeichen für normale Antworten. Bei Kampf/Enthüllung maximal 1200.
 
-SZENEN-LOGIK:
-- Du erhältst die Handlungen ALLER Spielercharaktere in dieser Szene gleichzeitig.
-- Reagiere auf BEIDE Handlungen in EINER zusammenhängenden Antwort.
-- Beschreibe NUR Konsequenzen für die handelnden Charaktere. Erfinde keine Aktionen für abwesende Spieler.
-- Jeder Charakter sollte die Konsequenzen seiner Handlung spüren.
+AKTIONS-LEBENSZYKLUS (STRIKT):
+- Unter NEUE AKTIONEN stehen die Handlungen, die du JETZT auflösen musst.
+- Unter BEREITS AUFGELÖST stehen Handlungen der LETZTEN Runde — diese sind FERTIG erzählt.
+- Du darfst aufgelöste Handlungen NICHT erneut erzählen, nachspielen oder wiederholen.
+- Wenn eine Konsequenz aus der letzten Runde noch AKTIV ist (z.B. Verletzung, Lärm, Feind in Sichtweite), erwähne sie KURZ als bestehenden Zustand, NICHT als neues Ereignis.
+  Beispiel gut: „Die Menge am Brunnen ist noch immer feindselig."
+  Beispiel schlecht: „Du hast die Menge beleidigt und sie wurde wütend." (= Wiederholung)
+- Erzähle die Szene VORWÄRTS. Reagiere nur auf das Neue.
 
-GEDÄCHTNIS:
-- Erinnere dich an Verletzungen, Schulden, Versprechen, Beziehungen.
-- Referenziere Vergangenes wenn relevant, aber kurz.
-- Offenbare Geheimes nur wenn fiktional angemessen.
+SZENEN-LOGIK:
+- Reagiere auf ALLE neuen Handlungen in EINER zusammenhängenden Antwort.
+- Beschreibe NUR Konsequenzen für die handelnden Charaktere.
+- Erfinde keine Aktionen für abwesende Spieler.
 
 WÜRFEL:
-- Bei unsicherem Ausgang: verwende {pre_roll} oder {pre_roll_2} (1W20), erzähle knapp.
+- Bei unsicherem Ausgang: verwende {pre_roll} oder {pre_roll_2} (1W20).
 - Zeige: [Wurf: 1W20 = X]
 - Bei Ortswechsel: [NEUER_ORT: Name]
 - Bei Zustandsänderung: [ÄNDERUNG: Charakter - Was]
 
 Wenn KEINE Reaktion der Welt angemessen ist: [KEINE_ANTWORT]"""
 
-        hist = ""
-        chat_msgs = (smart_ctx or {}).get("recent_chat", [])
-        for m in chat_msgs[-4:]:
-            pf = "SPIELER" if m.get('role') == 'user' else "SL"
-            hist += f"{pf}: {m.get('content','')}\n"
-        prompt = f"{hist}\nAKTIONEN DIESER RUNDE:\n{actions_block}"
+        prompt = ""
+        if resolved_block:
+            prompt += resolved_block + "\n"
+        if last_gm_block:
+            prompt += last_gm_block + "\n"
+        prompt += f"NEUE AKTIONEN (jetzt auflösen):\n{new_actions}"
 
         chat = self._chat("scene", system)
         resp = await chat.send_message(UserMessage(text=prompt))
