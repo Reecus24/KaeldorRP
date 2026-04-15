@@ -237,12 +237,16 @@ Leere Felder weglassen. Nur geänderte Werte."""
 
         world_context = self.format_smart_context(smart_ctx) if smart_ctx else ""
 
-        # Build NEW actions block (these are what we must react to)
+        # Build action list with discord IDs for section headers
+        player_names = [a.get('pc_name', '?') for a in player_actions]
+        is_multi = len(player_actions) > 1
+
+        # Build NEW actions block
         new_actions = ""
         for a in player_actions:
             new_actions += f"  {a.get('pc_name', '?')}: {a.get('message', '')}\n"
 
-        # Build RESOLVED context (already narrated — DO NOT re-narrate)
+        # Build RESOLVED context
         resolved_block = ""
         if resolved_last_turn:
             resolved_block = "BEREITS AUFGELÖST (letzte Runde — NICHT erneut erzählen):\n"
@@ -251,11 +255,39 @@ Leere Felder weglassen. Nur geänderte Werte."""
 
         last_gm_block = ""
         if last_gm_response:
-            # Truncate to keep prompt lean, just enough for the LLM to know what was said
             truncated = last_gm_response[:400] + ("..." if len(last_gm_response) > 400 else "")
             last_gm_block = f"DEINE LETZTE ANTWORT (bereits erzählt — NICHT wiederholen):\n  {truncated}\n"
 
-        system = f"""Du bist der Spielleiter einer privaten Rollenspiel-Sitzung für zwei Spieler.
+        # Multi-player formatting instructions
+        multi_format = ""
+        if is_multi:
+            names_str = " und ".join([f"**{n}**" for n in player_names])
+            multi_format = f"""
+MULTI-SPIELER FORMATIERUNG:
+- Zwei Spieler haben gehandelt: {names_str}
+- Schreibe für JEDEN Spieler einen eigenen Abschnitt.
+- Beginne jeden Abschnitt mit dem Charakternamen als Fettdruck-Überschrift: **Name**:
+- Trenne die Abschnitte mit einer Leerzeile.
+- Jeder Abschnitt: 2-4 Sätze, Konsequenz der Handlung dieses Charakters.
+- Am Ende optional EIN kurzer gemeinsamer Satz falls die Situation es erfordert.
+- KEIN langer gemeinsamer Absatz der beide Handlungen vermischt.
+
+STRUKTUR-VORLAGE:
+**{player_names[0]}**: [Konsequenz der Handlung, 2-4 Sätze]
+
+**{player_names[1]}**: [Konsequenz der Handlung, 2-4 Sätze]
+
+[Optional: Ein kurzer gemeinsamer Satz zur Gesamtlage]
+"""
+        else:
+            multi_format = """
+SOLO-SPIELER FORMATIERUNG:
+- Nur EIN Spieler hat gehandelt.
+- Schreibe 2-5 Sätze als direkte Konsequenz.
+- KEINEN Abschnittsheader nötig bei nur einem Spieler.
+"""
+
+        system = f"""Du bist der Spielleiter einer privaten Rollenspiel-Sitzung.
 {GERMAN}
 {self._rules()}
 {self._tone(tone)}
@@ -263,26 +295,32 @@ Leere Felder weglassen. Nur geänderte Werte."""
 {world_context}
 
 ANTWORT-STIL:
-- KURZ und LESBAR. Normalerweise 2 bis 5 Sätze.
-- Längere Antworten (3-4 kurze Absätze) NUR bei: Szeneneröffnungen, großen Enthüllungen, Kampfhöhepunkten.
-- KEINE Textwände. KEIN halber Roman. KEIN übermäßiges Beschreiben.
+- KURZ und LESBAR. Pro Spielerabschnitt 2 bis 4 Sätze.
+- Längere Abschnitte NUR bei: Szeneneröffnungen, großen Enthüllungen, Kampfhöhepunkten.
+- KEINE Textwände. KEIN halber Roman.
 - Atmosphärisch, aber knapp. Jeder Satz zählt.
-- NPC-Dialog in Anführungszeichen, kursive Handlungsbeschreibung.
-- MAXIMAL 600 Zeichen für normale Antworten. Bei Kampf/Enthüllung maximal 1200.
+- MAXIMAL 500 Zeichen pro Spielerabschnitt. Bei Kampf/Enthüllung maximal 800.
+{multi_format}
+NPC-DIALOG FORMATIERUNG:
+- NPC-Sprache IMMER in Anführungszeichen: „Dialog hier."
+- Vor oder nach dem Dialog kurze Handlungsbeschreibung in *Kursiv*: *Er mustert dich kalt.*
+- Dialog und Erzählung NICHT in einem Satz vermischen.
+- Gut: *Der Wirt schiebt das Glas über den Tresen.* „Nimm das und verschwinde."
+- Schlecht: Der Wirt schiebt dir das Glas rüber und sagt nimm das und verschwinde.
+
+ABSCHLUSS-PROMPT:
+- Am Ende EIN kurzer Satz als offene Situation. KEINE Aufzählung von Optionen.
+- KEIN „Was tut ihr: Option A / Option B / Option C"
+- Stattdessen: Ende mit einer Situation die zum Handeln einlädt.
+- Gut: *Stille. Dann ein Knirschen hinter der Tür.*
+- Schlecht: Was macht ihr jetzt — Tür öffnen, weglaufen oder warten?
 
 AKTIONS-LEBENSZYKLUS (STRIKT):
-- Unter NEUE AKTIONEN stehen die Handlungen, die du JETZT auflösen musst.
-- Unter BEREITS AUFGELÖST stehen Handlungen der LETZTEN Runde — diese sind FERTIG erzählt.
-- Du darfst aufgelöste Handlungen NICHT erneut erzählen, nachspielen oder wiederholen.
-- Wenn eine Konsequenz aus der letzten Runde noch AKTIV ist (z.B. Verletzung, Lärm, Feind in Sichtweite), erwähne sie KURZ als bestehenden Zustand, NICHT als neues Ereignis.
-  Beispiel gut: „Die Menge am Brunnen ist noch immer feindselig."
-  Beispiel schlecht: „Du hast die Menge beleidigt und sie wurde wütend." (= Wiederholung)
-- Erzähle die Szene VORWÄRTS. Reagiere nur auf das Neue.
-
-SZENEN-LOGIK:
-- Reagiere auf ALLE neuen Handlungen in EINER zusammenhängenden Antwort.
-- Beschreibe NUR Konsequenzen für die handelnden Charaktere.
-- Erfinde keine Aktionen für abwesende Spieler.
+- Unter NEUE AKTIONEN stehen die Handlungen die du JETZT auflösen musst.
+- Unter BEREITS AUFGELÖST stehen Handlungen der LETZTEN Runde — FERTIG erzählt.
+- Aufgelöste Handlungen NICHT erneut erzählen.
+- Aktive Konsequenzen KURZ als Zustand erwähnen, nicht als neues Ereignis.
+- Erzähle VORWÄRTS.
 
 WÜRFEL:
 - Bei unsicherem Ausgang: verwende {pre_roll} oder {pre_roll_2} (1W20).

@@ -9,6 +9,69 @@ const API = process.env.API_URL || 'http://localhost:8001/api';
 
 if (!TOKEN || !CLIENT_ID) { console.error('Missing DISCORD_BOT_TOKEN or DISCORD_CLIENT_ID'); process.exit(1); }
 
+// Formatting config
+const SECTION_MODE = process.env.PLAYER_SECTION_MODE || 'smart'; // label | mention | smart
+const SUPPRESS_MENTIONS = process.env.SUPPRESS_MENTION_NOTIFICATIONS === 'true';
+
+/**
+ * Post-process GM text for Discord formatting.
+ * - Injects player section markers (label / mention / smart)
+ * - Strips internal system markers
+ * - Cleans up whitespace for readability
+ */
+function formatGmOutput(rawText, playerActions, isSplitScene) {
+  let text = rawText;
+  // Strip internal markers
+  text = text.replace(/\[NEUER_ORT:\s*.+?\]/g, '').replace(/\[ÄNDERUNG:\s*.+?\]/g, '').trim();
+
+  // Determine mode for this response
+  let mode = SECTION_MODE;
+  if (mode === 'smart') {
+    mode = isSplitScene ? 'mention' : 'label';
+  }
+
+  // If multiple players, inject section markers where the GM used **Name** headers
+  if (playerActions.length > 1) {
+    for (const a of playerActions) {
+      const name = a.pcName || a.pc_name || '?';
+      const discordId = a.discordId || a.discord_id || '';
+
+      // Build the replacement marker
+      let marker;
+      if (mode === 'mention' && discordId) {
+        marker = `**<@${discordId}> — ${name}**`;
+      } else {
+        marker = `**${name}**`;
+      }
+
+      // Replace various GM patterns for player headers:
+      // "**Name**:" / "**Name**," / "**Name**\n" at start of a section
+      const namePatterns = [
+        new RegExp(`\\*\\*${escapeRegex(name)}\\*\\*\\s*:`, 'g'),
+        new RegExp(`\\*\\*${escapeRegex(name)}\\*\\*\\s*,`, 'g'),
+        new RegExp(`^\\*\\*${escapeRegex(name)}\\*\\*`, 'gm'),
+        // Also match "Name:" at line start without bold
+        new RegExp(`^${escapeRegex(name)}\\s*:`, 'gm'),
+      ];
+      for (const pat of namePatterns) {
+        if (pat.test(text)) {
+          text = text.replace(pat, `${marker}:`);
+          break; // Only replace with first matching pattern
+        }
+      }
+    }
+  }
+
+  // Ensure clean paragraph breaks (normalize multiple newlines)
+  text = text.replace(/\n{3,}/g, '\n\n');
+
+  return text;
+}
+
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // Try to connect with MessageContent intent first, fallback to without
 let HAS_MESSAGE_CONTENT = true;
 
@@ -701,32 +764,36 @@ async function handlePCEdit(interaction) {
           turn.processing = false;
 
           if (result.response) {
-            let text = result.response;
+            // Determine if this is a split scene (only 1 player acted)
+            const isSplit = turn.resolvedActions.length <= 1 && turn.pendingActions.length <= 1;
+            let text = formatGmOutput(result.response, turn.resolvedActions, isSplit);
 
-            // Strip markers for display, process them async
-            const locMatch = text.match(/\[NEUER_ORT:\s*(.+?)\]/);
-            text = text.replace(/\[NEUER_ORT:\s*.+?\]/g, '').replace(/\[ÄNDERUNG:\s*.+?\]/g, '').trim();
-
+            // Handle location markers (already stripped by formatGmOutput, check raw)
+            const locMatch = result.response.match(/\[NEUER_ORT:\s*(.+?)\]/);
             if (locMatch) {
               const newCh = await handleLocationChange(message, campaign.id, locMatch[1]);
               if (newCh) {
                 await message.channel.send(`*Die Szene wechselt nach **${locMatch[1]}**... Weiter in <#${newCh.id}>*`);
                 if (text.length <= 2000) await newCh.send(text);
                 else await newCh.send({ embeds: [embed('Spielleiter', text)] });
-                // Fire-and-forget memory processing
                 processMemory(campaign.id, result.response);
                 return;
               }
             }
 
-            // Send GM response
+            // Send GM response — prefer plain text for readability, embed only if too long
             if (text.length <= 2000) {
-              await message.channel.send(text);
+              await message.channel.send({
+                content: text,
+                allowedMentions: SUPPRESS_MENTIONS ? { parse: [] } : undefined
+              });
             } else {
-              await message.channel.send({ embeds: [embed('Spielleiter', text)] });
+              await message.channel.send({
+                embeds: [embed('Spielleiter', text)],
+                allowedMentions: SUPPRESS_MENTIONS ? { parse: [] } : undefined
+              });
             }
 
-            // Fire-and-forget memory processing
             processMemory(campaign.id, result.response);
           }
         } catch (innerErr) {
