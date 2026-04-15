@@ -1149,6 +1149,163 @@ async def get_inventar(pc_id: str):
         "properties": property_list,
     }
 
+# ── Init Inventory & Finances from Character Text Fields ──
+
+class InitFromCharacterRequest(BaseModel):
+    pc_id: str
+    campaign_id: str
+
+@api_router.post("/sandbox/init-from-character")
+async def init_inventory_from_character(data: InitFromCharacterRequest):
+    """Parse a PC's inventory text field into structured inventory items + finances.
+    Called after character creation to seed the persistent inventory system."""
+    pc = await db.player_characters.find_one({"id": data.pc_id, "campaign_id": data.campaign_id}, {"_id": 0})
+    if not pc:
+        raise HTTPException(404, "Charakter nicht gefunden")
+
+    inv_text = pc.get("inventory", "")
+    pc_name = pc.get("character_name", "?")
+    created_items = []
+    detected_money = 0
+    detected_currency = ""
+
+    if inv_text.strip():
+        # Remove parenthetical remarks before splitting
+        cleaned_text = re.sub(r'\([^)]*\)', '', inv_text)
+        # Split by common delimiters
+        raw_items = re.split(r'[,;]', cleaned_text)
+
+        # Money detection patterns (German)
+        money_patterns = [
+            re.compile(r'(\d+)\s*(silber(?:münzen?|stücke?|taler)?|gold(?:münzen?|stücke?|taler)?|kupfer(?:münzen?|stücke?)?|münzen?|taler|kronen?|dukaten?|heller|pfennig)', re.IGNORECASE),
+            re.compile(r'((?:prall|voll|gut\s+gefüllt)\w*)\s+(?:beutel|börse|geldbeutel|säckel)', re.IGNORECASE),
+        ]
+
+        # Category detection keywords
+        weapon_kw = ['schwert', 'dolch', 'messer', 'axt', 'bogen', 'armbrust', 'speer', 'keule', 'klinge', 'säbel', 'rapier', 'hammer', 'morgenstern', 'degen', 'wurfmesser', 'schleuder']
+        tool_kw = ['werkzeug', 'zange', 'feile', 'hammer', 'nadel', 'faden', 'seil', 'dietrich', 'laterne', 'fackel', 'kompass', 'fernglas', 'schaufel', 'picke', 'angel', 'besteck']
+        medical_kw = ['verband', 'tinktur', 'heilmittel', 'salbe', 'medizin', 'kräuter', 'arznei', 'gegengift']
+        consumable_kw = ['ration', 'brot', 'wasser', 'wein', 'bier', 'proviant', 'essen', 'trank', 'elixier', 'gift']
+        valuable_kw = ['ring', 'kette', 'amulett', 'edelstein', 'juwel', 'schmuck', 'gold', 'silber', 'perle', 'wappen', 'schminke']
+        document_kw = ['brief', 'karte', 'dokument', 'pergament', 'buch', 'notiz', 'urkunde', 'vertrag', 'schlüssel', 'siegel']
+        clothing_kw = ['mantel', 'umhang', 'rüstung', 'helm', 'schild', 'handschuh', 'stiefel', 'kapuze', 'hut', 'kleidung', 'leder']
+
+        for raw in raw_items:
+            raw = raw.strip()
+            if not raw:
+                continue
+
+            # Check for money
+            money_match = money_patterns[0].search(raw)
+            if money_match:
+                amount = int(money_match.group(1))
+                curr = money_match.group(2)
+                # Normalize currency
+                curr_lower = curr.lower()
+                if 'silber' in curr_lower:
+                    detected_currency = 'Silber'
+                elif 'gold' in curr_lower:
+                    detected_currency = 'Gold'
+                elif 'kupfer' in curr_lower:
+                    detected_currency = 'Kupfer'
+                else:
+                    detected_currency = curr.capitalize()
+                detected_money += amount
+                continue
+
+            # Check for "bag full of coins" pattern
+            bag_match = money_patterns[1].search(raw)
+            if bag_match:
+                # Estimate based on profession/context
+                background = pc.get("background", "").lower()
+                if any(w in background for w in ['händler', 'kaufmann', 'adel', 'reich']):
+                    detected_money += 50
+                else:
+                    detected_money += 20
+                if not detected_currency:
+                    detected_currency = 'Silber'
+                continue
+
+            # Detect quantity prefix
+            qty_match = re.match(r'^(\d+)\s*[x×]?\s*(.+)$', raw)
+            quantity = 1
+            item_name = raw
+            if qty_match:
+                quantity = int(qty_match.group(1))
+                item_name = qty_match.group(2).strip()
+
+            # Strip leading articles and adjectives
+            item_name = re.sub(r'^(?:ein(?:e[nms]?)?|der|die|das|einen|einem)\s+', '', item_name, flags=re.IGNORECASE).strip()
+            # Capitalize first letter after stripping
+            if item_name:
+                item_name = item_name[0].upper() + item_name[1:]
+
+            # Skip too short, non-item fragments, or descriptive clauses
+            if len(item_name) < 3 or item_name.lower() in ('und', 'oder', 'mit', 'für', 'von', 'zum'):
+                continue
+            # Skip fragments that look like sentence continuations (start with verb-like words)
+            skip_starts = ['um ', 'damit ', 'weil ', 'wenn ', 'als ', 'so ', 'wie ', 'wo ']
+            if any(item_name.lower().startswith(s) for s in skip_starts):
+                continue
+
+            # Classify category
+            name_lower = item_name.lower()
+            category = 'misc'
+            if any(kw in name_lower for kw in weapon_kw):
+                category = 'weapon'
+            elif any(kw in name_lower for kw in medical_kw):
+                category = 'medical'
+            elif any(kw in name_lower for kw in consumable_kw):
+                category = 'consumable'
+            elif any(kw in name_lower for kw in tool_kw):
+                category = 'tool'
+            elif any(kw in name_lower for kw in document_kw):
+                category = 'document'
+            elif any(kw in name_lower for kw in valuable_kw):
+                category = 'valuable'
+            elif any(kw in name_lower for kw in clothing_kw):
+                category = 'equipment'
+
+            # Create structured item
+            doc = {
+                "id": new_id(), "campaign_id": data.campaign_id,
+                "owner_pc_id": data.pc_id, "owner_name": pc_name,
+                "item_name": item_name, "category": category,
+                "quantity": quantity, "condition": "gut",
+                "location": "getragen", "description": "",
+                "value": 0, "created_at": now_iso(),
+            }
+            await db.inventory.insert_one(doc)
+            doc.pop("_id", None)
+            created_items.append(doc)
+
+    # Create finance record if money was detected or just init with 0
+    if detected_money > 0 or not await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id}):
+        fin_doc = {
+            "id": new_id(), "campaign_id": data.campaign_id,
+            "pc_id": data.pc_id, "balance": detected_money,
+            "currency": detected_currency or "Silber",
+            "debts": "", "recurring_costs": "",
+            "created_at": now_iso(), "updated_at": now_iso(),
+        }
+        existing_fin = await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id})
+        if existing_fin:
+            await db.finances.update_one(
+                {"campaign_id": data.campaign_id, "pc_id": data.pc_id},
+                {"$set": {"balance": detected_money, "currency": detected_currency or "Silber", "updated_at": now_iso()}}
+            )
+        else:
+            await db.finances.insert_one(fin_doc)
+            fin_doc.pop("_id", None)
+
+    return {
+        "character_name": pc_name,
+        "items_created": len(created_items),
+        "items": [{"name": i["item_name"], "category": i["category"]} for i in created_items],
+        "money_detected": detected_money,
+        "currency": detected_currency or "Silber",
+    }
+
 @api_router.post("/finances")
 async def upsert_finances(data: FinanceUpdate):
     existing = await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id})

@@ -1,51 +1,46 @@
 # GM Bot — Product Requirements Document
 
 ## Original Problem Statement
-Build a production-ready private Discord roleplay Game Master bot. Two human players roleplay in-character in Discord channels, and the bot acts as the neutral, consequence-driven Game Master.
+Build a production-ready private Discord roleplay Game Master bot with persistent inventory and finance tracking.
 
 ## Architecture
-- **Backend**: FastAPI (Python) — `server.py`, `gm_engine.py`, `dice.py`
+- **Backend**: FastAPI — `server.py`, `gm_engine.py`, `dice.py`
 - **Discord Bot**: Node.js discord.js v14 — `discord-bot/index.js`
 - **Frontend**: React + Shadcn UI — `frontend/`
-- **Database**: MongoDB (persistent — all data survives restarts/redeploys)
+- **Database**: MongoDB (all data persistent)
 - **LLM**: OpenAI GPT-5.2 via `emergentintegrations`
 
 ## Implemented Features
 - [x] Discord bot with slash commands
 - [x] Guided `/campaign` generation + PC creation
-- [x] Per-scene turn logic (multi-player formatting)
+- [x] Per-scene turn logic (multi-player)
 - [x] Memory system (event extraction, auto-summarization)
 - [x] Sandbox economy (inventory, finances, properties, transactions)
-- [x] Transparent dice resolution (1W20 with SG)
-- [x] Location auto-creation
-- [x] Violence & PC Lethality (injury states, no plot armor)
+- [x] Transparent dice resolution
+- [x] Violence & PC Lethality
 - [x] Non-repetitive German Writing Style
 - [x] Character Background Enforcement
 - [x] `/Inventar` + `/TW` Slash Commands
-- [x] **Finance & Inventory Dashboard** (`/finances`)
-  - Inventar tab: persistent CRUD, categorized by location, inline qty +/-, add/edit/delete
-  - Finanzen tab: recurring income/expenses, debts, properties
-  - Transaktionslog: table with day/type/source/amount
-  - Tagesansicht: grouped by day with daily totals
-
-## Persistence Model
-All data stored in MongoDB collections:
-- `inventory`: {id, campaign_id, owner_pc_id, item_name, category, quantity, condition, location, value, description}
-- `finances`: {id, campaign_id, pc_id, balance, currency, debts, recurring_costs}
-- `transactions`: {id, campaign_id, pc_id, transaction_type, amount, currency, description, day, source, timestamp}
-- `properties`: {id, campaign_id, owner_pc_id, name, property_type, rent_cost, status}
+- [x] Finance & Inventory Dashboard (`/finances`)
+- [x] **Character creation → Inventory/Finance auto-init** (Feb 2026)
+  - `POST /api/sandbox/init-from-character` parses inventory text into structured items
+  - Detects money (10 Silbermünzen, praller Beutel, 25 Goldmünzen)
+  - Classifies items (weapon, tool, medical, consumable, valuable, document, equipment)
+  - Creates finance record with detected currency and balance
+  - Called automatically after Discord character creation
 
 ## Key API Endpoints
-- `GET/POST/PUT/DELETE /api/inventory` — Full CRUD for inventory items
+- `POST /api/sandbox/init-from-character` — Parse PC inventory text → structured items + finances
+- `GET/POST/PUT/DELETE /api/inventory` — Full CRUD
 - `GET /api/sandbox/inventar/{pc_id}` — Categorized view
-- `POST /api/sandbox/tagwechsel` — Day change processing
-- `GET /api/transactions` — Transaction history with day/source
-- `POST /api/transactions` — Add transaction (auto-adds day + source)
+- `POST /api/sandbox/tagwechsel` — Day change
+- `GET/POST /api/transactions` — Transaction history
+- `GET/POST /api/finances` — Finance records
 
 ## Backlog
-- Refactoring: `discord-bot/index.js` modularization (optional)
+- discord-bot/index.js modularization (optional)
 
 ## Notes
-- Discord bot on Emergent is STOPPED — user runs on Hetzner
+- Discord bot on Emergent is STOPPED
 - All GM output in German
-- Tagwechsel uses `advance_day` flag for multi-PC support
+- Tagwechsel uses `advance_day` flag for multi-PC

@@ -341,6 +341,10 @@ async function finalizeCreation(channel, session) {
         current_location: campaign.starting_location || ''
       });
       createdPCs.push(pc);
+      // Initialize structured inventory & finances from text fields
+      await axios.post(`${API}/sandbox/init-from-character`, {
+        pc_id: pc.id, campaign_id: campaign.id
+      }).catch(e => console.error('Init inventory error:', e.message));
       // Also ensure player is in allowed list
       await axios.post(`${API}/allowed-players`, {
         campaign_id: campaign.id, discord_user_id: player.id, discord_username: player.username
