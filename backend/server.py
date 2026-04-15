@@ -1306,6 +1306,34 @@ async def init_inventory_from_character(data: InitFromCharacterRequest):
         "currency": detected_currency or "Silber",
     }
 
+@api_router.post("/sandbox/init-all-characters")
+async def init_all_characters(campaign_id: str = ""):
+    """Batch-init: Parse inventory text for ALL active PCs that have no structured items yet."""
+    if not campaign_id:
+        # Try active campaign
+        campaign = await db.campaigns.find_one({"is_active": True}, {"_id": 0})
+        if not campaign:
+            raise HTTPException(404, "No active campaign")
+        campaign_id = campaign["id"]
+
+    pcs = await db.player_characters.find({"campaign_id": campaign_id, "status": "active"}, {"_id": 0}).to_list(50)
+    results = []
+    for pc in pcs:
+        # Skip if PC already has structured inventory items
+        existing_count = await db.inventory.count_documents({"campaign_id": campaign_id, "owner_pc_id": pc["id"]})
+        if existing_count > 0:
+            results.append({"character_name": pc.get("character_name", "?"), "skipped": True, "reason": f"already has {existing_count} items"})
+            continue
+        if not pc.get("inventory", "").strip():
+            results.append({"character_name": pc.get("character_name", "?"), "skipped": True, "reason": "no inventory text"})
+            continue
+        # Call the init logic
+        from pydantic import BaseModel as _BM
+        req = InitFromCharacterRequest(pc_id=pc["id"], campaign_id=campaign_id)
+        result = await init_inventory_from_character(req)
+        results.append(result)
+    return {"processed": len(results), "results": results}
+
 @api_router.post("/finances")
 async def upsert_finances(data: FinanceUpdate):
     existing = await db.finances.find_one({"campaign_id": data.campaign_id, "pc_id": data.pc_id})
