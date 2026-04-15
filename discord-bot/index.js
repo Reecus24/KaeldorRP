@@ -700,10 +700,11 @@ async function handleTagwechsel(interaction) {
 
     // Process day change for each active PC
     const results = [];
-    for (const pc of pcs) {
+    for (let i = 0; i < pcs.length; i++) {
+      const pc = pcs[i];
       try {
         const { data: tw } = await axios.post(`${API}/sandbox/tagwechsel`, {
-          campaign_id: campaign.id, pc_id: pc.id
+          campaign_id: campaign.id, pc_id: pc.id, advance_day: i === 0
         });
         results.push(tw);
       } catch (e) {

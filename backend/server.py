@@ -1187,6 +1187,7 @@ async def add_transaction(data: TransactionCreate):
 class TagwechselRequest(BaseModel):
     campaign_id: str
     pc_id: str
+    advance_day: bool = False
 
 @api_router.post("/sandbox/tagwechsel")
 async def process_tagwechsel(data: TagwechselRequest):
@@ -1306,11 +1307,14 @@ async def process_tagwechsel(data: TagwechselRequest):
         {"$set": {"balance": new_balance, "updated_at": now_iso()}}
     )
 
-    # Advance campaign day counter
+    # Advance campaign day counter ONLY if advance_day is set
     campaign = await db.campaigns.find_one({"id": data.campaign_id}, {"_id": 0})
     current_day = campaign.get("current_day", 1) if campaign else 1
-    new_day = current_day + 1
-    await db.campaigns.update_one({"id": data.campaign_id}, {"$set": {"current_day": new_day, "updated_at": now_iso()}})
+    if data.advance_day:
+        new_day = current_day + 1
+        await db.campaigns.update_one({"id": data.campaign_id}, {"$set": {"current_day": new_day, "updated_at": now_iso()}})
+    else:
+        new_day = current_day
 
     # Log as event
     summary = f"Tagwechsel Tag {new_day}: {pc.get('character_name','?')} — Einnahmen: +{total_income}, Ausgaben: -{total_expenses}, Saldo: {new_balance}"
