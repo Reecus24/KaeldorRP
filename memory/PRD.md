@@ -56,3 +56,28 @@
 ### Response Length
 - 2-4 sentences per player section (max 500 chars/section)
 - Longer only for scene openings, reveals, combat peaks
+
+## Phase 6: Sandbox World + Dice Overhaul (April 15, 2026)
+
+### Sandbox Systems
+- **Inventory**: Items with category, condition, location (carried/stored/equipped/vehicle), quantity, value
+- **Properties**: Rentals, buildings, businesses with status, rent, features
+- **Finances**: Per-PC balance, debts, recurring costs, world-appropriate currency
+- **Transactions**: Auto-balance updates on income/expense, full log
+- **Economy**: GM generates work opportunities, trade, prices, reputation effects naturally
+- **Open World**: No forced plot, players can work/trade/build/socialize/explore freely
+
+### Dice Resolution
+- Clear German output: Wurf / Modifikator / Gesamt / Schwierigkeit / Ergebnis
+- Categories: Kritischer Erfolg / Erfolg / Teilerfolg / Fehlschlag / Kritischer Fehlschlag
+- Nat 20 = auto success (configurable), Nat 1 = auto fail (configurable)
+- Impossible actions: nat 20 gives "best possible outcome with explanation"
+- Narration MUST match dice result — never silently contradict
+
+### New Collections
+inventory, properties, finances, transactions
+
+### Bot Dual-Instance Fix
+- Emergent bot instance stopped — only Hetzner runs
+- Global commands cleared to prevent duplicate registrations
+- handleCampaign uses channel fallback if deferReply fails
