@@ -51,7 +51,7 @@ export default function FinanceDashboard() {
       setPCs(active);
       if (active.length > 0 && !selectedPcId) setSelectedPcId(active[0].id);
     }).catch(() => {});
-  }, [activeCampaign]);
+  }, [activeCampaign]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadFinances = async () => {
     if (!selectedPcId || !activeCampaign?.id) return;
@@ -69,7 +69,7 @@ export default function FinanceDashboard() {
     setLoading(false);
   };
 
-  useEffect(() => { loadFinances(); }, [selectedPcId, activeCampaign]);
+  useEffect(() => { loadFinances(); }, [selectedPcId, activeCampaign]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!activeCampaign) return <div className="p-8 text-zinc-500">Select or create a campaign first.</div>;
 

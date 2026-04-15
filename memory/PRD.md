@@ -19,38 +19,44 @@ Build a production-ready private Discord roleplay Game Master bot. Two human pla
 - [x] Transparent dice resolution (1W20 with SG display)
 - [x] Location auto-creation (channel per location)
 - [x] React admin dashboard (Campaigns, PCs, NPCs, Lore, Config)
+- [x] Violence & PC Lethality (injury states, NPC mortality, no plot armor)
+- [x] Non-repetitive German Writing Style (banned generic phrases)
+- [x] Character Background Enforcement (profession/skills determine abilities)
+- [x] `/Inventar` Slash Command (categorized inventory + finances)
+- [x] `/TW` Slash Command (day change with wage/rent/expenses)
+- [x] **Finance Dashboard** (Feb 2026) — full income/expense tracking per PC
 
-## Implemented (Feb 2026)
-- [x] **Violence & PC Lethality** — PCs can die, NPCs have no plot armor, injury states (leicht verletzt → tot), world reacts to violence (witnesses, revenge, law)
-- [x] **Non-repetitive German Writing Style** — Banned generic AI phrases, varied sentence structure, specific sensory details, short/concrete responses
-- [x] **Character Background Enforcement** — Background/profession determines abilities, spontaneous claims rejected, high SG for out-of-background actions
-- [x] **`/Inventar` Slash Command** — Categorized inventory display (Ausgerüstet, Mitgeführt, Gelagert, Verbrauchsgüter, Werkzeuge, Wertsachen, Dokumente, Handelswaren) + Finanzen + Besitz
-- [x] **`/TW` (Tagwechsel) Slash Command** — Day change processing: profession-based wages, property rent, recurring costs, debt display, balance update, day counter
+## Finance Dashboard Details (Feb 2026)
+- **Route**: `/finances` in React dashboard
+- **Components**:
+  - PC selector dropdown (switches between active characters)
+  - Summary cards: Guthaben, Einnahmen (letzte), Ausgaben (letzte), Mietkosten
+  - **Übersicht tab**: Wiederkehrende Einnahmen (profession-based), Wiederkehrende Ausgaben (rent, recurring costs), Schulden & Verpflichtungen, Besitz & Mietobjekte
+  - **Transaktionslog tab**: Table with Tag, Typ, Beschreibung, Quelle (TW/gameplay), Betrag
+  - **Tagesansicht tab**: Transactions grouped by day with daily income/expense/net totals
+- **Backend integration**: All transactions from /TW, gameplay, trade, purchases automatically appear with `day` and `source` fields
+- **Automatic sync**: Financial state used by GM engine in narration
 
 ## Key API Endpoints
 - `POST /api/gm/scene-response` — Combined turn-based GM response
-- `POST /api/gm/message-driven` — Single-message GM response
 - `GET /api/sandbox/inventar/{pc_id}` — Categorized inventory + finances
-- `POST /api/sandbox/tagwechsel` — Day change processing
-- `POST /api/campaigns`, `GET /api/campaigns/active`
-- `POST /api/player-characters`, `GET /api/player-characters/active`
-- `POST /api/inventory`, `POST /api/finances`, `POST /api/properties`
-- `POST /api/transactions`
+- `POST /api/sandbox/tagwechsel` — Day change processing (with advance_day flag)
+- `GET /api/transactions?campaign_id=X&pc_id=Y` — Transaction history with day/source
+- `POST /api/transactions` — Add transaction (auto-adds day + source=gameplay)
+- `GET /api/finances`, `GET /api/properties`
 
 ## DB Schema
 - campaigns: {id, name, tone, world_summary, is_active, current_day}
-- player_characters: {id, campaign_id, discord_user_id, character_name, status, background, skills, injuries_conditions, ...}
+- player_characters: {id, campaign_id, discord_user_id, character_name, status, background, ...}
 - inventory: {id, campaign_id, owner_pc_id, item_name, category, quantity, condition, location, value}
 - finances: {id, campaign_id, pc_id, balance, currency, debts, recurring_costs}
 - properties: {id, campaign_id, owner_pc_id, name, property_type, status, rent_cost, rent_currency}
-- transactions: {id, campaign_id, pc_id, transaction_type, amount, currency, description}
-- memory_events, scene_memory, relationship_map, knowledge_store, npcs, lore_entries, events, recaps
+- transactions: {id, campaign_id, pc_id, transaction_type, amount, currency, description, counterparty, day, source, timestamp}
 
 ## Backlog
-- Refactoring: `discord-bot/index.js` (800+ lines) could be split into modules
-- No other pending tasks
+- Refactoring: `discord-bot/index.js` (900+ lines) could be split into modules
 
 ## Important Notes
 - Discord bot on Emergent is STOPPED — user runs it on Hetzner
 - All GM output must be in German
-- The `emergentintegrations` package is installed via custom extra-index-url
+- Tagwechsel uses `advance_day` flag: only first PC increments day counter
