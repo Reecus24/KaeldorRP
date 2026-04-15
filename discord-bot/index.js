@@ -74,31 +74,30 @@ function escapeRegex(s) {
 
 // Try to connect with MessageContent intent first, fallback to without
 let HAS_MESSAGE_CONTENT = true;
+let client;
 
 async function startBot() {
+  // Try with MessageContent first
   try {
-    const fullClient = new Client({
+    const c = new Client({
       intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
     });
-    await fullClient.login(TOKEN);
+    await c.login(TOKEN);
     console.log('MessageContent intent available - message-driven RP active');
-    return fullClient;
+    return c;
   } catch (err) {
-    if (err.message?.includes('disallowed intents') || err.code === 4014) {
-      console.log('MessageContent intent not enabled - falling back to slash commands only');
-      console.log('Enable it at: https://discord.com/developers/applications -> Bot -> Privileged Gateway Intents');
+    if (err.code === 4014 || (err.message && err.message.includes('disallowed'))) {
+      console.log('MessageContent intent not enabled - slash commands only');
       HAS_MESSAGE_CONTENT = false;
-      const basicClient = new Client({
+      const c = new Client({
         intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
       });
-      await basicClient.login(TOKEN);
-      return basicClient;
+      await c.login(TOKEN);
+      return c;
     }
     throw err;
   }
 }
-
-let client;
 
 // ── Character Creation State ──
 const creationSessions = new Map(); // channelId -> session
@@ -401,16 +400,31 @@ async function finalizeCreation(channel, session) {
 
 // ── Slash Command Handlers ──
 async function handleCampaign(interaction) {
-  // MUST defer immediately — LLM calls take 10-30 seconds
-  try { await interaction.deferReply(); } catch (e) {
-    console.error('Failed to defer /campaign:', e.message);
-    return; // Interaction already expired
-  }
   const setting = interaction.options.getString('setting');
   const p1 = interaction.options.getUser('spieler1');
   const p2 = interaction.options.getUser('spieler2');
+  const channel = interaction.channel;
+
+  // Defer MUST succeed within 3 seconds or interaction is lost
+  let deferred = false;
+  try {
+    await interaction.deferReply();
+    deferred = true;
+  } catch (e) {
+    console.log('deferReply failed, using channel fallback');
+  }
+
+  // Helper: send response either via interaction or channel
+  const respond = async (content) => {
+    if (deferred) {
+      try { await interaction.editReply(content); return; } catch (e) {}
+    }
+    try { await channel.send(typeof content === 'string' ? content : content); } catch (e) {}
+  };
 
   try {
+    await channel.sendTyping();
+
     // Generate campaign via LLM
     const { data: genData } = await axios.post(`${API}/gm/generate-campaign`, { prompt: setting }, { timeout: 60000 });
     // Create campaign in DB
@@ -430,10 +444,10 @@ async function handleCampaign(interaction) {
     let desc = `**Welt:** ${genData.world_summary || '-'}\n**Bedrohung:** ${genData.current_threat || '-'}\n**Startort:** ${genData.starting_location || '-'}`;
     if (genData.factions?.length) desc += `\n**Fraktionen:** ${genData.factions.join(', ')}`;
     if (genData.hooks?.length) desc += `\n**Haken:** ${genData.hooks.join(', ')}`;
-    await interaction.editReply({ embeds: [embed(`${genData.title || setting}`, desc, 0xF59E0B)] });
+    await respond({ embeds: [embed(`${genData.title || setting}`, desc, 0xF59E0B)] });
 
     if (genData.opening_scene) {
-      await interaction.channel.send({ embeds: [embed('Prolog', genData.opening_scene, 0xD97706)] });
+      await channel.send({ embeds: [embed('Prolog', genData.opening_scene, 0xD97706)] });
     }
 
     // Determine players
@@ -441,7 +455,7 @@ async function handleCampaign(interaction) {
     if (p1 && !p1.bot) players.push({ id: p1.id, username: p1.username });
     if (p2 && !p2.bot) players.push({ id: p2.id, username: p2.username });
     if (players.length === 0) {
-      await interaction.channel.send('Keine Spieler angegeben. Verwende `/start_character_creation @spieler1 @spieler2` um die Charaktererstellung zu beginnen.');
+      await channel.send('Keine Spieler angegeben. Verwende `/start_character_creation @spieler1 @spieler2` um die Charaktererstellung zu beginnen.');
       return;
     }
 
@@ -462,7 +476,7 @@ async function handleCampaign(interaction) {
       questions: Array.isArray(questions) ? questions : [], data: {}, phase: 'creating'
     });
 
-    await interaction.channel.send(`\n---\n**Charaktererstellung**\nBevor das Abenteuer beginnt, erstellen wir eure Charaktere.\n\n**<@${players[0].id}>, du bist zuerst dran!**`);
+    await channel.send(`\n---\n**Charaktererstellung**\nBevor das Abenteuer beginnt, erstellen wir eure Charaktere.\n\n**<@${players[0].id}>, du bist zuerst dran!**`);
     await new Promise(r => setTimeout(r, 1500));
     if (questions.length > 0) {
       await interaction.channel.send(questions[0].prompt || questions[0]);
@@ -470,10 +484,7 @@ async function handleCampaign(interaction) {
   } catch (err) {
     const msg = err.response?.data?.detail || err.message;
     console.error('Campaign creation error:', msg);
-    try { await interaction.editReply({ content: `**Fehler:** ${msg}` }); } catch (e) {
-      // Interaction may have expired — send to channel directly
-      try { await interaction.channel.send(`**Fehler bei Kampagnenerstellung:** ${msg}`); } catch (e2) {}
-    }
+    await respond(`**Fehler:** ${msg}`);
   }
 }
 
@@ -641,9 +652,13 @@ async function handlePCEdit(interaction) {
       try {
         const rest = new REST().setToken(TOKEN);
         const body = commands.map(c => c.toJSON());
+
+        // Clear global commands to prevent conflicts
+        await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] }).catch(() => {});
+
         if (GUILD_ID) {
           await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body });
-          console.log(`${body.length} Guild-Befehle registriert`);
+          console.log(`${body.length} Guild-Befehle registriert für ${GUILD_ID}`);
         } else {
           await rest.put(Routes.applicationCommands(CLIENT_ID), { body });
           console.log(`${body.length} globale Befehle registriert`);
