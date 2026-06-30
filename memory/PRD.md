@@ -61,3 +61,16 @@ Stats (cash/bank/debt/net worth, energy/fatigue/hunger/hygiene/mood/stress/healt
 
 ## Credentials
 See `/app/memory/test_credentials.md`. Admin: admin@kaeldor.com / admin123.
+
+## Added — Multiplayer Comms + Player Employment (2026-06)
+- **Phase A** (done): in-game clock exposure, Daily Summary ledger (continuous accrual — midnight tick summarizes, does NOT re-charge), notifications system.
+- **Phase B** (done): World Chat, SMS/Email threads, device gating (SMS needs Smartphone, Email needs Laptop), player presence. Seeded demo players (mara/dovan/kiri).
+- **Phase C — Player Employment & Job Applications (done & verified, iter_6 + iter_7)**:
+  - NPC job applications: `POST /jobs/{job_id}/apply` → real-time resolution (`employment.resolve_npc_applications`, hooked in `resolve_player`) → accepted (stat-based wage offer) or rejected (human reason); accept/withdraw; criminal-record (legal_rep<25) 403; duplicate 409; offer expiry.
+  - Player Job Market (`/job-market`): `GET /jobs/market`, apply to player-owned hiring businesses, `GET /jobs/employment` (My Jobs/offers), accept/decline offers, real-time shifts (`/jobs/employment/{id}/work`) → wages paid + business cash/satisfaction/reputation/revenue boost (`employment.complete_player_shift`), quit.
+  - Owner Player Hiring tab (`/businesses/:id`): toggle-hiring, list applicants with stat snapshot + recommended wage, send/update offer, reject, list/raise/fire player employees.
+  - Logic fixes (iter_7): owner notified + applicant event on offer **decline** (status 'declined' vs 'withdrawn'); **fire** writes fired-employee event log; **re-offer** sends 'Offer updated' (not duplicate 'Job offer!'); invalid shift hours (∉{2,4,6,8}) now 400; `applicant_snapshot` top_skills construct cleaned up.
+  - Tests: `tests/test_phase_c_employment.py` (18) + `tests/test_phase_c_fixes.py` (13) = 31/31 PASS. time_scale stays 1.0.
+
+### Next: Phase D — Dashboard "Life Inbox"
+- Surface social/relationship/job events to a Dashboard card with real-time expiry + one-tap actions (Respond, Ignore, Send Money...) and consequence routing. NOT STARTED.
