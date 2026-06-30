@@ -5,7 +5,7 @@ import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar, Money, EmptyState } from "@/components/game/primitives";
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
-import { Boxes, TrendingUp, TrendingDown, AlertTriangle, Megaphone, ArrowUpCircle } from "lucide-react";
+import { Boxes, TrendingUp, TrendingDown, AlertTriangle, Megaphone, ArrowUpCircle, Users, Smile, Gauge, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function BizCard({ b, onAction, busyKey }) {
@@ -38,7 +38,22 @@ function BizCard({ b, onAction, busyKey }) {
                 <div><div className="text-muted-foreground">Total rev</div><span className="text-white tnum">{money(b.revenue_total)}</span></div>
             </div>
 
-            <div className="mb-4"><StatBar label="Reputation" value={b.reputation} color="#00FF66" /></div>
+            <div className="mb-3"><StatBar label="Reputation" value={b.reputation} color="#00FF66" /></div>
+
+            {b.metrics && (
+                <div className="grid grid-cols-4 gap-2 text-center mb-3 py-2 border-y border-white/8">
+                    <div><div className="text-[9px] uppercase text-muted-foreground">Staff</div><div className="font-mono text-sm text-white">{b.metrics.employee_count}</div></div>
+                    <div><div className="text-[9px] uppercase text-muted-foreground">Coverage</div><div className={cn("font-mono text-sm", b.metrics.coverage >= 0.9 ? "text-neon-green" : b.metrics.coverage < 0.6 ? "text-neon-red" : "text-neon-yellow")}>{Math.round(b.metrics.coverage * 100)}%</div></div>
+                    <div><div className="text-[9px] uppercase text-muted-foreground">Morale</div><div className="font-mono text-sm text-neon-purple">{b.metrics.morale_avg}%</div></div>
+                    <div><div className="text-[9px] uppercase text-muted-foreground">Satis.</div><div className="font-mono text-sm text-neon-cyan">{b.metrics.satisfaction}%</div></div>
+                </div>
+            )}
+            {b.metrics && b.metrics.applicant_count > 0 && (
+                <div className="text-[11px] text-neon-yellow font-mono mb-2">{b.metrics.applicant_count} applicant(s) waiting</div>
+            )}
+            <Link to={`/businesses/${b.id}`}>
+                <KButton variant="primary" className="w-full mb-2" data-testid={`manage-${b.id}`}><Settings2 className="w-3.5 h-3.5" /> Manage Staff & Details</KButton>
+            </Link>
 
             {b.bankrupt ? (
                 <div className="space-y-2">

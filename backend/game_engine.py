@@ -30,7 +30,7 @@ async def get_config(db):
     return cfg
 
 
-async def add_event(db, player_id, message, etype="info", severity="info"):
+async def add_event(db, player_id, message, etype="info", severity="info", business_id=None):
     doc = {
         "id": __import__("uuid").uuid4().hex,
         "player_id": player_id,
@@ -39,6 +39,8 @@ async def add_event(db, player_id, message, etype="info", severity="info"):
         "severity": severity,
         "message": message,
     }
+    if business_id:
+        doc["business_id"] = business_id
     await db.events.insert_one(doc)
 
 
@@ -309,47 +311,10 @@ async def accrue_recurring(db, p, cfg, gh, housing_doc):
 
 
 async def accrue_businesses(db, p, cfg, gh, now):
-    if gh <= 0:
-        return
-    businesses = await db.businesses.find({"player_id": p["id"], "bankrupt": {"$ne": True}}, {"_id": 0}).to_list(100)
+    import employee_engine
+    businesses = await db.businesses.find({"player_id": p["id"]}, {"_id": 0}).to_list(100)
     for b in businesses:
-        level = b.get("level", 1)
-        mkt = 1 + 0.06 * b.get("marketing_level", 0)
-        rep_factor = 0.55 + 0.45 * (b.get("reputation", 50) / 100.0)
-        rev = b.get("base_revenue_per_day", 0) * (1 + 0.35 * (level - 1)) * mkt * rep_factor
-        exp = b.get("base_expenses_per_day", 0) * (1 + 0.2 * (level - 1)) + b.get("rent_per_day", 0)
-        net_day = rev - exp
-        delta = net_day * gh / 24.0
-        b["cash"] = round(b.get("cash", 0) + delta, 2)
-        b["revenue_total"] = round(b.get("revenue_total", 0) + rev * gh / 24.0, 2)
-        b["last_net_day"] = round(net_day, 2)
-        # reputation drift toward demand baseline
-        b["reputation"] = clamp(b.get("reputation", 50) + (0.2 if net_day > 0 else -0.3) * gh)
-        if b["cash"] < 0:
-            b["debt"] = round(b.get("debt", 0) - b["cash"], 2)
-            b["cash"] = 0.0
-        # history snapshot occasionally
-        hist = b.get("history", [])
-        if not hist or (now - parse_dt(hist[-1]["ts"])).total_seconds() > 60:
-            hist.append({"ts": now.isoformat(), "net": round(net_day, 2), "cash": b["cash"], "debt": b.get("debt", 0)})
-            b["history"] = hist[-30:]
-        # random business event
-        if random.random() < min(0.5, 0.06 * gh):
-            events = await db.random_events.find({"scope": "business"}, {"_id": 0}).to_list(100)
-            ev = weighted_event(events, "business")
-            if ev:
-                ef = ev.get("effects", {})
-                if "cash" in ef:
-                    b["cash"] = round(b["cash"] + ef["cash"], 2)
-                if "reputation" in ef:
-                    b["reputation"] = clamp(b.get("reputation", 50) + ef["reputation"])
-                await add_event(db, p["id"], f"[{b['name']}] {ev['message']}", "business",
-                                "warning" if any(v < 0 for v in ef.values()) else "info")
-        # bankruptcy
-        if b.get("debt", 0) > b.get("purchase_price", 1) * 0.85:
-            b["bankrupt"] = True
-            await add_event(db, p["id"], f"Your business '{b['name']}' went BANKRUPT under crushing debt.", "business", "danger")
-        await db.businesses.update_one({"id": b["id"]}, {"$set": b})
+        await employee_engine.resolve_business(db, p, cfg, gh, now, b)
 
 
 async def release_confinement(db, p):

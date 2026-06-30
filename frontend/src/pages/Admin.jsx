@@ -17,6 +17,11 @@ const CONTENT_TYPES = [
     { key: "business_types", label: "Businesses", name: "name" },
     { key: "illegal_actions", label: "Illegal", name: "name" },
     { key: "random_events", label: "Events", name: "name" },
+    { key: "employee_roles", label: "Emp Roles", name: "label" },
+    { key: "employee_traits", label: "Emp Traits", name: "label" },
+    { key: "staffing_requirements", label: "Staffing", name: "id" },
+    { key: "training_options", label: "Training", name: "label" },
+    { key: "employee_events", label: "Staff Events", name: "message" },
 ];
 
 function JsonModal({ open, title, initial, onClose, onSave }) {

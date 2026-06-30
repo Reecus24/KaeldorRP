@@ -21,6 +21,7 @@ import RealEstate from "@/pages/RealEstate";
 import VehicleDealer from "@/pages/VehicleDealer";
 import BusinessMarket from "@/pages/BusinessMarket";
 import OwnedBusinesses from "@/pages/OwnedBusinesses";
+import BusinessManage from "@/pages/BusinessManage";
 import Underworld from "@/pages/Underworld";
 import Legal from "@/pages/Legal";
 import Hospital from "@/pages/Hospital";
@@ -91,6 +92,7 @@ function AppRoutes() {
                 <Route path="/vehicles" element={<VehicleDealer />} />
                 <Route path="/business-market" element={<BusinessMarket />} />
                 <Route path="/businesses" element={<OwnedBusinesses />} />
+                <Route path="/businesses/:id" element={<BusinessManage />} />
                 <Route path="/underworld" element={<Underworld />} />
                 <Route path="/legal" element={<Legal />} />
                 <Route path="/hospital" element={<Hospital />} />

@@ -379,6 +379,74 @@ RANDOM_EVENTS = [
 ]
 
 
+EMPLOYEE_ROLES = [
+    {"id": "cashier", "label": "Cashier", "wage_min": 70, "wage_max": 110, "is_manager": False, "desc": "Handles the till and customers."},
+    {"id": "cook", "label": "Cook", "wage_min": 95, "wage_max": 150, "is_manager": False, "desc": "Prepares the food."},
+    {"id": "server", "label": "Server", "wage_min": 70, "wage_max": 105, "is_manager": False, "desc": "Waits tables and serves guests."},
+    {"id": "delivery_driver", "label": "Delivery Driver", "wage_min": 85, "wage_max": 135, "is_manager": False, "desc": "Delivers orders across the city."},
+    {"id": "cleaner", "label": "Cleaner", "wage_min": 60, "wage_max": 95, "is_manager": False, "desc": "Keeps the place spotless."},
+    {"id": "mechanic", "label": "Mechanic", "wage_min": 115, "wage_max": 180, "is_manager": False, "desc": "Repairs vehicles."},
+    {"id": "salesperson", "label": "Salesperson", "wage_min": 80, "wage_max": 135, "is_manager": False, "desc": "Drives sales and upsells."},
+    {"id": "manager", "label": "Manager", "wage_min": 170, "wage_max": 270, "is_manager": True, "desc": "Runs the business day-to-day, cutting negative events and boosting performance."},
+    {"id": "security", "label": "Security", "wage_min": 90, "wage_max": 135, "is_manager": False, "desc": "Deters theft and trouble."},
+    {"id": "warehouse_worker", "label": "Warehouse Worker", "wage_min": 75, "wage_max": 115, "is_manager": False, "desc": "Handles stock and logistics."},
+    {"id": "customer_support", "label": "Customer Support", "wage_min": 80, "wage_max": 125, "is_manager": False, "desc": "Helps online customers."},
+    {"id": "accountant", "label": "Accountant", "wage_min": 120, "wage_max": 185, "is_manager": False, "desc": "Manages the books and taxes."},
+    {"id": "trainer", "label": "Trainer", "wage_min": 95, "wage_max": 145, "is_manager": False, "desc": "Coaches gym members."},
+    {"id": "animal_care", "label": "Animal Care", "wage_min": 70, "wage_max": 110, "is_manager": False, "desc": "Looks after the animals."},
+]
+
+EMPLOYEE_TRAITS = [
+    {"id": "hardworking", "label": "Hardworking", "desc": "Boosts revenue, steady morale.", "effects": {"revenue": 0.08, "morale_drift": 0.4}},
+    {"id": "lazy", "label": "Lazy", "desc": "Reduces revenue.", "effects": {"revenue": -0.08, "morale_drift": -0.2}},
+    {"id": "charismatic", "label": "Charismatic", "desc": "Raises customer satisfaction.", "effects": {"satisfaction": 6, "revenue": 0.04}},
+    {"id": "unreliable", "label": "Unreliable", "desc": "Higher quit & sick chance.", "effects": {"revenue": -0.04, "quit": 0.008, "sick": 0.004}},
+    {"id": "fast_learner", "label": "Fast Learner", "desc": "Gains skill faster.", "effects": {"learning": 1.8}},
+    {"id": "loyal", "label": "Loyal", "desc": "Rarely quits.", "effects": {"quit": -0.01, "morale_drift": 0.3}},
+    {"id": "expensive", "label": "Expensive", "desc": "Demands a higher wage.", "effects": {"wage_mult": 1.4, "revenue": 0.03}},
+    {"id": "conflict_prone", "label": "Conflict-Prone", "desc": "Drags down morale.", "effects": {"morale_drift": -0.5}},
+    {"id": "customer_favorite", "label": "Customer Favorite", "desc": "Big satisfaction & revenue boost.", "effects": {"satisfaction": 10, "revenue": 0.06}},
+    {"id": "theft_risk", "label": "Theft Risk", "desc": "May steal from the business.", "effects": {"theft": 0.01}},
+    {"id": "efficient", "label": "Efficient", "desc": "Higher revenue & satisfaction.", "effects": {"revenue": 0.07, "satisfaction": 3}},
+    {"id": "sickly", "label": "Sickly", "desc": "Often calls in sick.", "effects": {"sick": 0.012}},
+]
+
+STAFFING_REQUIREMENTS = [
+    {"id": "kiosk", "requirements": [{"role": "cashier", "recommended": 1}]},
+    {"id": "delivery_service", "requirements": [{"role": "delivery_driver", "recommended": 2}, {"role": "cashier", "recommended": 1}]},
+    {"id": "bistro", "requirements": [{"role": "cook", "recommended": 1}, {"role": "server", "recommended": 1}]},
+    {"id": "clothing_store", "requirements": [{"role": "salesperson", "recommended": 1}, {"role": "cashier", "recommended": 1}]},
+    {"id": "auto_repair", "requirements": [{"role": "mechanic", "recommended": 2}, {"role": "cashier", "recommended": 1}]},
+    {"id": "gym", "requirements": [{"role": "trainer", "recommended": 1}, {"role": "cleaner", "recommended": 1}]},
+    {"id": "pet_shop", "requirements": [{"role": "cashier", "recommended": 1}, {"role": "animal_care", "recommended": 1}]},
+    {"id": "online_shop", "requirements": [{"role": "customer_support", "recommended": 1}, {"role": "warehouse_worker", "recommended": 1}]},
+    {"id": "cleaning_co", "requirements": [{"role": "cleaner", "recommended": 2}]},
+    {"id": "real_estate_agency", "requirements": [{"role": "salesperson", "recommended": 2}, {"role": "accountant", "recommended": 1}]},
+]
+
+TRAINING_OPTIONS = [
+    {"id": "basic_skills", "label": "Basic Skills Workshop", "duration_minutes": 720, "cost": 150,
+     "skill_gain": 2, "morale_gain": 5, "loyalty_gain": 3, "fail_chance": 0.15, "desc": "Quick fundamentals (~12h)."},
+    {"id": "advanced_skills", "label": "Advanced Training", "duration_minutes": 2880, "cost": 400,
+     "skill_gain": 4, "morale_gain": 8, "loyalty_gain": 5, "fail_chance": 0.2, "desc": "Deep skill development (~2 days)."},
+    {"id": "customer_service", "label": "Customer Service Course", "duration_minutes": 1440, "cost": 250,
+     "skill_gain": 2, "morale_gain": 7, "loyalty_gain": 4, "fail_chance": 0.15, "desc": "Improves service quality (~1 day)."},
+    {"id": "leadership", "label": "Leadership Program", "duration_minutes": 2880, "cost": 500,
+     "skill_gain": 3, "morale_gain": 6, "loyalty_gain": 9, "fail_chance": 0.25, "desc": "Grooms future managers (~2 days)."},
+]
+
+EMPLOYEE_EVENTS = [
+    {"id": "ev_raise", "kind": "raise_request", "weight": 3, "severity": "info", "message": "{name} is asking for a raise.", "effects": {}},
+    {"id": "ev_fav", "kind": "customer_favorite", "weight": 2, "severity": "success", "message": "{name} has become a customer favorite!", "effects": {"satisfaction": 5, "reputation": 3}},
+    {"id": "ev_conflict", "kind": "staff_conflict", "weight": 2, "severity": "warning", "message": "A conflict broke out between staff.", "effects": {"satisfaction": -4}},
+    {"id": "ev_great", "kind": "great_review", "weight": 3, "severity": "success", "message": "A customer left a glowing review of your staff!", "effects": {"reputation": 6, "satisfaction": 4}},
+    {"id": "ev_bad", "kind": "bad_review", "weight": 2, "severity": "warning", "message": "A customer complained about poor service.", "effects": {"reputation": -8, "satisfaction": -4}},
+    {"id": "ev_accident", "kind": "accident", "weight": 1, "severity": "danger", "message": "A workplace accident hurt {name} and cost you money.", "effects": {"cash": -120}},
+    {"id": "ev_mgr", "kind": "manager_save", "weight": 2, "severity": "info", "message": "Your manager smoothly handled a crisis.", "effects": {"reputation": 2}},
+    {"id": "ev_exp", "kind": "exp_boost", "weight": 2, "severity": "info", "message": "{name} improved through experience.", "effects": {}},
+]
+
+
 CONTENT_MAP = {
     "jobs": ("jobs", JOBS),
     "actions": ("actions", ACTIONS),
@@ -389,6 +457,11 @@ CONTENT_MAP = {
     "business_types": ("business_types", BUSINESS_TYPES),
     "illegal_actions": ("illegal_actions", ILLEGAL_ACTIONS),
     "random_events": ("random_events", RANDOM_EVENTS),
+    "employee_roles": ("employee_roles", EMPLOYEE_ROLES),
+    "employee_traits": ("employee_traits", EMPLOYEE_TRAITS),
+    "staffing_requirements": ("staffing_requirements", STAFFING_REQUIREMENTS),
+    "training_options": ("training_options", TRAINING_OPTIONS),
+    "employee_events": ("employee_events", EMPLOYEE_EVENTS),
 }
 
 

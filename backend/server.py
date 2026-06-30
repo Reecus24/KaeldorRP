@@ -23,6 +23,7 @@ from game_engine import (
     charge, add_money, effectiveness, apply_effects, add_skill_xp,
 )
 from seed_data import seed_content, CONTENT_MAP
+import employee_engine
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -716,6 +717,8 @@ async def business_market(user: dict = Depends(current_user)):
 async def owned_businesses(user: dict = Depends(current_user)):
     p = await get_state(user)
     bizs = await db.businesses.find({"player_id": p["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    for b in bizs:
+        b["metrics"] = await employee_engine.business_metrics(db, b)
     return bizs
 
 
@@ -739,9 +742,15 @@ async def buy_business(type_id: str, user: dict = Depends(current_user)):
         "level": 1, "marketing_level": 0, "security_level": 0, "reputation": 50.0,
         "cash": 0.0, "debt": 0.0, "revenue_total": 0.0, "last_net_day": 0.0,
         "bankrupt": False, "history": [], "created_at": now_utc().isoformat(),
+        "satisfaction": 60.0, "last_applicant_at": now_utc().isoformat(),
+        "rev_day": 0.0, "exp_day": 0.0, "wages_day": 0.0, "coverage": 0.35, "morale_avg": 0,
     }
     await db.businesses.insert_one({**biz})
-    await add_event(db, p["id"], f"You acquired a business: {t['name']}!", "business", "success")
+    cfg = await get_config(db)
+    reqs = await employee_engine.get_staffing(db, biz)
+    for _ in range(3):
+        await employee_engine._create_applicant(db, p, cfg, biz, reqs, premium=False)
+    await add_event(db, p["id"], f"You acquired a business: {t['name']}! Applicants are waiting to be hired.", "business", "success", biz["id"])
     await save_player(p)
     return {"ok": True}
 
@@ -1027,6 +1036,132 @@ async def admin_stats(admin: dict = Depends(admin_user)):
         "actions": await db.actions.count_documents({}),
         "courses": await db.courses.count_documents({}),
     }
+
+
+# ============================ EMPLOYEES ============================
+async def _get_employee(p, emp_id):
+    emp = await db.employees.find_one({"id": emp_id}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    biz = await db.businesses.find_one({"id": emp["business_id"], "player_id": p["id"]}, {"_id": 0})
+    if not biz:
+        raise HTTPException(status_code=403, detail="Not your employee")
+    return emp, biz
+
+
+@api.get("/businesses/{biz_id}")
+async def business_detail(biz_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    return {"business": b, "metrics": await employee_engine.business_metrics(db, b)}
+
+
+@api.get("/businesses/{biz_id}/employees")
+async def biz_employees(biz_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    emps = await db.employees.find({"business_id": biz_id, "status": {"$in": ["active", "sick"]}}, {"_id": 0}).sort("hire_date", 1).to_list(200)
+    return {"employees": emps, "metrics": await employee_engine.business_metrics(db, b)}
+
+
+@api.get("/businesses/{biz_id}/applicants")
+async def biz_applicants(biz_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    await _get_owned_business(p, biz_id)
+    return await db.employees.find({"business_id": biz_id, "status": "applicant"}, {"_id": 0}).to_list(50)
+
+
+@api.get("/businesses/{biz_id}/events")
+async def biz_events(biz_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    await _get_owned_business(p, biz_id)
+    return await db.events.find({"player_id": p["id"], "business_id": biz_id}, {"_id": 0}).sort("ts", -1).to_list(50)
+
+
+@api.post("/businesses/{biz_id}/applicants/{emp_id}/hire")
+async def hire_applicant(biz_id: str, emp_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    await _get_owned_business(p, biz_id)
+    emp = await db.employees.find_one({"id": emp_id, "business_id": biz_id, "status": "applicant"}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+    await db.employees.update_one({"id": emp_id}, {"$set": {
+        "status": "active", "hire_date": now_utc().isoformat(), "last_paid": now_utc().isoformat()}})
+    await add_event(db, p["id"], f"You hired {emp['name']} as {emp['role'].replace('_', ' ')}.", "business", "success", biz_id)
+    return {"ok": True}
+
+
+@api.post("/businesses/{biz_id}/applicants/{emp_id}/reject")
+async def reject_applicant(biz_id: str, emp_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    await _get_owned_business(p, biz_id)
+    await db.employees.delete_one({"id": emp_id, "business_id": biz_id, "status": "applicant"})
+    return {"ok": True}
+
+
+@api.post("/businesses/{biz_id}/recruit")
+async def recruit_applicant(biz_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    cfg = await get_config(db)
+    cost = cfg.get("employees", {}).get("recruit_cost", 250)
+    if p["cash"] + p["bank"] < cost:
+        raise HTTPException(status_code=400, detail=f"Recruiting costs ${cost}")
+    charge(p, cost)
+    await save_player(p)
+    reqs = await employee_engine.get_staffing(db, b)
+    await employee_engine._create_applicant(db, p, cfg, b, reqs, premium=True)
+    await add_event(db, p["id"], f"A strong candidate applied at {b['name']} after recruiting.", "business", "info", biz_id)
+    return {"ok": True, "cost": cost}
+
+
+@api.post("/businesses/employees/{emp_id}/fire")
+async def fire_employee(emp_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    emp, biz = await _get_employee(p, emp_id)
+    await db.employees.update_one({"id": emp_id}, {"$set": {"status": "fired"}})
+    await add_event(db, p["id"], f"You fired {emp['name']}.", "business", "warning", biz["id"])
+    return {"ok": True}
+
+
+@api.post("/businesses/employees/{emp_id}/raise")
+async def give_raise(emp_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    emp, biz = await _get_employee(p, emp_id)
+    new_wage = round(emp.get("daily_wage", 80) * 1.12, 2)
+    await db.employees.update_one({"id": emp_id}, {"$set": {
+        "daily_wage": new_wage, "wants_raise": False,
+        "morale": clamp(emp.get("morale", 60) + 10), "loyalty": clamp(emp.get("loyalty", 50) + 6)}})
+    await add_event(db, p["id"], f"You gave {emp['name']} a raise to ${new_wage}/day.", "business", "success", biz["id"])
+    return {"ok": True}
+
+
+@api.get("/training-options")
+async def list_training_options(user: dict = Depends(current_user)):
+    return await db.training_options.find({}, {"_id": 0}).to_list(50)
+
+
+@api.post("/businesses/employees/{emp_id}/train")
+async def train_employee(emp_id: str, body: dict, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    emp, biz = await _get_employee(p, emp_id)
+    if emp.get("training"):
+        raise HTTPException(status_code=400, detail="Already in training")
+    opt = await db.training_options.find_one({"id": body.get("option_id")}, {"_id": 0})
+    if not opt:
+        raise HTTPException(status_code=404, detail="Training option not found")
+    if p["cash"] + p["bank"] < opt["cost"]:
+        raise HTTPException(status_code=400, detail="Not enough money for training")
+    charge(p, opt["cost"])
+    await save_player(p)
+    cfg = await get_config(db)
+    ends = (now_utc() + timedelta(seconds=real_seconds(opt["duration_minutes"], cfg["time_scale"]))).isoformat()
+    tr = {"option_id": opt["id"], "label": opt["label"], "ends_at": ends,
+          "skill_gain": opt["skill_gain"], "morale_gain": opt["morale_gain"],
+          "loyalty_gain": opt["loyalty_gain"], "fail_chance": opt["fail_chance"]}
+    await db.employees.update_one({"id": emp_id}, {"$set": {"training": tr}})
+    await add_event(db, p["id"], f"{emp['name']} started training: {opt['label']}.", "business", "info", biz["id"])
+    return {"ok": True}
 
 
 # ============================ STARTUP ============================

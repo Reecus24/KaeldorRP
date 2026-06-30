@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 2 — focused regression for the new NPC Employee + Hiring System. Wrote /app/backend/tests/test_employee_system.py (20 tests). Backend: 17 passed, 3 skipped (skips happen only when the seeded player ran out of liquid funds for an extra kiosk — expected & guarded). All new endpoints work: /api/businesses/{id} detail, /employees, /applicants, /events, /applicants/{id}/hire, /reject, /recruit, /employees/{id}/fire|raise|train, /training-options, plus 5 new admin content tabs (employee_roles, employee_traits, staffing_requirements, training_options, employee_events) with full CRUD. Frontend: BusinessManage page renders all 6 tabs (overview/finances/employees/applicants/training/events), all ov-* action buttons, hire/reject/recruit/train/raise/fire buttons resolve and trigger expected UI changes (applicant card disappears, employees count updates, train modal opens with 4 options, training countdown appears). Owned Businesses cards show Staff/Coverage/Morale labels and Manage-<bizId> button as specified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/businesses/owned (metrics)", "issue": "Returned metric keys are `rev_day, exp_day, wage_per_day, net_day, morale_avg, employee_count, applicant_count` (NOT the `revenue_day, expenses_day, wages_day, morale, reputation, uncollected, debt, employees` named in the spec). Frontend appears to handle current keys, but task description and API spec are out of sync."},
+      {"endpoint": "/api/businesses/{id}/events", "issue": "Event docs use field `message` (not `text`). Cosmetic; frontend reads `message` correctly."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Topbar (time-scale pill)", "issues": ["Pill shows `FAST x12` instead of `REAL-TIME` — config drift from the documented default of time_scale=1. The seeded admin config currently has time_scale=12. Either reset the seeded default to 1 or update the test request accordingly."]},
+      {"screen": "OwnedBusinesses card", "issues": ["`Satisfaction` label not visible in plain text on cards (Staff/Coverage/Morale render). May be iconized/abbreviated but the task requested an explicit Satisfaction % tile per card."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_employee_system.py",
+    "/app/test_reports/pytest/employee_results.xml"
+  ],
+  "action_items": [
+    "Reset default time_scale to 1 (or re-document that 12x is the new default); the topbar REAL-TIME pill never lights up in current state.",
+    "Add Satisfaction % tile to OwnedBusinesses cards alongside Staff/Coverage/Morale.",
+    "Align /api/businesses/owned metric key names with the spec (or update spec): rename rev_day→revenue_day, exp_day→expenses_day, wage_per_day→wages_day, morale_avg→morale, etc., OR document the actual schema.",
+    "Optional: expose uncollected/debt/reputation directly in the metrics object (currently inferable from biz doc but not in metrics)."
+  ],
+  "critical_code_review_comments": [
+    "BusinessManage.jsx fetches employees/applicants/events on tab change and also via tick() polling — verify no duplicate fetches under fast polling.",
+    "employee_engine.business_metrics: coverage returned as 0.0–1.0 fraction; frontend code must convert to percentage for display.",
+    "Hire endpoint blindly sets status=active without checking if the player has space/coverage cap — fine for now but staffing cap not enforced.",
+    "give_raise multiplies daily_wage by 1.12 every call with no max cap — exploit potential to inflate morale repeatedly.",
+    "/api/training-options is publicly listed without admin filter (any authed user can list options) — likely intended."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_employee_system.py"
+  ],
+  "success_rate": {"backend": "85% (17 passed / 3 skipped of 20)", "frontend": "100% of asserted UI elements present (6 tabs, all ov-* buttons, applicants/employees/recruit/train/fire flows verified; one design label missing)"},
+  "test_credentials": "Player: player@kaeldor.com / player123 (hustler, owns Street Kiosk + accumulated). Admin: admin@kaeldor.com / admin123.",
+  "seed_data_creation": "Used existing seeded player. The test bought additional kiosks when funds allowed (skipped tests cleanly when bank cap was reached).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend metric key names differ from the natural-language spec (rev_day vs revenue_day, etc.). Time-scale is currently 12x (not 1x). Player player@kaeldor.com now owns 4–6 kiosks after iteration_2 testing. The new pytest file /app/backend/tests/test_employee_system.py runs cleanly under the repo's xdist loadscope config (-n 2) and can be re-used as a regression suite.",
+  "rca of the issue": "No blocking bugs. Two informational findings: (a) topbar pill mismatch — time_scale=12 in seeded config rather than the documented default of 1, so REAL-TIME pill never displays; (b) metric key naming mismatch between API spec and implementation — frontend handles the actual keys but documentation is misleading."
+}

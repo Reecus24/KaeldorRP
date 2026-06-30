@@ -119,4 +119,9 @@ DEFAULT_CONFIG = {
         "skill_per_level": 120,         # base xp per skill level
         "player_per_level": 250,        # base xp per player level
     },
+    "employees": {
+        "applicant_interval_hours": 6,  # real hours between new applicants per business
+        "max_applicants": 6,
+        "recruit_cost": 250,            # cost to recruit a premium applicant
+    },
 }
