@@ -74,3 +74,14 @@ See `/app/memory/test_credentials.md`. Admin: admin@kaeldor.com / admin123.
 
 ### Next: Phase D — Dashboard "Life Inbox"
 - Surface social/relationship/job events to a Dashboard card with real-time expiry + one-tap actions (Respond, Ignore, Send Money...) and consequence routing. NOT STARTED.
+
+## Added — Credit/Debt System Overhaul (2026-06, P0 economy fix)
+- **Fixed P0 exploit:** old loan limit `max(500,(bank+cash)*3+finance*500)` grew every time you borrowed (loan adds to bank) → unbounded money-printing; UI also showed total limit instead of borrowable.
+- New `credit_profile()` (server.py): limit derived from **net worth** (cash+bank−debt+assets, invariant under a loan) + finance skill + income (job + profitable businesses) + job stability + reputation; penalties for low rep, criminal record (<40 halved, <25 frozen), and missed payments (`credit_missed`, tracked offline, decays on clean days, resets on full repay).
+- Clear separation: `credit_limit` / `credit_used` (=debt) / `credit_available`. Loans validated against `credit_available`; blocked path returns 403. Repay restores available.
+- Bank.jsx: credit summary box (limit/used/available + sentence), live loan preview (new loan, current/total debt, interest %/day, daily interest after), over-limit disables Borrow.
+- Also fixed (low-risk): vehicle & business sell now show payout (button estimate + toast amount); `Pill` forwards data-testid.
+- Verified iter_9: 14 credit tests + 37 Phase C regression = 51/51 PASS; frontend 100%. time_scale stays 1.0.
+
+## Logic Audit (see /app/memory/LOGIC_AUDIT.md)
+- Full 12-area audit done. P0 credit exploit fixed. Queued P1 packages (user-approved order): (2) Transaction log + confirm dialogs, (3) realism fixes (deposit refund, house sell, suspicion cooldown, health regen, hospital bill, sleep-destress), (4) inventory/use + equipment, (5) debt consequences + vehicle repair rework.
