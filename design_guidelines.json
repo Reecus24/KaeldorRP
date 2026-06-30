@@ -1,0 +1,126 @@
+{
+  "theme_and_archetype": {
+    "theme": "dark",
+    "archetype": "Archetype 7 (Electric & Neon) + Archetype 5 (Luxury)",
+    "description": "Dark neo-noir city vibe with gritty/neon accents. Clean, readable dashboard RPG. Deepest void black base with high-contrast neon accents for metrics, timers, and alerts. Conveys a sense of gritty city life, money pressure, and survival."
+  },
+  "typography": {
+    "fonts_installation": "Add via Google Fonts in index.html: Unbounded, Manrope, JetBrains Mono.",
+    "headings": {
+      "family": "'Unbounded', sans-serif",
+      "weights": ["400", "700", "900"],
+      "usage": "H1, H2, Player Level, Primary Stats, Section Titles. Apply 'tracking-tighter' for large text."
+    },
+    "body": {
+      "family": "'Manrope', sans-serif",
+      "weights": ["400", "500", "700"],
+      "usage": "General UI text, labels, descriptions, cards. Highly legible for dense MMO interfaces."
+    },
+    "mono": {
+      "family": "'JetBrains Mono', monospace",
+      "weights": ["400", "700"],
+      "usage": "Event logs, timers, countdowns, financial numbers. Essential for the 'terminal/hacker' neo-noir feel. Always use 'tabular-nums' utility."
+    }
+  },
+  "colors": {
+    "background": {
+      "base": "#050505",
+      "panel": "#0A0A0A",
+      "card": "#121212",
+      "overlay": "rgba(0, 0, 0, 0.7)"
+    },
+    "text": {
+      "primary": "#F3F4F6",
+      "secondary": "#9CA3AF",
+      "muted": "#4B5563"
+    },
+    "accents": {
+      "primary": "#00F3FF",
+      "success": "#00FF66",
+      "warning": "#FFC300",
+      "danger": "#FF0055",
+      "energy": "#B026FF",
+      "money": "#00FF66"
+    },
+    "borders": {
+      "default": "rgba(255, 255, 255, 0.1)",
+      "focus": "rgba(0, 243, 255, 0.5)",
+      "divider": "rgba(255, 255, 255, 0.05)"
+    }
+  },
+  "layout_and_spacing": {
+    "grid_system": "MODE B: THE CONTROL ROOM GRID. Dense, data-heavy, scanable.",
+    "container_padding": "Use p-6 to p-8 for main layout containers to breathe.",
+    "item_gap": "Use gap-4 for dense widgets, gap-8 for distinct sections.",
+    "alignment": "Left-align dense text and logs. Center-align major level-up moments or primary CTAs."
+  },
+  "components": {
+    "cards": {
+      "style": "Technical Grid Look. Flat background (bg-[#121212]), 1px solid border (border-white/10). No soft shadows, use sharp edges or max 4px radius (rounded-sm).",
+      "hover": "Slight lift (-translate-y-1) and subtle neon inner shadow or border highlight (hover:border-[#00F3FF]/50)."
+    },
+    "progress_bars": {
+      "style": "Sharp corners. Height 8px-12px. Background bg-white/5. Border 1px border-white/10.",
+      "fill": "Gradient based on stat. Health: red to pink. Energy: purple to cyan. Fatigue/Stress: yellow to red."
+    },
+    "event_log": {
+      "style": "Retro-Futurism/Terminal Look. bg-[#050505], border-l-2 border-[#00FF66]/50, font-mono (JetBrains Mono), text-sm. Recent events brightest, older events faded (opacity)."
+    },
+    "buttons": {
+      "primary": "bg-transparent border border-[#00F3FF] text-[#00F3FF] hover:bg-[#00F3FF] hover:text-black uppercase tracking-widest font-bold transition-all px-4 py-2",
+      "secondary": "bg-transparent border border-white/20 text-white hover:bg-white/10 px-4 py-2 uppercase tracking-wide text-sm",
+      "danger": "bg-transparent border border-[#FF0055] text-[#FF0055] hover:bg-[#FF0055] hover:text-white uppercase tracking-wide text-sm"
+    },
+    "badges": {
+      "style": "Small, sharp-edged rectangles (rounded-none or rounded-sm). bg-opacity-10 with 1px border matching text color. Used for risk levels, duration, costs."
+    }
+  },
+  "motion_and_interaction": {
+    "hover": "Transition transform 0.2s ease, border-color 0.2s ease.",
+    "active": "Scale down slightly (active:scale-95).",
+    "timers": "Use fixed-width numerals (tabular-nums) to prevent layout shifting during countdowns."
+  },
+  "media": {
+    "icons": {
+      "library": "@phosphor-icons/react",
+      "installation": "yarn add @phosphor-icons/react",
+      "style": "Duotone or Regular weight, matched to accent colors for active states, muted for inactive. Perfect for dense dashboards."
+    },
+    "image_urls": [
+      {
+        "url": "https://images.unsplash.com/photo-1590347945111-a14c8efd9249?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwyfHxkYXJrJTIwbmVvJTIwbm9pciUyMGNpdHklMjBzdHJlZXQlMjBuaWdodHxlbnwwfHx8fDE3ODI3ODg1Njh8MA&ixlib=rb-4.1.0&q=85",
+        "category": "hero_background",
+        "description": "Dark neo-noir city street at night. Use with heavy bg-black/80 overlay for login/register screen or main city backdrop to set the moody RPG tone."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1642019341061-f81d61659c62?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwzfHxkYXJrJTIwbmVvJTIwbm9pciUyMGNpdHklMjBzdHJlZXQlMjBuaWdodHxlbnwwfHx8fDE3ODI3ODg1Njh8MA&ixlib=rb-4.1.0&q=85",
+        "category": "city_navigation",
+        "description": "Rainy neon city street. Excellent for 'Downtown', 'Job Center' or 'Real Estate' module backgrounds. Always use a dark gradient overlay."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1562447574-797880741dd1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwxfHxjeWJlcnB1bmslMjBuZW9uJTIwZGFzaGJvYXJkJTIwZWxlbWVudHN8ZW58MHx8fHwxNzgyNzg4NTY4fDA&ixlib=rb-4.1.0&q=85",
+        "category": "business_market",
+        "description": "Neon arrows pointing up/right. Great header image for leaderboard, stock market, or business upgrade section."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1688377051459-aebb99b42bff?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwzfHxjeWJlcnB1bmslMjBuZW9uJTIwZGFzaGJvYXJkJTIwZWxlbWVudHN8ZW58MHx8fHwxNzgyNzg4NTY4fDA&ixlib=rb-4.1.0&q=85",
+        "category": "illegal_paths",
+        "description": "Neon sign with Asian writing. Good for shop background, black market, or shady alleys."
+      }
+    ]
+  },
+  "accessibility_and_testing": {
+    "testing_attributes": "CRITICAL: All interactive and key informational elements, buttons, links, form inputs, menus, error messages, user balances, progress bars and confirmation text MUST include a `data-testid` attribute (e.g., `data-testid='start-job-button'`, `data-testid='health-bar'`). Use kebab-case, role-based names.",
+    "contrast": "Text must pass WCAG AA (at least 4.5:1 for normal text). Do not use pure black backgrounds without slightly tinting or layering. Use text-shadow over images."
+  },
+  "instructions_to_main_agent": [
+    "DO NOT use Inter, Roboto, or standard sans-serifs for headings. Use 'Unbounded'.",
+    "DO NOT use generic Vercel/Shadcn rounded styling. Aggressively customize Shadcn components: remove soft shadows, make edges sharp (rounded-none or rounded-sm), use matte backgrounds.",
+    "Implement the 'MODE B: CONTROL ROOM GRID' layout. The dashboard must feel dense, data-rich, and use every pixel efficiently. Use cards for Job selection, Courses, and Real Estate listings.",
+    "All components must be coded in pure React + Tailwind CSS (.js or .jsx format, NOT .tsx).",
+    "Ensure the Event Log looks like a terminal output (mono font, dark bg, text colors mapping to event severity).",
+    "Avoid fully transparent headers or sections; use a backdrop-blur with a dark tint (`bg-[#0A0A0A]/80 backdrop-blur-md`).",
+    "Use Phosphor Icons (yarn add @phosphor-icons/react).",
+    "Implement `data-testid` on all interactable elements and stat displays without fail."
+  ]
+}
