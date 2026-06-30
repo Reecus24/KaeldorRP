@@ -85,3 +85,20 @@ See `/app/memory/test_credentials.md`. Admin: admin@kaeldor.com / admin123.
 
 ## Logic Audit (see /app/memory/LOGIC_AUDIT.md)
 - Full 12-area audit done. P0 credit exploit fixed. Queued P1 packages (user-approved order): (2) Transaction log + confirm dialogs, (3) realism fixes (deposit refund, house sell, suspicion cooldown, health regen, hospital bill, sleep-destress), (4) inventory/use + equipment, (5) debt consequences + vehicle repair rework.
+
+## Player-Business + Inventory Package — PHASE 1 DONE (2026-06, verified iter_10)
+User-approved decisions: (1a) player-employee role chosen from business staffing roles → counts to coverage; (2b) HOURLY wage is source of truth; (3b) inventory buy→use deferred to Phase 4.
+- **Player employees fully integrated** (`employee_engine.business_metrics`/`resolve_business`): active player employee in a matched staffing role adds PLAYER_PRESENCE=0.6 FTE to coverage; metrics expose `player_have`, `player_employee_count`, `unmatched_player_count`.
+- **Hourly wage model** (`wage_per_hour` source of truth): offers/raises/market base all hourly; shift pay = wage_per_hour×hours; migration converts legacy per-shift→/4.
+- **Per-shift business output + net impact** (`employment.complete_player_shift`): revenue = wph×hours×output_mult×productivity (role-fit skill, reliability, health/mood/fatigue). Good hire → +net, bad hire → −net. Owner gets "+$rev − $wage = net ±$N" notification; `emp.last_shift` stored.
+- **Finance log clarity** (#6): history entries tagged `kind` accrual (forecast rate + real amount) vs shift (booking). Legacy entries backfilled.
+- **Current Job** (#5): `GET /jobs/current` → {npc, player_jobs}; player employment shown under Current Job + non-overlap note.
+- **Withdraw application** (#4): `/jobs/employment/applications/{id}/withdraw` → withdrawn + owner notified; terminal (offer/accept 400).
+- UI: BusinessManage (role dropdown, hourly, pending/offer/employee separation, fit pills, net-impact, Employees-tab player subsection, Finances forecast/booking), JobMarket (role dropdown, hourly, withdraw, net-impact), CurrentJob (player_jobs).
+- Tests: 48/48 backend (test_phase1_player_employment 11 + Phase C regression 37). New fixtures/fast-forward helper in test_phase1_player_employment.py.
+
+### Remaining phases (user-approved order)
+- **Phase 2**: #3 Role/Job-listings editor, #2 internal Training (offer→accept/decline→cost/skill/log).
+- **Phase 3**: #7 "Market"→"Marketing" + cost/duration/effect previews on Upgrade/Marketing; #8 spell out EXP + skill tooltips (player & NPC).
+- **Phase 4**: #9 real inventory (buy→inventory→use + "buy & use now"), #10 equipment slots framework, Admin item editor.
+- **Phase 5 (P2)**: #11 custom products — datamodel + admin groundwork only.

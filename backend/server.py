@@ -2112,6 +2112,16 @@ async def migrate_player_employment_hourly():
         await db.player_employment.update_one({"id": e["id"]}, {"$set": {"wage_per_hour": wph, "total_value_added": 0.0}})
     async for a in db.business_applications.find({"status": "offered", "wage_offer": {"$ne": None}, "wage_hourly_migrated": {"$ne": True}}, {"_id": 0, "id": 1, "wage_offer": 1}):
         await db.business_applications.update_one({"id": a["id"]}, {"$set": {"wage_offer": round(a["wage_offer"] / 4.0, 2), "wage_hourly_migrated": True}})
+    # tag legacy finance-history entries so the UI can label them Forecast vs Booking
+    async for b in db.businesses.find({"history": {"$exists": True, "$ne": []}}, {"_id": 0, "id": 1, "history": 1}):
+        hist = b.get("history") or []
+        changed = False
+        for h in hist:
+            if "kind" not in h:
+                h["kind"] = "accrual"
+                changed = True
+        if changed:
+            await db.businesses.update_one({"id": b["id"]}, {"$set": {"history": hist}})
 
 
 @app.on_event("startup")
