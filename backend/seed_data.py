@@ -658,9 +658,17 @@ async def seed_content(db):
         if existing == 0 and data:
             await db[coll].insert_many([{**d} for d in data])
     cfg = await db.config.find_one({"id": "global"})
+    from game_models import DEFAULT_CONFIG
+    from datetime import datetime, timezone
     if not cfg:
-        from game_models import DEFAULT_CONFIG
-        await db.config.insert_one({**DEFAULT_CONFIG})
-    elif "social" not in cfg:
-        from game_models import DEFAULT_CONFIG
-        await db.config.update_one({"id": "global"}, {"$set": {"social": DEFAULT_CONFIG["social"]}})
+        base = {**DEFAULT_CONFIG, "world_start_real": datetime.now(timezone.utc).isoformat()}
+        await db.config.insert_one(base)
+    else:
+        patch = {}
+        if "social" not in cfg:
+            patch["social"] = DEFAULT_CONFIG["social"]
+        if not cfg.get("world_start_real"):
+            patch["world_start_real"] = datetime.now(timezone.utc).isoformat()
+            patch["world_start_game"] = cfg.get("world_start_game") or DEFAULT_CONFIG["world_start_game"]
+        if patch:
+            await db.config.update_one({"id": "global"}, {"$set": patch})

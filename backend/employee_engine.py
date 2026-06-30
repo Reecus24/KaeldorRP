@@ -6,7 +6,7 @@ import random
 from datetime import timedelta
 
 from game_models import clamp, now_utc
-from game_engine import add_event, parse_dt, real_seconds
+from game_engine import add_event, parse_dt, real_seconds, ledger_add, add_notification
 
 
 FIRST_NAMES = [
@@ -262,6 +262,8 @@ async def resolve_business(db, p, cfg, gh, now, b):
     if gh > 0 and not b.get("bankrupt"):
         delta = net_day * gh / 24.0
         b["cash"] = round(b.get("cash", 0) + delta, 2)
+        ledger_add(p, "business_pnl", round(delta, 2))
+        ledger_add(p, "employee_wages", -round(wages_day * gh / 24.0, 2))
         b["revenue_total"] = round(b.get("revenue_total", 0) + max(rev_day, 0) * gh / 24.0, 2)
         if b["cash"] < 0:
             b["debt"] = round(b.get("debt", 0) - b["cash"], 2)
@@ -326,6 +328,7 @@ async def resolve_business(db, p, cfg, gh, now, b):
     if b.get("debt", 0) > b.get("purchase_price", 1) * 0.85 and not b.get("bankrupt"):
         b["bankrupt"] = True
         await add_event(db, p["id"], f"Your business '{b['name']}' went BANKRUPT under crushing debt.", "business", "danger", bid)
+        await add_notification(db, p["id"], "business", "Business bankrupt", f"'{b['name']}' has gone bankrupt under its debt.", "danger", f"/businesses/{bid}")
 
     seen = {}
     for e in changed:

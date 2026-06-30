@@ -1,7 +1,8 @@
 """Kaeldor RPG - the real-time resolution engine (offline progress, decay, completions)."""
+import uuid
 import random
 from datetime import datetime, timezone, timedelta
-from game_models import now_utc, clamp, SKILLS
+from game_models import now_utc, clamp, SKILLS, empty_ledger
 
 
 def parse_dt(v):
@@ -42,6 +43,83 @@ async def add_event(db, player_id, message, etype="info", severity="info", busin
     if business_id:
         doc["business_id"] = business_id
     await db.events.insert_one(doc)
+
+
+async def add_notification(db, player_id, ntype, title, body="", severity="info", link=None):
+    doc = {
+        "id": uuid.uuid4().hex, "player_id": player_id, "type": ntype,
+        "title": title, "body": body, "severity": severity, "read": False,
+        "ts": now_utc().isoformat(),
+    }
+    if link:
+        doc["link"] = link
+    await db.notifications.insert_one(doc)
+
+
+# ----------------------------- world clock + daily ledger -----------------------------
+def world_anchors(cfg):
+    return parse_dt(cfg.get("world_start_real")), parse_dt(cfg.get("world_start_game"))
+
+
+def game_now(cfg, real_dt=None):
+    real_dt = real_dt or now_utc()
+    wr, wg = world_anchors(cfg)
+    if not wr or not wg:
+        return real_dt
+    elapsed = (real_dt - wr).total_seconds() * cfg.get("time_scale", 1.0)
+    return wg + timedelta(seconds=elapsed)
+
+
+def game_day_index(cfg, real_dt=None):
+    g = game_now(cfg, real_dt)
+    wg = world_anchors(cfg)[1] or g
+    base = wg.replace(hour=0, minute=0, second=0, microsecond=0)
+    return int((g - base).total_seconds() // 86400)
+
+
+def ledger_add(p, bucket, amt):
+    L = p.setdefault("day_ledger", empty_ledger())
+    L[bucket] = round(L.get(bucket, 0.0) + amt, 2)
+
+
+def ledger_warn(p, text):
+    L = p.setdefault("day_ledger", empty_ledger())
+    w = L.setdefault("warnings", [])
+    if text not in w:
+        w.append(text)
+        L["warnings"] = w[-20:]
+
+
+def ledger_event(p, text):
+    L = p.setdefault("day_ledger", empty_ledger())
+    e = L.setdefault("rel_events", [])
+    e.append(text)
+    L["rel_events"] = e[-30:]
+
+
+async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
+    L = p.get("day_ledger") or empty_ledger()
+    income = L.get("wages_earned", 0) + L.get("crime_income", 0) + L.get("social_income", 0)
+    expense = (L.get("rent", 0) + L.get("bills", 0) + L.get("vehicle_costs", 0)
+               + L.get("fines", 0) + L.get("medical", 0) + L.get("living_costs", 0))
+    net = round(income + expense, 2)
+    gnow = game_now(cfg, now)
+    doc = {
+        "id": uuid.uuid4().hex, "player_id": p["id"],
+        "day_index": from_day, "days_covered": to_day - from_day,
+        "game_date": (gnow - timedelta(days=1)).date().isoformat(),
+        "real_ts": now.isoformat(),
+        "ledger": {k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in L.items()},
+        "income_total": round(income, 2), "expense_total": round(expense, 2), "net_cash": net,
+        "cash": round(p["cash"], 2), "bank": round(p["bank"], 2), "debt": round(p["debt"], 2),
+    }
+    await db.daily_summaries.insert_one({**doc})
+    p["day_ledger"] = empty_ledger()
+    sign = "+" if net >= 0 else ""
+    await add_notification(db, p["id"], "daily_summary", "Daily summary ready",
+                           f"Net cash for the day: {sign}${round(net)}",
+                           "success" if net >= 0 else "warning", "/daily-summary")
+    await add_event(db, p["id"], f"A new day begins in Kaeldor. Net cash yesterday: {sign}${round(net)}.", "system", "info")
 
 
 def effectiveness(p):
@@ -191,6 +269,7 @@ async def complete_activity(db, p, cfg):
         hours = payload["hours"]
         pay = round(payload["hourly_wage"] * hours * eff, 2)
         add_money(p, pay)
+        ledger_add(p, "wages_earned", pay)
         p["fatigue"] = clamp(p["fatigue"] + payload["fatigue_ph"] * hours)
         p["stress"] = clamp(p["stress"] + payload["stress_ph"] * hours)
         p["energy"] = clamp(p["energy"] - payload["energy_ph"] * hours)
@@ -261,6 +340,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
         p["jail_until"] = (now_utc() + timedelta(seconds=real_seconds(jail_minutes, ts))).isoformat()
         p["status"] = "jail"
         charge(p, payload.get("fine_amount", 200))
+        ledger_add(p, "fines", -payload.get("fine_amount", 200))
         p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + payload.get("suspicion_gain", 10) + 15)
         p["legal_reputation"] = clamp(p["legal_reputation"] - 15)
         p["reputation"] = clamp(p["reputation"] + payload.get("reputation_impact", -5))
@@ -282,6 +362,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
             add_money(p, reward)
         else:
             charge(p, -reward)
+        ledger_add(p, "crime_income", reward)
         p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + payload.get("suspicion_gain", 10))
         p["reputation"] = clamp(p["reputation"] + payload.get("reputation_impact", 0))
         p["legal_reputation"] = clamp(p["legal_reputation"] - 4)
@@ -296,23 +377,31 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
 async def accrue_recurring(db, p, cfg, gh, housing_doc):
     if gh <= 0:
         return
-    total = 0.0
+    rent = bills = veh = 0.0
     if housing_doc:
         if not p.get("housing", {}).get("owned"):
-            total += housing_doc.get("rent_per_day", 0) * gh / 24.0
-        total += housing_doc.get("bills_per_day", 0) * gh / 24.0
+            rent += housing_doc.get("rent_per_day", 0) * gh / 24.0
+        bills += housing_doc.get("bills_per_day", 0) * gh / 24.0
     for v in p.get("vehicles", []):
         vt = v.get("spec", {})
-        total += (vt.get("fuel_per_day", 0) + vt.get("insurance_per_day", 0) + vt.get("maintenance_per_day", 0)) * gh / 24.0
+        veh += (vt.get("fuel_per_day", 0) + vt.get("insurance_per_day", 0) + vt.get("maintenance_per_day", 0)) * gh / 24.0
         v["condition"] = clamp(v.get("condition", 100) - 0.4 * gh, 0, 100)
     if p["debt"] > 0:
         rate = cfg.get("economy", {}).get("loan_interest_daily", 0.015)
-        p["debt"] = round(p["debt"] + p["debt"] * rate * gh / 24.0, 2)
+        interest = round(p["debt"] * rate * gh / 24.0, 2)
+        p["debt"] = round(p["debt"] + interest, 2)
+        ledger_add(p, "loan_interest", -interest)
+    total = rent + bills + veh
     if total > 0:
         before_debt = p["debt"]
         charge(p, total)
-        if p["debt"] > before_debt + 1 and random.random() < 0.3:
-            await add_event(db, p["id"], "You couldn't cover your bills and slid deeper into debt.", "finance", "warning")
+        ledger_add(p, "rent", -round(rent, 2))
+        ledger_add(p, "bills", -round(bills, 2))
+        ledger_add(p, "vehicle_costs", -round(veh, 2))
+        if p["debt"] > before_debt + 1:
+            ledger_warn(p, "Couldn't fully cover living costs — slipping into debt.")
+            if random.random() < 0.3:
+                await add_event(db, p["id"], "You couldn't cover your bills and slid deeper into debt.", "finance", "warning")
 
 
 async def accrue_businesses(db, p, cfg, gh, now):
@@ -377,6 +466,16 @@ async def resolve_player(db, p):
 
     import social_engine
     await social_engine.resolve_social(db, p, cfg, gh, now)
+
+    # daily summary at each in-game midnight boundary (report only, no double billing)
+    if cfg.get("world_start_real"):
+        cur_day = game_day_index(cfg, now)
+        last_day = p.get("last_summary_day")
+        if last_day is None:
+            p["last_summary_day"] = cur_day
+        elif cur_day > last_day:
+            await _flush_daily_summary(db, p, cfg, last_day, cur_day, now)
+            p["last_summary_day"] = cur_day
 
     # finalize status
     if p.get("status") not in ("jail", "hospital"):

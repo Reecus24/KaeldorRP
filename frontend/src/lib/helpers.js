@@ -121,3 +121,24 @@ export function relTime(sec) {
     if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
     return `${Math.floor(s / 86400)}d ago`;
 }
+
+// ---------- World clock ----------
+const GAME_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const GAME_BASE_MS = Date.UTC(2050, 0, 1);
+
+// Compute the current in-game Date from world anchors + time_scale (client-side ticking).
+export function computeGameTime(state) {
+    const wr = state?.world_start_real ? new Date(state.world_start_real).getTime() : null;
+    const wg = state?.world_start_game ? new Date(state.world_start_game).getTime() : null;
+    const ts = state?.time_scale || 1;
+    if (!wr || !wg) return null;
+    return new Date(wg + (Date.now() - wr) * ts);
+}
+
+export function fmtGameClock(d) {
+    if (!d || isNaN(d.getTime())) return { day: "—", time: "--:--", date: "" };
+    const dayIndex = Math.floor((d.getTime() - GAME_BASE_MS) / 86400000) + 1;
+    const hh = String(d.getUTCHours()).padStart(2, "0");
+    const mm = String(d.getUTCMinutes()).padStart(2, "0");
+    return { day: `Day ${dayIndex}`, time: `${hh}:${mm}`, date: `${GAME_MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}` };
+}

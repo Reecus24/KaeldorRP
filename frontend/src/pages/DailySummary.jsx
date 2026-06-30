@@ -1,0 +1,129 @@
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+import { SectionTitle, Spinner, Panel, Pill, EmptyState } from "@/components/game/primitives";
+import { ScrollText, TrendingUp, TrendingDown, AlertTriangle, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+const INCOME = [
+    ["wages_earned", "Wages earned"],
+    ["crime_income", "Crime income"],
+    ["social_income", "Social & deals"],
+];
+const EXPENSE = [
+    ["rent", "Rent"],
+    ["bills", "Bills & utilities"],
+    ["vehicle_costs", "Vehicle costs"],
+    ["fines", "Fines & bail"],
+    ["medical", "Medical"],
+    ["living_costs", "Social spending"],
+];
+const INFO = [
+    ["business_pnl", "Business profit / loss"],
+    ["employee_wages", "Staff wages (paid by business)"],
+    ["loan_interest", "Loan interest accrued"],
+];
+
+const fmt = (v) => `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v || 0)).toLocaleString()}`;
+
+function Line({ label, value, positive }) {
+    if (!value) return null;
+    return (
+        <div className="flex justify-between items-center py-1 text-sm">
+            <span className="text-muted-foreground">{label}</span>
+            <span className={cn("font-mono tnum", positive ? "text-neon-green" : "text-neon-red")}>{fmt(value)}</span>
+        </div>
+    );
+}
+
+function SummaryCard({ s }) {
+    const L = s.ledger || {};
+    const hasIncome = INCOME.some(([k]) => L[k]);
+    const hasExpense = EXPENSE.some(([k]) => L[k]);
+    const hasInfo = INFO.some(([k]) => L[k]);
+    return (
+        <Panel className="p-5" data-testid={`summary-card-${s.id}`}>
+            <div className="flex items-start justify-between mb-4">
+                <div>
+                    <h3 className="font-display font-bold text-white text-lg">{s.game_date}</h3>
+                    <div className="text-[11px] text-muted-foreground font-mono">
+                        {s.days_covered > 1 ? `${s.days_covered} days resolved` : "Daily ledger"} · {new Date(s.real_ts).toLocaleString()}
+                    </div>
+                </div>
+                <div className="text-right">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Net cash</div>
+                    <div className={cn("font-display font-extrabold text-2xl flex items-center gap-1", s.net_cash >= 0 ? "text-neon-green" : "text-neon-red")}>
+                        {s.net_cash >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+                        {fmt(s.net_cash)}
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                    <div className="text-[10px] uppercase tracking-wider text-neon-green mb-1">Income</div>
+                    {hasIncome ? INCOME.map(([k, label]) => <Line key={k} label={label} value={L[k]} positive />) : <div className="text-xs text-muted-foreground/60 py-1">No income</div>}
+                </div>
+                <div>
+                    <div className="text-[10px] uppercase tracking-wider text-neon-red mb-1">Expenses</div>
+                    {hasExpense ? EXPENSE.map(([k, label]) => <Line key={k} label={label} value={L[k]} />) : <div className="text-xs text-muted-foreground/60 py-1">No expenses</div>}
+                </div>
+            </div>
+
+            {hasInfo && (
+                <div className="mt-3 pt-3 border-t border-white/8">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Business & debt</div>
+                    {INFO.map(([k, label]) => (
+                        <div key={k} className="flex justify-between items-center py-1 text-sm">
+                            <span className="text-muted-foreground">{label}</span>
+                            <span className={cn("font-mono tnum", (L[k] || 0) >= 0 ? "text-neon-cyan" : "text-neon-yellow")}>{fmt(L[k])}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {L.rel_events?.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-white/8">
+                    <div className="text-[10px] uppercase tracking-wider text-neon-purple mb-1 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Social events</div>
+                    {L.rel_events.slice(0, 6).map((e, i) => <div key={i} className="text-xs text-muted-foreground py-0.5">› {e}</div>)}
+                </div>
+            )}
+
+            {L.warnings?.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-neon-yellow/20">
+                    {L.warnings.map((w, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs text-neon-yellow py-0.5"><AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {w}</div>
+                    ))}
+                </div>
+            )}
+
+            <div className="mt-4 pt-3 border-t border-white/8 flex flex-wrap gap-2">
+                <Pill tone="cyan">Cash ${Math.round(s.cash).toLocaleString()}</Pill>
+                <Pill tone="green">Bank ${Math.round(s.bank).toLocaleString()}</Pill>
+                {s.debt > 0 && <Pill tone="red">Debt ${Math.round(s.debt).toLocaleString()}</Pill>}
+            </div>
+        </Panel>
+    );
+}
+
+export default function DailySummary() {
+    const [items, setItems] = useState(null);
+
+    useEffect(() => {
+        api.get("/daily-summaries?limit=30").then(({ data }) => setItems(data)).catch(() => setItems([]));
+    }, []);
+
+    if (!items) return <Spinner />;
+    return (
+        <div className="space-y-6">
+            <SectionTitle icon={ScrollText} kicker="Your ledger" title="Daily Summary"
+                sub="A report of everything that hit your wallet each in-game day — income, expenses, business P&L, social events and warnings. This is a record, not a charge: your money moves in real time." />
+            {items.length === 0 ? (
+                <EmptyState icon={ScrollText} title="No summaries yet" sub="Your first daily report will appear after the next in-game midnight. Keep living your life — it's all being tracked." />
+            ) : (
+                <div className="space-y-4">
+                    {items.map((s) => <SummaryCard key={s.id} s={s} />)}
+                </div>
+            )}
+        </div>
+    );
+}

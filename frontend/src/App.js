@@ -26,6 +26,7 @@ import Underworld from "@/pages/Underworld";
 import Legal from "@/pages/Legal";
 import Social from "@/pages/Social";
 import ContactDetail from "@/pages/ContactDetail";
+import DailySummary from "@/pages/DailySummary";
 import Hospital from "@/pages/Hospital";
 import Jail from "@/pages/Jail";
 import Leaderboard from "@/pages/Leaderboard";
@@ -97,6 +98,7 @@ function AppRoutes() {
                 <Route path="/businesses/:id" element={<BusinessManage />} />
                 <Route path="/social" element={<Social />} />
                 <Route path="/social/:cid" element={<ContactDetail />} />
+                <Route path="/daily-summary" element={<DailySummary />} />
                 <Route path="/underworld" element={<Underworld />} />
                 <Route path="/legal" element={<Legal />} />
                 <Route path="/hospital" element={<Hospital />} />

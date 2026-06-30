@@ -12,6 +12,7 @@ export function GameProvider({ children }) {
     const [hasCharacter, setHasCharacter] = useState(null); // null=unknown
     const [loading, setLoading] = useState(true);
     const [tick, setTick] = useState(0); // 1s ticker for smooth timers
+    const [notifications, setNotifications] = useState({ items: [], unread_count: 0 });
     const refreshing = useRef(false);
     const lastEndRef = useRef(null);
 
@@ -40,9 +41,27 @@ export function GameProvider({ children }) {
         }
     }, []);
 
+    const fetchNotifications = useCallback(async () => {
+        try {
+            const { data } = await api.get("/notifications?limit=30");
+            setNotifications(data);
+        } catch {
+            /* ignore (e.g. no character yet) */
+        }
+    }, []);
+
+    const markNotificationsRead = useCallback(async (ids) => {
+        try {
+            await api.post("/notifications/read", { ids: ids || null });
+            await fetchNotifications();
+        } catch {
+            /* ignore */
+        }
+    }, [fetchNotifications]);
+
     const refresh = useCallback(async () => {
-        await Promise.all([fetchState(), fetchEvents()]);
-    }, [fetchState, fetchEvents]);
+        await Promise.all([fetchState(), fetchEvents(), fetchNotifications()]);
+    }, [fetchState, fetchEvents, fetchNotifications]);
 
     // Initial + when user changes
     useEffect(() => {
@@ -132,6 +151,9 @@ export function GameProvider({ children }) {
                 createCharacter,
                 activityRemaining,
                 activityProgress,
+                notifications,
+                unreadCount: notifications.unread_count || 0,
+                markNotificationsRead,
             }}
         >
             {children}

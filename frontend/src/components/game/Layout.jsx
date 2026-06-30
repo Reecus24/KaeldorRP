@@ -5,12 +5,13 @@ import { useGame } from "@/context/GameContext";
 import { Money, StatBar, Pill } from "@/components/game/primitives";
 import ActivityPanel from "@/components/game/ActivityPanel";
 import EventLog from "@/components/game/EventLog";
-import { NEED_META, statusLabel, statusColor, timeMode } from "@/lib/helpers";
+import { NEED_META, statusLabel, statusColor, timeMode, computeGameTime, fmtGameClock } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import {
     LayoutDashboard, Home, Briefcase, BadgeCheck, GraduationCap, ShoppingCart,
     Landmark, Building2, Car, Store, Boxes, Sparkles, Skull, Stethoscope,
     Lock, Trophy, Settings, LogOut, Menu, X, Activity, Zap, Clock3, Users,
+    Bell, ScrollText, CalendarClock,
 } from "lucide-react";
 
 const NAV = [
@@ -19,6 +20,7 @@ const NAV = [
     { to: "/home", label: "Home & Needs", icon: Home },
     { to: "/skills", label: "Skills", icon: Sparkles },
     { to: "/social", label: "Social", icon: Users },
+    { to: "/daily-summary", label: "Daily Summary", icon: ScrollText },
     { section: "Work" },
     { to: "/jobs", label: "Job Center", icon: Briefcase },
     { to: "/current-job", label: "Current Job", icon: BadgeCheck },
@@ -95,6 +97,74 @@ function NavItems({ onNavigate, isAdmin }) {
     );
 }
 
+function NotificationBell() {
+    const navigate = useNavigate();
+    const { notifications, unreadCount, markNotificationsRead } = useGame();
+    const [open, setOpen] = useState(false);
+    const items = notifications?.items || [];
+    const sev = { success: "text-neon-green", info: "text-neon-cyan", warning: "text-neon-yellow", danger: "text-neon-red" };
+
+    const onItem = (n) => {
+        setOpen(false);
+        if (!n.read) markNotificationsRead([n.id]);
+        if (n.link) navigate(n.link);
+    };
+
+    return (
+        <div className="relative">
+            <button onClick={() => setOpen((o) => !o)} data-testid="notifications-button"
+                className="relative text-muted-foreground hover:text-neon-cyan transition-colors" title="Notifications">
+                <Bell className="w-4 h-4" />
+                {unreadCount > 0 && (
+                    <span data-testid="notif-unread-count" className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-neon-red text-[9px] font-bold text-black flex items-center justify-center">
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                )}
+            </button>
+            {open && (
+                <>
+                    <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+                    <div className="absolute right-0 mt-2 w-80 max-h-[70vh] overflow-y-auto z-50 bg-[#0C0C0C] border border-white/12 rounded-sm shadow-2xl" data-testid="notifications-dropdown">
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-white/8 sticky top-0 bg-[#0C0C0C]">
+                            <span className="font-display font-bold text-white text-sm">Notifications</span>
+                            {unreadCount > 0 && (
+                                <button onClick={() => markNotificationsRead()} className="text-[11px] text-neon-cyan hover:underline" data-testid="notif-mark-all-read">Mark all read</button>
+                            )}
+                        </div>
+                        {items.length === 0 ? (
+                            <div className="px-3 py-8 text-center text-muted-foreground text-xs font-mono">No notifications yet.</div>
+                        ) : items.map((n) => (
+                            <button key={n.id} onClick={() => onItem(n)} data-testid={`notif-item-${n.id}`}
+                                className={cn("w-full text-left px-3 py-2.5 border-b border-white/5 hover:bg-white/5 transition-colors", !n.read && "bg-neon-cyan/[0.04]")}>
+                                <div className="flex items-center gap-2">
+                                    {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-neon-cyan shrink-0" />}
+                                    <span className={cn("font-display font-bold text-xs", sev[n.severity] || "text-white")}>{n.title}</span>
+                                </div>
+                                {n.body && <div className="text-[11px] text-muted-foreground mt-0.5 pl-3.5">{n.body}</div>}
+                                <div className="text-[9px] text-muted-foreground/50 font-mono mt-0.5 pl-3.5">{new Date(n.ts).toLocaleString()}</div>
+                            </button>
+                        ))}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+}
+
+function GameClock() {
+    const { state, tick } = useGame();
+    void tick; // re-render every second
+    const gt = computeGameTime(state);
+    const c = fmtGameClock(gt);
+    if (!gt) return null;
+    return (
+        <div className="hidden sm:flex flex-col items-end leading-none font-mono" data-testid="game-clock" title={c.date}>
+            <span className="text-neon-cyan text-sm tnum tracking-wide">{c.time}</span>
+            <span className="text-[9px] text-muted-foreground uppercase tracking-wider">{c.day}</span>
+        </div>
+    );
+}
+
 export default function Layout({ children }) {
     const { user, logout } = useAuth();
     const { player, state } = useGame();
@@ -137,6 +207,8 @@ export default function Layout({ children }) {
                             <Pill tone={mode.tone} className="hidden sm:inline-flex" >
                                 <Clock3 className="w-3 h-3 mr-1" /> {mode.label}
                             </Pill>
+                            <GameClock />
+                            <NotificationBell />
                             <Pill tone={status === "free" ? "green" : status === "jail" || status === "hospital" ? "red" : "cyan"}>
                                 <span className={cn("w-1.5 h-1.5 rounded-full mr-1", status === "free" ? "bg-neon-green" : "bg-neon-cyan animate-pulse-dot")} />
                                 {statusLabel(status)}

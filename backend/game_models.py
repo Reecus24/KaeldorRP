@@ -90,6 +90,8 @@ def new_player(user_id, name, background):
             "shifts_worked": 0, "actions_done": 0, "crimes_committed": 0,
             "times_jailed": 0, "courses_done": 0,
         },
+        "day_ledger": empty_ledger(),
+        "last_summary_day": None,
         "last_resolved_at": now.isoformat(),
         "created_at": now.isoformat(),
     }
@@ -138,4 +140,22 @@ DEFAULT_CONFIG = {
         "shady_buff_hours": 6,          # how long a shady contact lowers your crime risk
         "shady_buff_mult": 0.65,        # police-risk multiplier while the buff is active
     },
+    # World clock anchors (set at first seed). game_now = world_start_game + elapsed_real * time_scale.
+    "world_start_real": None,
+    "world_start_game": "2050-01-01T08:00:00+00:00",
 }
+
+
+# Daily-summary ledger: signed per-day money buckets (expenses stored negative).
+LEDGER_KEYS = [
+    "wages_earned", "crime_income", "social_income",       # income (+)
+    "rent", "bills", "vehicle_costs", "fines", "medical", "living_costs",  # expenses (-)
+    "loan_interest", "business_pnl", "employee_wages",      # info / debt
+]
+
+
+def empty_ledger():
+    d = {k: 0.0 for k in LEDGER_KEYS}
+    d["warnings"] = []
+    d["rel_events"] = []
+    return d

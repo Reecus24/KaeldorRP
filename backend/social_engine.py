@@ -10,7 +10,7 @@ import random
 from datetime import timedelta
 
 from game_models import clamp, now_utc
-from game_engine import add_event, parse_dt, real_seconds, charge, add_money, apply_effects
+from game_engine import add_event, parse_dt, real_seconds, charge, add_money, apply_effects, add_notification, ledger_add, ledger_warn, ledger_event
 import employee_engine
 
 
@@ -216,6 +216,7 @@ async def resolve_social(db, p, cfg, gh, now):
         pcost = scfg.get("partner_cost_per_day", 25) * partner_count * gh / 24.0
         if pcost > 0:
             charge(p, round(pcost, 2))
+            ledger_add(p, "living_costs", -round(pcost, 2))
 
     # angry-boss firing risk
     if gh > 0 and p.get("job"):
@@ -225,6 +226,8 @@ async def resolve_social(db, p, cfg, gh, now):
                 title = p["job"]["title"]
                 p["job"] = None
                 await add_event(db, p["id"], f"Your boss {boss['name']} had enough — you were FIRED from your {title} job.", "job", "danger")
+                await add_notification(db, p["id"], "job", "You were fired", f"{boss['name']} fired you from your {title} job.", "danger", "/jobs")
+                ledger_warn(p, f"Fired from your {title} job by an angry boss.")
 
     # angry-landlord eviction warning
     if gh > 0 and p.get("housing", {}).get("id") and not p.get("housing", {}).get("owned"):
@@ -232,6 +235,8 @@ async def resolve_social(db, p, cfg, gh, now):
         if ll and (ll.get("status") == "angry" or ll.get("relationship_score", 0) <= -45):
             if random.random() < scfg.get("evict_warn_per_day", 0.25) * gh / 24.0:
                 await add_event(db, p["id"], f"Your landlord {ll['name']} is threatening eviction. Smooth things over before it's too late.", "housing", "warning")
+                await add_notification(db, p["id"], "housing", "Eviction warning", f"{ll['name']} is threatening to evict you.", "warning", "/social")
+                ledger_warn(p, "Landlord threatened eviction.")
 
     # random social event
     if gh > 0:
@@ -280,7 +285,10 @@ async def _roll_social_event(db, p, cfg, contacts, changed):
     pe = tpl.get("player_effects", {})
     if pe:
         apply_effects(p, pe)
+        if "cash" in pe:
+            ledger_add(p, "social_income", pe["cash"])
     msg = tpl.get("message", "Something happened in your social life.").replace("{name}", target["name"] if target else "Someone")
+    ledger_event(p, msg)
     await add_event(db, p["id"], msg, "social", tpl.get("severity", "info"))
 
 

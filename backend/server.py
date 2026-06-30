@@ -22,6 +22,7 @@ from game_models import now_utc, clamp, new_player, BACKGROUNDS, SKILLS, DEFAULT
 from game_engine import (
     resolve_player, get_config, add_event, real_seconds, parse_dt,
     charge, add_money, effectiveness, apply_effects, add_skill_xp,
+    add_notification, ledger_add, game_now, game_day_index,
 )
 from seed_data import seed_content, CONTENT_MAP
 import employee_engine
@@ -210,6 +211,7 @@ async def get_state(user):
     p = await fetch_raw_player(user["id"])
     await resolve_player(db, p)
     p["net_worth"] = await compute_net_worth(p)
+    p["last_seen"] = now_utc().isoformat()
     await save_player(p)
     return p
 
@@ -273,6 +275,9 @@ async def game_state(user: dict = Depends(current_user)):
         "net_worth": p["net_worth"],
         "time_scale": cfg["time_scale"],
         "effectiveness": round(effectiveness(p), 2),
+        "game_time": game_now(cfg).isoformat(),
+        "world_start_real": cfg.get("world_start_real"),
+        "world_start_game": cfg.get("world_start_game"),
     }
 
 
@@ -920,6 +925,7 @@ async def post_bail(user: dict = Depends(current_user)):
     if p["cash"] + p["bank"] < bail:
         raise HTTPException(status_code=400, detail=f"Bail costs ${bail}, you can't afford it")
     charge(p, bail)
+    ledger_add(p, "fines", -bail)
     p["jail_until"] = None
     p["status"] = "free"
     p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + 5)
@@ -950,6 +956,7 @@ async def hospital_treat(user: dict = Depends(current_user)):
         p["status"] = "free"
     p["health"] = 100.0
     p["stress"] = clamp(p["stress"] - 10)
+    ledger_add(p, "medical", -cost)
     await add_event(db, p["id"], f"You paid ${cost} for treatment. Health restored.", "health", "success")
     await save_player(p)
     return {"ok": True}
@@ -969,7 +976,10 @@ async def leaderboard(user: dict = Depends(current_user)):
 @api.get("/config")
 async def public_config():
     cfg = await get_config(db)
-    return {"time_scale": cfg["time_scale"], "decay": cfg.get("decay", {})}
+    return {"time_scale": cfg["time_scale"], "decay": cfg.get("decay", {}),
+            "game_time": game_now(cfg).isoformat(),
+            "world_start_real": cfg.get("world_start_real"),
+            "world_start_game": cfg.get("world_start_game")}
 
 
 # ============================ ADMIN ============================
@@ -1252,10 +1262,12 @@ async def social_interact(cid: str, body: InteractBody, user: dict = Depends(cur
         if p["cash"] + p["bank"] < gift["cost"]:
             raise HTTPException(status_code=400, detail="You can't afford that gift")
         charge(p, gift["cost"])
+        ledger_add(p, "living_costs", -gift["cost"])
     elif a.get("money_cost", 0) > 0:
         if p["cash"] + p["bank"] < a["money_cost"]:
             raise HTTPException(status_code=400, detail="Not enough money")
         charge(p, a["money_cost"])
+        ledger_add(p, "living_costs", -a["money_cost"])
 
     if a.get("timing") == "activity":
         ensure_free(p)
@@ -1288,6 +1300,7 @@ async def social_discover(action_id: str, user: dict = Depends(current_user)):
         if p["cash"] + p["bank"] < a["money_cost"]:
             raise HTTPException(status_code=400, detail="Not enough money")
         charge(p, a["money_cost"])
+        ledger_add(p, "living_costs", -a["money_cost"])
     payload = {"action_id": a["id"], "name": a["label"]}
     set_activity(p, "social", a["label"], a["duration_minutes"], cfg, payload, blocking=a.get("blocking", True))
     cdm = a.get("cooldown_minutes", 0)
@@ -1312,6 +1325,36 @@ async def social_block(cid: str, user: dict = Depends(current_user)):
     await db.contacts.update_one({"id": cid}, {"$set": {"status": new_status}})
     await add_event(db, p["id"], f"You {verb} {c['name']}.", "social", "warning" if verb == "blocked" else "info")
     return {"ok": True, "status": new_status}
+
+
+# ============================ NOTIFICATIONS & DAILY SUMMARY ============================
+class NotifReadBody(BaseModel):
+    ids: Optional[list] = None
+
+
+@api.get("/notifications")
+async def list_notifications(limit: int = 40, user: dict = Depends(current_user)):
+    p = await fetch_raw_player(user["id"])
+    items = await db.notifications.find({"player_id": p["id"]}, {"_id": 0}).sort("ts", -1).to_list(limit)
+    unread = await db.notifications.count_documents({"player_id": p["id"], "read": False})
+    return {"items": items, "unread_count": unread}
+
+
+@api.post("/notifications/read")
+async def mark_notifications_read(body: NotifReadBody, user: dict = Depends(current_user)):
+    p = await fetch_raw_player(user["id"])
+    q = {"player_id": p["id"], "read": False}
+    if body.ids:
+        q["id"] = {"$in": body.ids}
+    await db.notifications.update_many(q, {"$set": {"read": True}})
+    return {"ok": True}
+
+
+@api.get("/daily-summaries")
+async def daily_summaries(limit: int = 30, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    items = await db.daily_summaries.find({"player_id": p["id"]}, {"_id": 0}).sort("real_ts", -1).to_list(limit)
+    return items
 
 
 # ============================ STARTUP ============================
