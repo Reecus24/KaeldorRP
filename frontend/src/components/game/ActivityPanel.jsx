@@ -1,15 +1,39 @@
 import { useGame } from "@/context/GameContext";
 import { Panel } from "@/components/game/primitives";
-import { fmtDuration } from "@/lib/helpers";
+import { fmtDuration, scheduleLabel } from "@/lib/helpers";
 import { api } from "@/lib/api";
-import { Loader2, X, Clock, Coffee } from "lucide-react";
+import { Loader2, X, Clock, Coffee, Briefcase, LogOut } from "lucide-react";
 
 export default function ActivityPanel({ compact = false }) {
-    const { state, activityRemaining, activityProgress, act } = useGame();
+    const { state, player, activityRemaining, activityProgress, act } = useGame();
     const activity = state?.activity;
+    const onShift = player?.on_shift;
 
     const cancel = () =>
         act(() => api.post("/game/cancel-activity"), "Activity cancelled");
+    const clockOut = () =>
+        act(() => api.post(`/jobs/employment/${onShift.employment_id}/clock-out`), "You clocked out early");
+
+    if (!activity && onShift) {
+        return (
+            <Panel className="p-5 neon-border" data-testid="activity-panel-onshift">
+                <div className="flex items-center gap-2 text-neon-purple mb-1">
+                    <Briefcase className="w-4 h-4" />
+                    <span className="font-mono text-[11px] uppercase tracking-[0.25em]">On Shift</span>
+                </div>
+                <div className="font-display font-bold text-white leading-tight" data-testid="onshift-business">{onShift.business_name}</div>
+                <div className="text-[11px] text-muted-foreground capitalize mt-0.5">{(onShift.role || "").replace(/_/g, " ")}</div>
+                <div className="flex items-center gap-1.5 text-[11px] text-neon-purple mt-1"><Clock className="w-3 h-3" /> {scheduleLabel(onShift.schedule)}</div>
+                <div className="text-[11px] text-muted-foreground mt-2">Auto-working — wages & business output accrue in real time. Physical activities are paused until your shift ends.</div>
+                {!compact && (
+                    <button onClick={clockOut} data-testid="onshift-clock-out"
+                        className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded-sm border border-neon-red/60 text-neon-red hover:bg-neon-red hover:text-white transition-colors">
+                        <LogOut className="w-3.5 h-3.5" /> Clock Out Early
+                    </button>
+                )}
+            </Panel>
+        );
+    }
 
     if (!activity) {
         return (

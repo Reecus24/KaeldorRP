@@ -176,7 +176,7 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
                                         <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)} · {Math.round(e.total_hours_worked || 0)}h worked · earned ${Math.round(e.total_wages_earned)} · value added ${Math.round(e.total_value_added || 0)}</div>
                                         {e.today && e.today.hours > 0 && (
                                             <div className="text-[11px] mt-0.5" data-testid={`emp-net-${e.id}`}>
-                                                Today ({e.today.hours}h): <span className="text-neon-green">+${Math.round(e.today.revenue)} revenue</span> − <span className="text-neon-red">${Math.round(e.today.wage)} wages</span> = net <span className={e.today.net >= 0 ? "text-neon-green" : "text-neon-red"}>{e.today.net >= 0 ? "+" : ""}${Math.round(e.today.net)}</span>
+                                                Today ({e.today.hours}h): <span className="text-neon-green">+${Math.round(e.today.revenue)} revenue</span> − <span className="text-neon-red">${Math.round(e.today.wage)} wages</span> = net <span className={e.today.net >= 0 ? "text-neon-green" : "text-neon-red"}>{e.today.net >= 0 ? "+$" : "-$"}{Math.abs(Math.round(e.today.net))}</span>
                                             </div>
                                         )}
                                     </div>
@@ -484,7 +484,7 @@ export default function BusinessManage() {
                                                 <span className="text-[11px] text-muted-foreground ml-2">${e.wage_per_hour}/h · {Math.round(e.total_hours_worked || 0)}h worked</span>
                                                 <div className="text-[11px] text-neon-purple flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {scheduleLabel(e.schedule)}</div>
                                             </div>
-                                            <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)}{e.today && e.today.hours > 0 ? ` · today net ${e.today.net >= 0 ? "+" : ""}$${Math.round(e.today.net)}` : ""}</div>
+                                            <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)}{e.today && e.today.hours > 0 ? ` · today net ${e.today.net >= 0 ? "+$" : "-$"}${Math.abs(Math.round(e.today.net))}` : ""}</div>
                                         </div>
                                     </Panel>
                                 ))}

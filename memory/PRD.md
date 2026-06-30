@@ -99,6 +99,21 @@ User-approved decisions: (1a) player-employee role chosen from business staffing
 
 ### Remaining phases (user-approved order)
 - **Phase 2**: #3 Role/Job-listings editor, #2 internal Training (offer→accept/decline→cost/skill/log).
-- **Phase 3**: #7 "Market"→"Marketing" + cost/duration/effect previews on Upgrade/Marketing; #8 spell out EXP + skill tooltips (player & NPC).
+- **Phase 3**: spell out EXP + skill tooltips (NPC employees) — player-facing done in 1.1.
 - **Phase 4**: #9 real inventory (buy→inventory→use + "buy & use now"), #10 equipment slots framework, Admin item editor.
 - **Phase 5 (P2)**: #11 custom products — datamodel + admin groundwork only.
+
+## PHASE 1.1 — Scheduled Working Hours & Business Overhaul — DONE (2026-06-30, verified iter_11)
+User decisions: (1a) auto-shifts ONLY for player-business jobs (NPC Job Center keeps manual "Work a Shift"); (2c) OWNER assigns a shift PRESET per employee at offer time (owner-edit-later = P2); (3a) clock-out penalty = reliability −10, owner notified, prorated pay only, NO reputation malus; (4a) UI transparency included.
+- **Schedule presets** (`employment.SHIFT_PRESETS`): Early 08–16, Late 14–22, Night 22–06 (wraps), PT-Morning 08–12, PT-Evening 18–22. Stored on `player_employment.schedule` + offer/application; `clocked_out_until` (game-time ISO).
+- **Auto-work (continuous accrual)** `employment.accrue_player_employment` (called in `resolve_player`): computes game-hour overlap with schedule window since last resolve; credits wage→employee cash, net (rev−wage)→business cash/revenue_total/satisfaction/reputation + booking history; tracks `emp.today` (date/hours/wage/revenue/net) + `last_impact`. Offline-safe. Productivity = perf×role_fit×reliability (good employee → real profit, prod>0.56 ⇒ net>0).
+- **Activity gating**: `p['on_shift']` set during active window; `ensure_free()` blocks any blocking physical activity (sleep/eat/travel/course/NPC shift/illegal/social) with 409 while on shift; remote/read flows allowed. Status → "working".
+- **Clock Out Early** `POST /jobs/employment/{id}/clock-out` → `employment.clock_out_early`: sets clocked_out_until=end-of-window (stops accrual till next day), reliability −10, owner notification, player event + business finance/event log; role becomes uncovered unless NPC backup.
+- **Roster vs Active coverage** (`employee_engine.business_metrics`/`resolve_business`): player counts to roster always, to active only while on-shift; per-role status string; business output only from active coverage.
+- **NPC backup** (`b.backup_roles`, `POST /businesses/{id}/backup`, BackupBody): default OFF; when role has no active worker & backup enabled → covers role + charges `backup_wage_day` (role wage midpoint); never double-pays when a player is active.
+- **UI transparency**: `business_detail.costs` (upgrade/marketing/sell preview); BusinessManage action cards show cost/level→level/effect; "Market"→"Run Marketing"; Sell confirm modal w/ payout breakdown; Roster/Active coverage panel + NPC backup toggle per role; offer schedule dropdown; employee schedule + on-shift + "Today +$rev −$wage = net" line.
+- **Worker UX**: CurrentJob + JobMarket(My-Jobs default) show schedule, on-shift, today earnings, Clock Out Early; ActivityPanel right-rail "ON SHIFT" state w/ clock-out; removed manual `POST /jobs/employment/{id}/work` + `player_shift` activity kind.
+- **Tooltips** (`primitives.InfoTip`): Stats/needs (Layout strip), Dashboard standing + XP, Skills page.
+- Endpoints added: `GET /shift-presets`, `POST /jobs/employment/{id}/clock-out`, `POST /businesses/{id}/backup`. Migration adds default schedule to legacy employment.
+- Tests: engine smoke 14/14 (`tests/smoke_phase11.py`), HTTP 8/8 (`tests/test_phase11_player_employment.py`), UI smoke PASS → backend 100% / frontend (after fixes) green. time_scale stays 1.0.
+- NEXT: Phase 2 (Owner tools: job-listings editor, internal training). P2: owner-side schedule editing with player accept/decline.

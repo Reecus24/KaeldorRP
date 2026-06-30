@@ -198,7 +198,7 @@ function MyJobsTab() {
 }
 
 export default function JobMarket() {
-    const [tab, setTab] = useState("market");
+    const [tab, setTab] = useState("mine");
     return (
         <div className="space-y-6">
             <SectionTitle icon={Store} kicker="Work for other players" title="Player Job Market"
