@@ -47,10 +47,11 @@ function WageInput({ value, onChange, testid }) {
     );
 }
 
-function PlayerHiring({ bizId, hiringOpen, onReloadDetail }) {
+function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
     const [apps, setApps] = useState(null);
     const [emps, setEmps] = useState([]);
     const [wages, setWages] = useState({});
+    const [roleSel, setRoleSel] = useState({});
     const [busy, setBusy] = useState(null);
     const load = useCallback(async () => {
         const [a, e] = await Promise.all([
@@ -61,6 +62,7 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail }) {
     }, [bizId]);
     useEffect(() => { load(); }, [load]);
 
+    const roleLabel = (r) => (r || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
     const setW = (k, v) => setWages((w) => ({ ...w, [k]: v }));
     const toggle = async () => {
         setBusy("toggle");
@@ -70,22 +72,54 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail }) {
     };
     const offer = async (a) => {
         const w = parseFloat(wages[a.id] ?? a.recommended_wage);
+        const role = roleSel[a.id] ?? a.role;
         setBusy(a.id);
-        try { await api.post(`/businesses/${bizId}/player-applications/${a.id}/offer`, { wage_per_shift: w, role: a.role }); toast.success(`Offer sent to ${a.applicant_name}`); await load(); }
+        try { await api.post(`/businesses/${bizId}/player-applications/${a.id}/offer`, { wage_per_hour: w, role }); toast.success(`Offer sent to ${a.applicant_name}`); await load(); }
         catch (e) { toast.error(errMessage(e)); }
         setBusy(null);
     };
     const reject = async (a) => { setBusy(a.id + "r"); try { await api.post(`/businesses/${bizId}/player-applications/${a.id}/reject`); await load(); } catch (e) { toast.error(errMessage(e)); } setBusy(null); };
     const raise = async (emp) => {
-        const w = parseFloat(wages["e" + emp.id] ?? (emp.wage_per_shift + 10));
+        const w = parseFloat(wages["e" + emp.id] ?? Math.round((emp.wage_per_hour + 2) * 100) / 100);
         setBusy(emp.id);
-        try { await api.post(`/businesses/${bizId}/player-employees/${emp.id}/raise`, { wage_per_shift: w }); toast.success("Raise given"); await load(); }
+        try { await api.post(`/businesses/${bizId}/player-employees/${emp.id}/raise`, { wage_per_hour: w }); toast.success("Raise given"); await load(); }
         catch (e) { toast.error(errMessage(e)); }
         setBusy(null);
     };
     const fire = async (emp) => { setBusy(emp.id + "f"); try { await api.post(`/businesses/${bizId}/player-employees/${emp.id}/fire`); toast.success(`${emp.employee_name} let go`); await load(); } catch (e) { toast.error(errMessage(e)); } setBusy(null); };
 
     if (!apps) return <Spinner />;
+    const pending = apps.filter((a) => a.status === "pending");
+    const offered = apps.filter((a) => a.status === "offered");
+    const roleOptions = (a) => Array.from(new Set([...roles, a.role].filter(Boolean)));
+
+    const AppCard = (a) => (
+        <Panel key={a.id} className="p-3" data-testid={`player-app-${a.id}`}>
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-display font-bold text-white text-sm">{a.applicant_name}</span>
+                <Pill tone="cyan">Lv {a.stats?.level}</Pill>
+                <Pill tone="green">Rep {a.stats?.reputation}</Pill>
+                {a.stats?.role_fit && <Pill tone={a.stats.role_fit >= 1.05 ? "green" : a.stats.role_fit >= 0.85 ? "cyan" : "yellow"}>{a.stats.fit_label || "fit"}</Pill>}
+                {a.stats?.criminal_warning && <Pill tone="red">⚠ Record</Pill>}
+                {a.status === "offered" && <Pill tone="yellow">Offered ${a.wage_offer}/h</Pill>}
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-1">Applied for: <span className="capitalize text-white">{roleLabel(a.role)}</span> · {a.stats?.education_count} course(s) · {(a.stats?.top_skills || []).map((s) => `${s.skill} ${s.level}`).join(", ")}</div>
+            {a.stats?.role_matches_staffing === false && <div className="text-[11px] text-neon-yellow mt-1">⚠ This role isn't part of your staffing plan — counts less toward coverage.</div>}
+            {a.message && <div className="text-[11px] text-foreground/80 mt-1 italic">"{a.message}"</div>}
+            <div className="text-[11px] text-neon-green mt-1">Recommended: ${a.recommended_wage}/h</div>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <select value={roleSel[a.id] ?? a.role} onChange={(e) => setRoleSel((s) => ({ ...s, [a.id]: e.target.value }))} data-testid={`offer-role-${a.id}`}
+                    className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white capitalize focus:outline-none focus:border-neon-cyan/50">
+                    {roleOptions(a).map((r) => <option key={r} value={r} className="bg-[#0d0d12]">{roleLabel(r)}</option>)}
+                </select>
+                <span className="text-[11px] text-muted-foreground">$/h</span>
+                <WageInput value={wages[a.id] ?? a.recommended_wage} onChange={(v) => setW(a.id, v)} testid={`offer-wage-${a.id}`} />
+                <KButton variant="green" loading={busy === a.id} onClick={() => offer(a)} data-testid={`offer-send-${a.id}`}>{a.status === "offered" ? "Update Offer" : "Send Offer"}</KButton>
+                <KButton variant="ghost" loading={busy === a.id + "r"} onClick={() => reject(a)} data-testid={`offer-reject-${a.id}`}>Reject</KButton>
+            </div>
+        </Panel>
+    );
+
     return (
         <div className="space-y-4">
             <Panel className="p-4 flex items-center justify-between" data-testid="hiring-status">
@@ -99,38 +133,20 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail }) {
             </Panel>
 
             <div>
-                <div className="font-display font-bold text-white mb-2">Applications ({apps.length})</div>
-                {apps.length === 0 ? (
-                    <EmptyState icon={UserPlus} title="No applications yet" sub={hiringOpen ? "Players can find you on the Job Market." : "Open hiring to receive applications."} />
+                <div className="font-display font-bold text-white mb-2">Applications ({pending.length})</div>
+                {pending.length === 0 ? (
+                    <EmptyState icon={UserPlus} title="No new applications" sub={hiringOpen ? "Players can find you on the Job Market." : "Open hiring to receive applications."} />
                 ) : (
-                    <div className="space-y-2">
-                        {apps.map((a) => (
-                            <Panel key={a.id} className="p-3" data-testid={`player-app-${a.id}`}>
-                                <div className="flex items-start justify-between gap-2">
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="font-display font-bold text-white text-sm">{a.applicant_name}</span>
-                                            <Pill tone="cyan">Lv {a.stats?.level}</Pill>
-                                            <Pill tone="green">Rep {a.stats?.reputation}</Pill>
-                                            {a.stats?.criminal_warning && <Pill tone="red">⚠ Record</Pill>}
-                                            {a.status === "offered" && <Pill tone="yellow">Offered ${a.wage_offer}</Pill>}
-                                        </div>
-                                        <div className="text-[11px] text-muted-foreground mt-1">Role: {a.role} · {a.stats?.education_count} course(s) · {(a.stats?.top_skills || []).map((s) => `${s.skill} ${s.level}`).join(", ")}</div>
-                                        {a.message && <div className="text-[11px] text-foreground/80 mt-1 italic">“{a.message}”</div>}
-                                        <div className="text-[11px] text-neon-green mt-1">Recommended: ${a.recommended_wage}/shift</div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2 mt-2">
-                                    <span className="text-[11px] text-muted-foreground">$/shift</span>
-                                    <WageInput value={wages[a.id] ?? a.recommended_wage} onChange={(v) => setW(a.id, v)} testid={`offer-wage-${a.id}`} />
-                                    <KButton variant="green" loading={busy === a.id} onClick={() => offer(a)} data-testid={`offer-send-${a.id}`}>{a.status === "offered" ? "Update Offer" : "Send Offer"}</KButton>
-                                    <KButton variant="ghost" loading={busy === a.id + "r"} onClick={() => reject(a)} data-testid={`offer-reject-${a.id}`}>Reject</KButton>
-                                </div>
-                            </Panel>
-                        ))}
-                    </div>
+                    <div className="space-y-2">{pending.map(AppCard)}</div>
                 )}
             </div>
+
+            {offered.length > 0 && (
+                <div>
+                    <div className="font-display font-bold text-white mb-2">Pending Offers ({offered.length})</div>
+                    <div className="space-y-2">{offered.map(AppCard)}</div>
+                </div>
+            )}
 
             <div>
                 <div className="font-display font-bold text-white mb-2">Player Employees ({emps.length})</div>
@@ -141,14 +157,20 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail }) {
                         {emps.map((e) => (
                             <Panel key={e.id} className="p-3" data-testid={`player-emp-${e.id}`}>
                                 <div className="flex items-center justify-between flex-wrap gap-2">
-                                    <div>
+                                    <div className="min-w-0">
                                         <span className="font-display font-bold text-white text-sm">{e.employee_name}</span>
-                                        <span className="text-[11px] text-muted-foreground ml-2">{e.role} · ${e.wage_per_shift}/shift</span>
+                                        <span className="text-[11px] text-muted-foreground ml-2 capitalize">{roleLabel(e.role)} · ${e.wage_per_hour}/h</span>
                                         {e.raise_due && <Pill tone="yellow" className="ml-2" data-testid={`emp-raise-due-${e.id}`}>Raise due</Pill>}
-                                        <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)} · {Math.round(e.total_hours_worked || 0)}h worked · earned ${Math.round(e.total_wages_earned)}</div>
+                                        <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)} · {Math.round(e.total_hours_worked || 0)}h worked · earned ${Math.round(e.total_wages_earned)} · value added ${Math.round(e.total_value_added || 0)}</div>
+                                        {e.last_shift && (
+                                            <div className="text-[11px] mt-0.5" data-testid={`emp-net-${e.id}`}>
+                                                Last shift ({e.last_shift.hours}h): <span className="text-neon-green">+${Math.round(e.last_shift.revenue)} revenue</span> − <span className="text-neon-red">${Math.round(e.last_shift.wage)} wage</span> = net <span className={e.last_shift.net >= 0 ? "text-neon-green" : "text-neon-red"}>{e.last_shift.net >= 0 ? "+" : ""}${Math.round(e.last_shift.net)}</span>
+                                            </div>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <WageInput value={wages["e" + e.id] ?? (e.wage_per_shift + 10)} onChange={(v) => setW("e" + e.id, v)} testid={`raise-wage-${e.id}`} />
+                                        <span className="text-[11px] text-muted-foreground">$/h</span>
+                                        <WageInput value={wages["e" + e.id] ?? Math.round((e.wage_per_hour + 2) * 100) / 100} onChange={(v) => setW("e" + e.id, v)} testid={`raise-wage-${e.id}`} />
                                         <KButton variant="primary" loading={busy === e.id} onClick={() => raise(e)} data-testid={`raise-send-${e.id}`}>Raise</KButton>
                                         <KButton variant="danger" loading={busy === e.id + "f"} onClick={() => fire(e)} data-testid={`fire-emp-${e.id}`}>Fire</KButton>
                                     </div>
@@ -169,6 +191,7 @@ export default function BusinessManage() {
     const [detail, setDetail] = useState(null);
     const [employees, setEmployees] = useState([]);
     const [applicants, setApplicants] = useState([]);
+    const [playerEmps, setPlayerEmps] = useState([]);
     const [trainOpts, setTrainOpts] = useState([]);
     const [events, setEvents] = useState([]);
     const [tab, setTab] = useState("overview");
@@ -178,16 +201,18 @@ export default function BusinessManage() {
 
     const loadAll = useCallback(async () => {
         try {
-            const [d, e, a, ev] = await Promise.all([
+            const [d, e, a, ev, pe] = await Promise.all([
                 api.get(`/businesses/${id}`),
                 api.get(`/businesses/${id}/employees`),
                 api.get(`/businesses/${id}/applicants`),
                 api.get(`/businesses/${id}/events`),
+                api.get(`/businesses/${id}/player-employees`).catch(() => ({ data: [] })),
             ]);
             setDetail(d.data);
             setEmployees(e.data.employees);
             setApplicants(a.data);
             setEvents(ev.data);
+            setPlayerEmps(pe.data);
         } catch (err) {
             if (err?.response?.status === 404 || err?.response?.status === 403) navigate("/businesses");
         }
@@ -271,12 +296,13 @@ export default function BusinessManage() {
                         <div className="space-y-2">
                             {m.staffing.length === 0 && <div className="text-sm text-muted-foreground">No specific staffing needed.</div>}
                             {m.staffing.map((s) => {
-                                const ok = s.have >= s.recommended;
+                                const effective = s.have + (s.player_have || 0) * 0.6;
+                                const ok = effective >= s.recommended;
                                 return (
                                     <div key={s.role} className="flex items-center justify-between text-sm" data-testid={`staffing-${s.role}`}>
                                         <span className="capitalize text-white">{s.role.replace(/_/g, " ")}</span>
                                         <span className={cn("font-mono", ok ? "text-neon-green" : "text-neon-red")}>
-                                            {s.have} / {s.recommended} {ok ? "✓" : "understaffed"}
+                                            {s.have}{s.player_have ? ` (+${s.player_have} player)` : ""} / {s.recommended} {ok ? "✓" : "understaffed"}
                                         </span>
                                     </div>
                                 );
@@ -315,19 +341,30 @@ export default function BusinessManage() {
                         <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#00FF66" : "#FF0055"} />
                     </div>
                     <Panel className="p-5">
-                        <div className="font-display font-bold text-white mb-3">Profit / Loss History</div>
+                        <div className="font-display font-bold text-white mb-1">Profit / Loss History</div>
+                        <p className="text-[11px] text-muted-foreground mb-3"><span className="text-foreground/70">Forecast</span> = current per-day rate (not a charge). <span className="text-neon-purple">Booking</span> = real money moved (e.g. player shifts).</p>
                         {(!b.history || b.history.length === 0) ? (
                             <div className="text-sm text-muted-foreground">No history yet. Check back as time passes.</div>
                         ) : (
-                            <div className="space-y-1 font-mono text-xs max-h-72 overflow-y-auto">
+                            <div className="space-y-1 font-mono text-xs max-h-72 overflow-y-auto" data-testid="finance-history">
                                 {b.history.slice().reverse().map((h, i) => (
-                                    <div key={i} className="flex items-center justify-between border-b border-white/5 py-1.5">
-                                        <span className="text-muted-foreground">{new Date(h.ts).toLocaleString()}</span>
-                                        <span className="flex gap-4">
-                                            <span className="text-neon-green">rev {money(h.rev || 0)}</span>
-                                            <span className="text-neon-yellow">exp {money(h.exp || 0)}</span>
-                                            <span className={h.net >= 0 ? "text-neon-green" : "text-neon-red"}>net {money(h.net)}</span>
-                                        </span>
+                                    <div key={i} className="flex items-center justify-between gap-3 border-b border-white/5 py-1.5">
+                                        <span className="text-muted-foreground shrink-0">{new Date(h.ts).toLocaleString()}</span>
+                                        {h.kind === "shift" ? (
+                                            <span className="flex gap-2 items-center flex-wrap justify-end">
+                                                <Pill tone="purple">Booking</Pill>
+                                                <span className="text-foreground/70">{h.label}</span>
+                                                <span className={h.amount >= 0 ? "text-neon-green" : "text-neon-red"}>{h.amount >= 0 ? "+" : ""}{money(h.amount)}</span>
+                                            </span>
+                                        ) : (
+                                            <span className="flex gap-2 items-center flex-wrap justify-end">
+                                                <Pill>Forecast</Pill>
+                                                <span className="text-neon-green">rev {money(h.rev || 0)}/d</span>
+                                                <span className="text-neon-yellow">exp {money(h.exp || 0)}/d</span>
+                                                <span className={h.net >= 0 ? "text-neon-green" : "text-neon-red"}>net {money(h.net)}/d</span>
+                                                {h.amount != null && <span className="text-muted-foreground">({h.amount >= 0 ? "+" : ""}{money(h.amount)})</span>}
+                                            </span>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -338,9 +375,12 @@ export default function BusinessManage() {
 
             {/* EMPLOYEES */}
             {tab === "employees" && (
-                <div className="space-y-3">
+                <div className="space-y-4">
+                    <div>
+                        <div className="font-display font-bold text-white mb-2">NPC Employees ({employees.length})</div>
+                        <div className="space-y-3">
                     {employees.length === 0 ? (
-                        <EmptyState icon={Users} title="No staff yet" sub="Hire from the Applicants tab. Understaffed businesses earn far less." />
+                        <EmptyState icon={Users} title="No NPC staff yet" sub="Hire from the Applicants tab. Understaffed businesses earn far less." />
                     ) : employees.map((e) => {
                         const inTraining = e.training && new Date(e.training.ends_at).getTime() > Date.now();
                         const trainLeft = inTraining ? (new Date(e.training.ends_at).getTime() - Date.now()) / 1000 : 0;
@@ -371,10 +411,30 @@ export default function BusinessManage() {
                             </Panel>
                         );
                     })}
+                        </div>
+                    </div>
+                    {playerEmps.length > 0 && (
+                        <div>
+                            <div className="font-display font-bold text-white mb-2 flex items-center gap-2 flex-wrap">Player Employees ({playerEmps.length})
+                                <span className="text-[11px] text-muted-foreground font-normal">— real players · manage in Player Hiring tab</span></div>
+                            <div className="space-y-2">
+                                {playerEmps.map((e) => (
+                                    <Panel key={e.id} className="p-3 border-neon-purple/20" data-testid={`emp-list-player-${e.id}`}>
+                                        <div className="flex items-center justify-between flex-wrap gap-2">
+                                            <div>
+                                                <span className="font-display font-bold text-white text-sm">{e.employee_name}</span>
+                                                <Pill tone="purple" className="ml-2 capitalize">{(e.role || "").replace(/_/g, " ")}</Pill>
+                                                <span className="text-[11px] text-muted-foreground ml-2">${e.wage_per_hour}/h · {Math.round(e.total_hours_worked || 0)}h worked</span>
+                                            </div>
+                                            <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)}{e.last_shift ? ` · last net ${e.last_shift.net >= 0 ? "+" : ""}$${Math.round(e.last_shift.net)}` : ""}</div>
+                                        </div>
+                                    </Panel>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
-
-            {/* APPLICANTS */}
             {tab === "applicants" && (
                 <div className="space-y-3">
                     <KButton variant="green" loading={busy === "recruit"} onClick={() => run(() => api.post(`/businesses/${id}/recruit`), "Premium candidate recruited", "recruit")} data-testid="recruit-button">
@@ -438,7 +498,7 @@ export default function BusinessManage() {
             )}
 
             {/* PLAYER HIRING */}
-            {tab === "hiring" && <PlayerHiring bizId={id} hiringOpen={b.hiring_open} onReloadDetail={loadAll} />}
+            {tab === "hiring" && <PlayerHiring bizId={id} hiringOpen={b.hiring_open} onReloadDetail={loadAll} roles={(m.staffing || []).map((s) => s.role)} />}
 
             {/* EVENTS */}
             {tab === "events" && (

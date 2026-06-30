@@ -24,6 +24,10 @@ def _gen_name():
     return f"{random.choice(FIRST_NAMES)} {random.choice(LAST_NAMES)}"
 
 
+# how much an active player-employee counts toward continuous staffing coverage (part-time presence)
+PLAYER_PRESENCE = 0.6
+
+
 async def get_staffing(db, b):
     doc = await db.staffing_requirements.find_one({"id": b.get("type_id")}, {"_id": 0})
     return (doc or {}).get("requirements", [])
@@ -39,6 +43,14 @@ async def business_metrics(db, b):
     actives = await db.employees.find({"business_id": b["id"], "status": "active"}, {"_id": 0}).to_list(300)
     sick = await db.employees.find({"business_id": b["id"], "status": "sick"}, {"_id": 0}).to_list(300)
     applicants = await db.employees.count_documents({"business_id": b["id"], "status": "applicant"})
+    pemps = await db.player_employment.find({"business_id": b["id"], "status": "active"}, {"_id": 0}).to_list(100)
+    req_roles = {r["role"] for r in reqs}
+    p_by_role, unmatched_players = {}, 0
+    for pe in pemps:
+        if pe.get("role") in req_roles:
+            p_by_role[pe["role"]] = p_by_role.get(pe["role"], 0) + 1
+        else:
+            unmatched_players += 1
     by_role = {}
     for e in actives:
         by_role[e["role"]] = by_role.get(e["role"], 0) + 1
@@ -46,9 +58,11 @@ async def business_metrics(db, b):
     for r in reqs:
         rec = r.get("recommended", 1)
         have = by_role.get(r["role"], 0)
-        staffing.append({"role": r["role"], "have": have, "recommended": rec})
-        ratios.append(min(1, have / rec) if rec else 1)
-        if have == 0 and rec > 0:
+        p_have = p_by_role.get(r["role"], 0)
+        effective = have + p_have * PLAYER_PRESENCE
+        staffing.append({"role": r["role"], "have": have, "player_have": p_have, "recommended": rec})
+        ratios.append(min(1, effective / rec) if rec else 1)
+        if effective <= 0 and rec > 0:
             missing += 1
     coverage = sum(ratios) / len(ratios) if ratios else 1.0
     allp = actives + sick
@@ -58,6 +72,7 @@ async def business_metrics(db, b):
     return {
         "staffing": staffing, "coverage": round(coverage, 2), "missing_roles": missing,
         "employee_count": len(actives), "sick_count": len(sick), "applicant_count": applicants,
+        "player_employee_count": len(pemps), "unmatched_player_count": unmatched_players,
         "morale_avg": morale_avg, "wage_per_day": wage_day,
         "satisfaction": round(b.get("satisfaction", 60)),
         "rev_day": round(b.get("rev_day", b.get("base_revenue_per_day", 0)), 2),
@@ -210,6 +225,12 @@ async def resolve_business(db, p, cfg, gh, now, b):
     active = [e for e in staff if e.get("status") == "active"]
     sicklist = [e for e in staff if e.get("status") == "sick"]
     has_manager = any(e["role"] == "manager" for e in active)
+    pemps = await db.player_employment.find({"business_id": bid, "status": "active"}, {"_id": 0}).to_list(100)
+    req_roles = {r["role"] for r in reqs}
+    p_by_role = {}
+    for pe in pemps:
+        if pe.get("role") in req_roles:
+            p_by_role[pe["role"]] = p_by_role.get(pe["role"], 0) + PLAYER_PRESENCE
 
     by_role = {}
     for e in active:
@@ -217,9 +238,9 @@ async def resolve_business(db, p, cfg, gh, now, b):
     ratios, missing = [], 0
     for r in reqs:
         rec = r.get("recommended", 1)
-        have = by_role.get(r["role"], 0)
+        have = by_role.get(r["role"], 0) + p_by_role.get(r["role"], 0)
         ratios.append(min(1, have / rec) if rec else 1)
-        if have == 0 and rec > 0:
+        if have <= 0 and rec > 0:
             missing += 1
     avg_ratio = sum(ratios) / len(ratios) if ratios else 1.0
     final_staff = max(0.35, avg_ratio) * (0.85 ** missing)
@@ -273,9 +294,10 @@ async def resolve_business(db, p, cfg, gh, now, b):
         b["reputation"] = clamp(b.get("reputation", 50) + (b["satisfaction"] - b.get("reputation", 50)) * min(1, 0.03 * gh))
         hist = b.get("history", [])
         if not hist or (now - parse_dt(hist[-1]["ts"])).total_seconds() > 120:
-            hist.append({"ts": now.isoformat(), "net": round(net_day, 2), "rev": round(rev_day, 2),
+            hist.append({"ts": now.isoformat(), "kind": "accrual", "amount": round(delta, 2),
+                         "net": round(net_day, 2), "rev": round(rev_day, 2),
                          "exp": round(exp_day, 2), "cash": b["cash"], "debt": b.get("debt", 0)})
-            b["history"] = hist[-40:]
+            b["history"] = hist[-60:]
 
     if gh > 0 and not b.get("bankrupt"):
         for e in list(active):

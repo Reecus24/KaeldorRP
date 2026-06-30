@@ -205,7 +205,7 @@ def test_raise_eligibility_and_message(dovan_token, kiri_token):
         r = requests.post(
             f"{API}/jobs/market/{biz_id}/apply",
             headers=_hdr(kiri_token),
-            json={"role": "Helper", "message": "hi", "expected_wage": 30},
+            json={"role": "helper", "message": "hi", "expected_wage": 30},
             timeout=15,
         )
         # tolerate 409 (already applied)
@@ -220,7 +220,7 @@ def test_raise_eligibility_and_message(dovan_token, kiri_token):
         requests.post(
             f"{API}/businesses/{biz_id}/player-applications/{app_id}/offer",
             headers=_hdr(dovan_token),
-            json={"wage_per_shift": 30, "role": "Helper"},
+            json={"wage_per_hour": 30, "role": "helper"},
             timeout=15,
         )
         # Accept (employment endpoint)
@@ -237,7 +237,7 @@ def test_raise_eligibility_and_message(dovan_token, kiri_token):
         assert emp is not None
 
     emp_id = emp["id"]
-    prev_wage = emp.get("wage_per_shift") or 30
+    prev_wage = emp.get("wage_per_hour") or 30
 
     # 1) Force NOT due: total=10, last_raise=0
     _force_hours_for_emp(emp_id, 10, 0)
@@ -269,7 +269,7 @@ def test_raise_eligibility_and_message(dovan_token, kiri_token):
     rr = requests.post(
         f"{API}/businesses/{biz_id}/player-employees/{emp_id}/raise",
         headers=_hdr(dovan_token),
-        json={"wage_per_shift": new_wage},
+        json={"wage_per_hour": new_wage},
         timeout=15,
     )
     assert rr.status_code == 200, rr.text
@@ -277,10 +277,10 @@ def test_raise_eligibility_and_message(dovan_token, kiri_token):
     # raise_due flips back to False
     eo3 = next(e for e in requests.get(f"{API}/businesses/{biz_id}/player-employees", headers=_hdr(dovan_token), timeout=15).json() if e["id"] == emp_id)
     assert eo3["raise_due"] is False
-    assert eo3["wage_per_shift"] == new_wage
+    assert eo3["wage_per_hour"] == new_wage
 
     # Kiri's notifications contain "previously $<prev>"
-    notif = requests.get(f"{API}/notifications", headers=_hdr(kiri_token), timeout=15)
+    notif = requests.get(f"{API}/notifications?limit=200", headers=_hdr(kiri_token), timeout=15)
     assert notif.status_code == 200
     msgs = notif.json().get("items", [])
     found = [n for n in msgs if n.get("title") == "Pay rise!" and f"previously ${prev_wage}" in n.get("body", "")]
@@ -322,7 +322,7 @@ def test_offer_updated_message_contains_prev_and_new_wage(dovan_token, kiri_toke
     r = requests.post(
         f"{API}/jobs/market/{biz_id}/apply",
         headers=_hdr(kiri_token),
-        json={"role": "Helper", "message": "x", "expected_wage": 30},
+        json={"role": "helper", "message": "x", "expected_wage": 30},
         timeout=15,
     )
     assert r.status_code == 200, r.text
@@ -332,24 +332,24 @@ def test_offer_updated_message_contains_prev_and_new_wage(dovan_token, kiri_toke
     app_id = app["id"]
 
     # First offer @ 60
-    notif_before = requests.get(f"{API}/notifications", headers=_hdr(kiri_token), timeout=15).json().get("items", [])
+    notif_before = requests.get(f"{API}/notifications?limit=200", headers=_hdr(kiri_token), timeout=15).json().get("items", [])
     n_offer_before = sum(1 for n in notif_before if n.get("title") == "Job offer!")
     n_upd_before = sum(1 for n in notif_before if n.get("title") == "Offer updated")
 
     r1 = requests.post(
         f"{API}/businesses/{biz_id}/player-applications/{app_id}/offer",
-        headers=_hdr(dovan_token), json={"wage_per_shift": 60, "role": "Helper"}, timeout=15,
+        headers=_hdr(dovan_token), json={"wage_per_hour": 60, "role": "helper"}, timeout=15,
     )
     assert r1.status_code == 200, r1.text
 
     # Second offer @ 85 -> should be 'Offer updated' with both wages
     r2 = requests.post(
         f"{API}/businesses/{biz_id}/player-applications/{app_id}/offer",
-        headers=_hdr(dovan_token), json={"wage_per_shift": 85, "role": "Helper"}, timeout=15,
+        headers=_hdr(dovan_token), json={"wage_per_hour": 85, "role": "helper"}, timeout=15,
     )
     assert r2.status_code == 200, r2.text
 
-    notif_after = requests.get(f"{API}/notifications", headers=_hdr(kiri_token), timeout=15).json().get("items", [])
+    notif_after = requests.get(f"{API}/notifications?limit=200", headers=_hdr(kiri_token), timeout=15).json().get("items", [])
     n_offer_after = sum(1 for n in notif_after if n.get("title") == "Job offer!")
     n_upd_after = sum(1 for n in notif_after if n.get("title") == "Offer updated")
     assert n_offer_after == n_offer_before + 1, "first offer should send 'Job offer!'"
@@ -363,9 +363,9 @@ def test_offer_updated_message_contains_prev_and_new_wage(dovan_token, kiri_toke
     # Test 'lowered to' direction with a third offer @ 40
     r3 = requests.post(
         f"{API}/businesses/{biz_id}/player-applications/{app_id}/offer",
-        headers=_hdr(dovan_token), json={"wage_per_shift": 40, "role": "Helper"}, timeout=15,
+        headers=_hdr(dovan_token), json={"wage_per_hour": 40, "role": "helper"}, timeout=15,
     )
     assert r3.status_code == 200
-    notif3 = requests.get(f"{API}/notifications", headers=_hdr(kiri_token), timeout=15).json().get("items", [])
+    notif3 = requests.get(f"{API}/notifications?limit=200", headers=_hdr(kiri_token), timeout=15).json().get("items", [])
     lowered = [n for n in notif3 if n.get("title") == "Offer updated" and "lowered to $40" in n.get("body", "") and "previously $85" in n.get("body", "")]
     assert lowered, "expected 'lowered to $40 ... previously $85' Offer updated notification"

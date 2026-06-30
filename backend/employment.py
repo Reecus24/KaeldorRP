@@ -36,6 +36,22 @@ def shift_performance(p):
     return round(clamp(base * (0.6 + 0.6 * cond), 0.3, 1.5), 2)
 
 
+# maps a business staffing role -> the player skill that makes someone good at it
+ROLE_SKILL = {
+    "cashier": "sales", "cook": "cooking", "server": "charisma", "delivery_driver": "driving",
+    "cleaner": "fitness", "mechanic": "crafting", "salesperson": "sales", "manager": "management",
+    "security": "fitness", "warehouse_worker": "fitness", "customer_support": "charisma",
+    "accountant": "finance", "trainer": "fitness", "animal_care": "fitness",
+}
+
+
+def role_fit(p, role):
+    """0.55..1.3 — how well a player's relevant skill fits a business role."""
+    sk = ROLE_SKILL.get(role)
+    lvl = p["skills"].get(sk, {}).get("level", 1) if sk else _avg(_top_skills(p))
+    return round(clamp(0.55 + (lvl - 1) / 9 * 0.75, 0.55, 1.3), 2)
+
+
 # ----------------------------- NPC job applications -----------------------------
 def application_delay_minutes(job, cfg):
     e = cfg.get("employment", {})
@@ -116,23 +132,36 @@ async def resolve_npc_applications(db, p, cfg, now):
 
 
 # ----------------------------- player-owned business hiring -----------------------------
-def recommend_wage(applicant, cfg):
+def recommend_wage(applicant, cfg, role=None):
+    """Recommended HOURLY wage for a player applicant (hourly is the source of truth)."""
     e = cfg.get("employment", {})
-    base = e.get("player_base_shift_wage", 60)
+    base = e.get("player_base_hourly_wage", 14)
     avg = _avg(_top_skills(applicant))
-    mult = clamp(0.8 + (avg - 2) * 0.06 + (applicant.get("reputation", 50) - 50) / 300.0, 0.7, 1.7)
+    fit_lvl = 0
+    if role and ROLE_SKILL.get(role):
+        fit_lvl = applicant["skills"].get(ROLE_SKILL[role], {}).get("level", 1)
+    skill_level = max(avg, fit_lvl)
+    mult = clamp(0.8 + (skill_level - 2) * 0.05 + (applicant.get("reputation", 50) - 50) / 300.0, 0.7, 1.7)
     return round(base * mult, 2)
 
 
-def applicant_snapshot(p, cfg):
+def applicant_snapshot(p, cfg, role=None, reqs=None):
     top = sorted(p["skills"].items(), key=lambda kv: kv[1].get("level", 1), reverse=True)[:3]
+    fit = round(role_fit(p, role), 2) if role else None
+    fit_skill = ROLE_SKILL.get(role) if role else None
+    fit_label = "great fit" if (fit and fit >= 1.05) else ("good fit" if (fit and fit >= 0.85) else ("weak fit" if fit else None))
+    meets = True
+    if reqs:
+        req_roles = {r["role"] for r in reqs}
+        meets = (role in req_roles) if role else False
     return {
         "name": p["name"], "level": p.get("level", 1), "reputation": round(p.get("reputation", 50)),
         "legal_reputation": round(p.get("legal_reputation", 100)),
         "criminal_warning": p.get("legal_reputation", 100) < 50,
         "top_skills": [{"skill": k, "level": v.get("level", 1)} for k, v in top],
         "education_count": len(p.get("education", [])),
-        "recommended_wage": recommend_wage(p, cfg),
+        "role_fit": fit, "fit_skill": fit_skill, "fit_label": fit_label, "role_matches_staffing": meets,
+        "recommended_wage": recommend_wage(p, cfg, role),
     }
 
 
@@ -143,38 +172,55 @@ async def complete_player_shift(db, p, cfg, payload, eff):
         return
     biz = await db.businesses.find_one({"id": emp["business_id"]}, {"_id": 0})
     hours = payload.get("hours", 4)
+    e = cfg.get("employment", {})
+    wph = emp.get("wage_per_hour") or round(emp.get("wage_per_shift", 60) / 4.0, 2)
+    wage = round(wph * hours, 2)
+    role = emp.get("role")
     perf = round(shift_performance(p) * eff, 2)
-    wage = round(emp["wage_per_shift"] * (0.7 + 0.3 * perf), 2)  # under-performing earns a bit less
+    fit = role_fit(p, role)
+    rel = emp.get("reliability", 60)
+    productivity = round(clamp(perf * fit * (0.8 + 0.4 * rel / 100), 0.2, 1.9), 2)
 
     add_money(p, wage)
     ledger_add(p, "wages_earned", wage)
     p["fatigue"] = clamp(p["fatigue"] + payload.get("fatigue", 5) * hours)
     p["energy"] = clamp(p["energy"] - payload.get("energy", 4) * hours)
     p["stress"] = clamp(p["stress"] + 2 * hours)
-    for s in (payload.get("skills") or ["fitness"]):
-        # small xp handled by caller via add_skill_xp not available here; light mood bump instead
-        pass
 
-    rel_delta = 4 if perf >= 0.9 else (-3 if perf < 0.6 else 1)
+    output_mult = e.get("player_output_multiplier", 1.8)
+    revenue = round(wph * hours * output_mult * productivity, 2)
+    net = round(revenue - wage, 2)
+
     emp["total_hours_worked"] = emp.get("total_hours_worked", 0) + hours
     emp["total_wages_earned"] = round(emp.get("total_wages_earned", 0) + wage, 2)
+    emp["total_value_added"] = round(emp.get("total_value_added", 0) + revenue, 2)
     emp["last_paid_at"] = now_utc().isoformat()
     emp["reliability"] = clamp(emp.get("reliability", 60) + (3 if perf >= 0.8 else -2))
-    emp["performance"] = round(clamp((emp.get("performance", 60) * 0.7 + perf * 100 * 0.3), 0, 100), 1)
+    emp["performance"] = round(clamp(emp.get("performance", 60) * 0.7 + productivity * 100 * 0.3, 0, 100), 1)
+    emp["last_shift"] = {"hours": hours, "wage": wage, "revenue": revenue, "net": net,
+                         "productivity": productivity, "perf": perf, "role_fit": fit,
+                         "at": now_utc().isoformat()}
     await db.player_employment.update_one({"id": emp["id"]}, {"$set": emp})
 
     if biz and not biz.get("bankrupt"):
-        e = cfg.get("employment", {})
-        contribution = round(e.get("player_shift_contribution", 90) * perf * (hours / 4.0), 2)
-        biz["cash"] = round(biz.get("cash", 0) + contribution - wage, 2)
-        biz["satisfaction"] = clamp(biz.get("satisfaction", 60) + 2 * perf)
-        biz["reputation"] = clamp(biz.get("reputation", 50) + 1 * perf)
-        biz["revenue_total"] = round(biz.get("revenue_total", 0) + contribution, 2)
+        biz["cash"] = round(biz.get("cash", 0) + net, 2)
+        if biz["cash"] < 0:
+            biz["debt"] = round(biz.get("debt", 0) - biz["cash"], 2)
+            biz["cash"] = 0.0
+        biz["satisfaction"] = clamp(biz.get("satisfaction", 60) + (productivity - 1.0) * 4)
+        biz["reputation"] = clamp(biz.get("reputation", 50) + (1 if productivity >= 1 else -0.5))
+        biz["revenue_total"] = round(biz.get("revenue_total", 0) + max(revenue, 0), 2)
+        hist = biz.get("history", [])
+        hist.append({"ts": now_utc().isoformat(), "kind": "shift", "amount": net, "rev": revenue, "wage": wage,
+                     "label": f"{p['name']} — {hours}h {role} shift", "cash": biz["cash"], "debt": biz.get("debt", 0)})
+        biz["history"] = hist[-60:]
         await db.businesses.update_one({"id": biz["id"]}, {"$set": {
-            "cash": biz["cash"], "satisfaction": biz["satisfaction"], "reputation": biz["reputation"], "revenue_total": biz["revenue_total"]}})
-        await add_notification(db, emp["owner_id"], "business",
-                               f"{p['name']} finished a shift", f"+${contribution} value at {biz['name']} (perf {int(perf*100)}%). Wage ${wage} paid.",
-                               "success" if perf >= 0.8 else "info", f"/businesses/{biz['id']}")
+            "cash": biz["cash"], "debt": biz.get("debt", 0), "satisfaction": biz["satisfaction"],
+            "reputation": biz["reputation"], "revenue_total": biz["revenue_total"], "history": biz["history"]}})
+        sign = "+" if net >= 0 else ""
+        await add_notification(db, emp["owner_id"], "business", f"{p['name']} worked a {hours}h shift",
+                               f"+${revenue} revenue − ${wage} wage = net {sign}${net} at {biz['name']} (productivity {int(productivity*100)}%).",
+                               "success" if net >= 0 else "warning", f"/businesses/{biz['id']}")
 
-    quality = "great" if perf >= 1.0 else "solid" if perf >= 0.75 else "rough"
-    await add_event(db, p["id"], f"You finished a {hours}h shift at {emp['business_name']} — a {quality} one. Earned ${wage}.", "job", "success" if perf >= 0.75 else "info")
+    quality = "great" if productivity >= 1.1 else "solid" if productivity >= 0.8 else "rough"
+    await add_event(db, p["id"], f"You finished a {hours}h shift at {emp['business_name']} as {role} — a {quality} one. Earned ${wage}.", "job", "success" if productivity >= 0.8 else "info")

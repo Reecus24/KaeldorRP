@@ -195,7 +195,7 @@ class TestJobMarket:
         assert dovan_biz in ids, f"Dovan biz {dovan_biz} missing from market"
         listing = next(b for b in listings if b["business_id"] == dovan_biz)
         assert "owner_name" in listing
-        assert listing["base_shift_wage"] > 0
+        assert listing["base_hourly_wage"] > 0
 
     def test_market_apply_and_duplicate_blocked(self, mara_h, dovan_biz, mara_pid):
         # cleanup prior pending/offered apps for mara at this biz
@@ -209,11 +209,11 @@ class TestJobMarket:
         )
 
         r = requests.post(f"{API}/jobs/market/{dovan_biz}/apply", headers=mara_h,
-                          json={"role": "Cashier", "message": "TEST_market"}, timeout=20)
+                          json={"role": "cashier", "message": "TEST_market"}, timeout=20)
         assert r.status_code == 200, r.text
         # duplicate -> 409
         dup = requests.post(f"{API}/jobs/market/{dovan_biz}/apply", headers=mara_h,
-                            json={"role": "Cashier", "message": "dup"}, timeout=20)
+                            json={"role": "cashier", "message": "dup"}, timeout=20)
         assert dup.status_code == 409
         # market listing reflects pending
         listings = requests.get(f"{API}/jobs/market", headers=mara_h, timeout=20).json()
@@ -232,7 +232,7 @@ class TestJobMarket:
                 {"$set": {"status": "withdrawn"}},
             )
             r = requests.post(f"{API}/jobs/market/{dovan_biz}/apply", headers=kh,
-                              json={"role": "Helper"}, timeout=20)
+                              json={"role": "helper"}, timeout=20)
             assert r.status_code == 400, f"expected 400 closed got {r.status_code}"
         finally:
             # reopen
@@ -259,7 +259,7 @@ class TestOwnerHiring:
         a = next(x for x in apps if x["applicant_id"] == mara_pid)
         offer = requests.post(
             f"{API}/businesses/{dovan_biz}/player-applications/{a['id']}/offer",
-            headers=dovan_h, json={"wage_per_shift": 75.5, "role": "Cashier"}, timeout=20,
+            headers=dovan_h, json={"wage_per_hour": 75.5, "role": "cashier"}, timeout=20,
         )
         assert offer.status_code == 200, offer.text
 
@@ -312,7 +312,7 @@ class TestShiftWork:
             emp_doc = {
                 "id": _u.uuid4().hex, "business_id": dovan_biz, "business_name": "Dovan's Street Kiosk",
                 "owner_id": dovan_pid, "employee_player_id": mara_pid, "employee_name": "Mara Vance",
-                "role": "Cashier", "wage_per_shift": 80.0, "status": "active",
+                "role": "cashier", "wage_per_hour": 80.0, "status": "active",
                 "hired_at": _dt.utcnow().isoformat(), "reliability": 60, "performance": 60,
                 "total_hours_worked": 0, "total_wages_earned": 0.0, "last_paid_at": None,
             }
@@ -367,10 +367,10 @@ class TestOwnerManagement:
         target = next((e for e in emps if e["employee_player_id"] == mara_pid), None)
         assert target, "owner doesn't see employee"
         r = requests.post(f"{API}/businesses/{dovan_biz}/player-employees/{target['id']}/raise",
-                          headers=dovan_h, json={"wage_per_shift": 120.0}, timeout=20)
+                          headers=dovan_h, json={"wage_per_hour": 120.0}, timeout=20)
         assert r.status_code == 200
         emp_doc = db.player_employment.find_one({"id": target["id"]})
-        assert abs(emp_doc["wage_per_shift"] - 120.0) < 0.01
+        assert abs(emp_doc["wage_per_hour"] - 120.0) < 0.01
 
     def test_employee_quit(self, mara_h, dovan_biz, mara_pid):
         emp = db.player_employment.find_one({"business_id": dovan_biz, "employee_player_id": mara_pid, "status": "active"})
@@ -395,11 +395,11 @@ class TestOwnerManagement:
         )
         # apply -> offer -> accept -> fire
         r = requests.post(f"{API}/jobs/market/{dovan_biz}/apply", headers=kiri_h,
-                          json={"role": "Helper"}, timeout=20)
+                          json={"role": "helper"}, timeout=20)
         assert r.status_code == 200, r.text
         app = db.business_applications.find_one({"business_id": dovan_biz, "applicant_id": kpid, "status": "pending"})
         offer = requests.post(f"{API}/businesses/{dovan_biz}/player-applications/{app['id']}/offer",
-                              headers=dovan_h, json={"wage_per_shift": 50.0, "role": "Helper"}, timeout=20)
+                              headers=dovan_h, json={"wage_per_hour": 50.0, "role": "helper"}, timeout=20)
         assert offer.status_code == 200
         acc = requests.post(f"{API}/jobs/employment/applications/{app['id']}/accept", headers=kiri_h, timeout=20)
         assert acc.status_code == 200
@@ -421,7 +421,7 @@ class TestEdgeCases:
         )
         # apply
         r = requests.post(f"{API}/jobs/market/{dovan_biz}/apply", headers=kiri_h,
-                          json={"role": "Helper"}, timeout=20)
+                          json={"role": "helper"}, timeout=20)
         assert r.status_code == 200
         app = db.business_applications.find_one({"business_id": dovan_biz, "applicant_id": kpid, "status": "pending"})
         rej = requests.post(f"{API}/businesses/{dovan_biz}/player-applications/{app['id']}/reject",

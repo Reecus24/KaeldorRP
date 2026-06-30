@@ -46,7 +46,7 @@ def state(headers):
 
 
 def notifs(headers):
-    r = requests.get(f"{API}/notifications", headers=headers, timeout=20).json()
+    r = requests.get(f"{API}/notifications?limit=200", headers=headers, timeout=20).json()
     return r.get("items") if isinstance(r, dict) else r
 
 
@@ -139,7 +139,7 @@ class TestFix1DeclineOffer:
         # Owner sends offer
         offer = requests.post(
             f"{API}/businesses/{dovan_biz}/player-applications/{app['id']}/offer",
-            headers=dovan_h, json={"wage_per_shift": 70.0, "role": "Cashier"}, timeout=20,
+            headers=dovan_h, json={"wage_per_hour": 70.0, "role": "cashier"}, timeout=20,
         )
         assert offer.status_code == 200, offer.text
         # Sanity: status is 'offered'
@@ -203,7 +203,7 @@ class TestFix2FireEvent:
         app = _clean_and_apply(kiri_h, kiri_pid, dovan_biz, role="Helper")
         off = requests.post(
             f"{API}/businesses/{dovan_biz}/player-applications/{app['id']}/offer",
-            headers=dovan_h, json={"wage_per_shift": 55.0, "role": "Helper"}, timeout=20,
+            headers=dovan_h, json={"wage_per_hour": 55.0, "role": "helper"}, timeout=20,
         )
         assert off.status_code == 200, off.text
         acc = requests.post(f"{API}/jobs/employment/applications/{app['id']}/accept",
@@ -243,7 +243,7 @@ class TestFix3ReOffer:
         # FIRST offer (pending -> offered)
         first = requests.post(
             f"{API}/businesses/{dovan_biz}/player-applications/{app['id']}/offer",
-            headers=dovan_h, json={"wage_per_shift": 60.0, "role": "Cashier"}, timeout=20,
+            headers=dovan_h, json={"wage_per_hour": 60.0, "role": "cashier"}, timeout=20,
         )
         assert first.status_code == 200, first.text
 
@@ -258,7 +258,7 @@ class TestFix3ReOffer:
         # SECOND offer (offered -> offered, different wage)
         second = requests.post(
             f"{API}/businesses/{dovan_biz}/player-applications/{app['id']}/offer",
-            headers=dovan_h, json={"wage_per_shift": 85.0, "role": "Cashier"}, timeout=20,
+            headers=dovan_h, json={"wage_per_hour": 85.0, "role": "cashier"}, timeout=20,
         )
         assert second.status_code == 200, second.text
 
@@ -289,8 +289,8 @@ class TestFix4InvalidShiftHours:
                 "id": uuid.uuid4().hex, "business_id": dovan_biz,
                 "business_name": "Dovan's Street Kiosk",
                 "owner_id": dovan_pid, "employee_player_id": mara_pid,
-                "employee_name": "Mara Vance", "role": "Cashier",
-                "wage_per_shift": 75.0, "status": "active",
+                "employee_name": "Mara Vance", "role": "cashier",
+                "wage_per_hour": 75.0, "status": "active",
                 "hired_at": datetime.now(timezone.utc).isoformat(),
                 "reliability": 60, "performance": 60,
                 "total_hours_worked": 0, "total_wages_earned": 0.0, "last_paid_at": None,
