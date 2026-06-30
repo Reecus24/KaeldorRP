@@ -1,56 +1,128 @@
-import { useEffect } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import { GameProvider, useGame } from "@/context/GameContext";
+import { Spinner } from "@/components/game/primitives";
+import Layout from "@/components/game/Layout";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import CharacterCreate from "@/pages/CharacterCreate";
+import Dashboard from "@/pages/Dashboard";
+import HomeNeeds from "@/pages/HomeNeeds";
+import Skills from "@/pages/Skills";
+import JobCenter from "@/pages/JobCenter";
+import CurrentJob from "@/pages/CurrentJob";
+import Education from "@/pages/Education";
+import Shop from "@/pages/Shop";
+import Bank from "@/pages/Bank";
+import RealEstate from "@/pages/RealEstate";
+import VehicleDealer from "@/pages/VehicleDealer";
+import BusinessMarket from "@/pages/BusinessMarket";
+import OwnedBusinesses from "@/pages/OwnedBusinesses";
+import Underworld from "@/pages/Underworld";
+import Legal from "@/pages/Legal";
+import Hospital from "@/pages/Hospital";
+import Jail from "@/pages/Jail";
+import Leaderboard from "@/pages/Leaderboard";
+import Admin from "@/pages/Admin";
 
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
-
-function App() {
-  return (
-    <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </div>
-  );
+function FullLoader() {
+    return (
+        <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+            <Spinner />
+        </div>
+    );
 }
 
-export default App;
+function PublicOnly({ children }) {
+    const { user, ready } = useAuth();
+    if (!ready) return <FullLoader />;
+    if (user) return <Navigate to="/" replace />;
+    return children;
+}
+
+function ProtectedGame() {
+    const { user, ready } = useAuth();
+    const { hasCharacter } = useGame();
+    if (!ready) return <FullLoader />;
+    if (!user) return <Navigate to="/login" replace />;
+    if (hasCharacter === null) return <FullLoader />;
+    if (hasCharacter === false) return <Navigate to="/create-character" replace />;
+    return (
+        <Layout>
+            <Outlet />
+        </Layout>
+    );
+}
+
+function CharacterGate() {
+    const { user, ready } = useAuth();
+    const { hasCharacter } = useGame();
+    if (!ready) return <FullLoader />;
+    if (!user) return <Navigate to="/login" replace />;
+    if (hasCharacter === true) return <Navigate to="/" replace />;
+    return <CharacterCreate />;
+}
+
+function AdminGate() {
+    const { user } = useAuth();
+    if (user?.role !== "admin") return <Navigate to="/" replace />;
+    return <Admin />;
+}
+
+function AppRoutes() {
+    return (
+        <Routes>
+            <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
+            <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
+            <Route path="/create-character" element={<CharacterGate />} />
+            <Route element={<ProtectedGame />}>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/home" element={<HomeNeeds />} />
+                <Route path="/skills" element={<Skills />} />
+                <Route path="/jobs" element={<JobCenter />} />
+                <Route path="/current-job" element={<CurrentJob />} />
+                <Route path="/education" element={<Education />} />
+                <Route path="/shop" element={<Shop />} />
+                <Route path="/bank" element={<Bank />} />
+                <Route path="/real-estate" element={<RealEstate />} />
+                <Route path="/vehicles" element={<VehicleDealer />} />
+                <Route path="/business-market" element={<BusinessMarket />} />
+                <Route path="/businesses" element={<OwnedBusinesses />} />
+                <Route path="/underworld" element={<Underworld />} />
+                <Route path="/legal" element={<Legal />} />
+                <Route path="/hospital" element={<Hospital />} />
+                <Route path="/jail" element={<Jail />} />
+                <Route path="/leaderboard" element={<Leaderboard />} />
+                <Route path="/admin" element={<AdminGate />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+    );
+}
+
+export default function App() {
+    return (
+        <BrowserRouter>
+            <AuthProvider>
+                <GameProvider>
+                    <AppRoutes />
+                    <Toaster
+                        position="bottom-center"
+                        theme="dark"
+                        toastOptions={{
+                            style: {
+                                background: "#0d0d0d",
+                                border: "1px solid rgba(255,255,255,0.12)",
+                                color: "#fff",
+                                fontFamily: "Manrope, sans-serif",
+                            },
+                        }}
+                    />
+                </GameProvider>
+            </AuthProvider>
+        </BrowserRouter>
+    );
+}
