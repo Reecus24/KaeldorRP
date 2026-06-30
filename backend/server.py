@@ -1482,11 +1482,15 @@ async def accept_business_offer(app_id: str, user: dict = Depends(current_user))
 
 @api.post("/jobs/employment/applications/{app_id}/decline")
 async def decline_business_offer(app_id: str, user: dict = Depends(current_user)):
-    me = await db.players.find_one({"user_id": user["id"]}, {"_id": 0, "id": 1})
-    a = await db.business_applications.find_one({"id": app_id, "applicant_id": me["id"]}, {"_id": 0})
+    p = await get_state(user)
+    a = await db.business_applications.find_one({"id": app_id, "applicant_id": p["id"]}, {"_id": 0})
     if not a or a["status"] not in ("offered", "pending"):
         raise HTTPException(status_code=400, detail="Nothing to decline")
-    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "withdrawn"}})
+    was_offer = a["status"] == "offered"
+    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "declined" if was_offer else "withdrawn"}})
+    if was_offer:
+        await add_notification(db, a["owner_id"], "business", "Offer declined", f"{p['name']} declined your offer at {a['business_name']}.", "warning", f"/businesses/{a['business_id']}")
+        await add_event(db, p["id"], f"You declined the offer from {a['business_name']}.", "job", "info")
     return {"ok": True}
 
 
@@ -1499,7 +1503,9 @@ async def work_player_shift(emp_id: str, body: WorkBody, user: dict = Depends(cu
         raise HTTPException(status_code=404, detail="You don't work there")
     if p["energy"] < 10:
         raise HTTPException(status_code=400, detail="Too exhausted to work. Rest first.")
-    hours = body.hours if body.hours in (2, 4, 6, 8) else 4
+    if body.hours not in (2, 4, 6, 8):
+        raise HTTPException(status_code=400, detail="Shift length must be 2, 4, 6, or 8 hours.")
+    hours = body.hours
     cfg = await get_config(db)
     payload = {"employment_id": emp_id, "business_id": emp["business_id"], "hours": hours,
                "fatigue": 5, "energy": 4, "skills": ["fitness"]}
@@ -1540,8 +1546,13 @@ async def offer_player(biz_id: str, app_id: str, body: OfferBody, user: dict = D
     if not a or a["status"] not in ("pending", "offered"):
         raise HTTPException(status_code=400, detail="Application not open")
     wage = round(max(1.0, body.wage_per_shift), 2)
-    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "offered", "wage_offer": wage, "role": body.role or a.get("role", "Staff")}})
-    await add_notification(db, a["applicant_id"], "job", "Job offer!", f"{b['name']} offered you ${wage}/shift as {body.role or 'Staff'}.", "success", "/job-market")
+    was_offered = a["status"] == "offered"
+    role = body.role or a.get("role", "Staff")
+    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "offered", "wage_offer": wage, "role": role}})
+    if was_offered:
+        await add_notification(db, a["applicant_id"], "job", "Offer updated", f"{b['name']} updated your offer to ${wage}/shift as {role}.", "info", "/job-market")
+    else:
+        await add_notification(db, a["applicant_id"], "job", "Job offer!", f"{b['name']} offered you ${wage}/shift as {role}.", "success", "/job-market")
     return {"ok": True}
 
 
@@ -1573,6 +1584,7 @@ async def fire_player(biz_id: str, emp_id: str, user: dict = Depends(current_use
         raise HTTPException(status_code=404, detail="Employee not found")
     await db.player_employment.update_one({"id": emp_id}, {"$set": {"status": "fired"}})
     await add_notification(db, emp["employee_player_id"], "job", "You were let go", f"{b['name']} ended your employment.", "danger", "/job-market")
+    await add_event(db, emp["employee_player_id"], f"You were let go from {b['name']}.", "job", "warning")
     return {"ok": True}
 
 

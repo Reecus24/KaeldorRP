@@ -125,12 +125,12 @@ def recommend_wage(applicant, cfg):
 
 
 def applicant_snapshot(p, cfg):
+    top = sorted(p["skills"].items(), key=lambda kv: kv[1].get("level", 1), reverse=True)[:3]
     return {
         "name": p["name"], "level": p.get("level", 1), "reputation": round(p.get("reputation", 50)),
         "legal_reputation": round(p.get("legal_reputation", 100)),
         "criminal_warning": p.get("legal_reputation", 100) < 50,
-        "top_skills": sorted(p["skills"].items(), key=lambda kv: kv[1].get("level", 1), reverse=True)[:3]
-                      and [{"skill": k, "level": v.get("level", 1)} for k, v in sorted(p["skills"].items(), key=lambda kv: kv[1].get("level", 1), reverse=True)[:3]],
+        "top_skills": [{"skill": k, "level": v.get("level", 1)} for k, v in top],
         "education_count": len(p.get("education", [])),
         "recommended_wage": recommend_wage(p, cfg),
     }

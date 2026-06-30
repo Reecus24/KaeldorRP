@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 7 — Verified the 4 surgical backend logic fixes flagged in iteration_6. Created /app/backend/tests/test_phase_c_fixes.py (13 focused tests) and re-ran the full Phase C regression (/app/backend/tests/test_phase_c_employment.py, 18 tests). ALL 31 tests PASS. (1) Decline-offer: applicant declining an 'offered' app sets status='declined', triggers a new 'Offer declined' notification on the owner (verified by title match + applicant name in body), and writes an event_log entry 'You declined the offer from Dovan's Street Kiosk' for the applicant; declining a still-'pending' application sets status='withdrawn' and produces NO 'Offer declined' notification for the owner (delta-counted before vs after to avoid false positives from prior runs). (2) Fire: after owner POST /businesses/{biz}/player-employees/{emp}/fire, the fired employee's GET /game/events contains 'You were let go from <biz>' (the existing 'You were let go' notification was already there in iter_6; this run confirms the new event_log entry is now also written). (3) Re-offer: first POST /offer on a 'pending' app triggers an applicant notification with title 'Job offer!' (job_offer counter incremented by 1, offer_updated counter unchanged); a SECOND POST /offer on the now-'offered' app with a different wage (60 -> 85) updates wage_offer in business_applications AND increments only the 'Offer updated' counter — no duplicate 'Job offer!' notification is sent. (4) Shift hours validation: POST /jobs/employment/{emp}/work with hours in {1,3,5,7,9} returns HTTP 400 with detail containing 'Shift length must be 2, 4, 6, or 8 hours.' and does NOT create a player_shift activity (verified via mongo); hours in {2,4,6,8} return 200 and start the activity. time_scale verified == 1.0.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase_c_fixes.py",
+    "/app/backend/tests/test_phase_c_employment.py",
+    "/app/test_reports/pytest/phase_c_fixes_results.xml",
+    "/app/test_reports/pytest/phase_c_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "decline_business_offer (server.py ~L1483): correct separation of 'declined' vs 'withdrawn' status based on prior state; only emits owner notif on the offer-decline path. Clean implementation, matches contract.",
+    "offer_player (server.py ~L1541): the was_offered branch correctly fires 'Offer updated' instead of duplicate 'Job offer!'. Consider including the previous wage in the notification body for context (e.g. 'updated to $85/shift (was $60)'), but not blocking.",
+    "fire_player (server.py ~L1578): both notification and add_event are now present — symmetrical with quit_player_job. Good.",
+    "work_player_shift (server.py ~L1497): explicit 400 with helpful detail. Pydantic-level Literal[2,4,6,8] in WorkBody would push validation even earlier, but the current implementation is correct and returns the more helpful 400 detail string.",
+    "Larger structural note (carried forward from iter_6): server.py is now ~1945 lines — employment endpoints (NPC apply, market, hiring, employment, shift work) would map cleanly to /app/backend/routers/employment.py and save ~250 lines. Not urgent for these fixes but worth tackling before Phase D.",
+    "applicant_snapshot top_skills refactor (employment.py ~L127): not exercised directly in this run, but the iter_6 regression (TestOwnerHiring.test_owner_sees_applications_with_snapshot — asserts a.get('stats') is truthy and recommended_wage > 0) still passes, confirming the refactor returns the expected list-of-{skill,level} shape."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase_c_fixes.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13 fix tests + 18/18 phase C regression = 31/31)",
+    "frontend": "skipped per request (backend only)"
+  },
+  "test_credentials": "dovan@kaeldor.com / demo123 (owner), mara@kaeldor.com / demo123 (applicant), kiri@kaeldor.com / demo123 (applicant), player@kaeldor.com / player123 — all functional.",
+  "seed_data_creation": "Test suite reuses seeded demo players. Side effects from this run on Dovan's biz (id discovered dynamically): (a) Mara has a new 'declined' business_application from FIX1 + a 'offered'(wage=85.0) application from FIX3 still in 'offered' state, (b) Kiri has a 'withdrawn' application from FIX1's pending-decline path, and a 'fired' player_employment from FIX2, (c) Mara has multiple new event_log entries (declined offer + shift clock-ins for parametrize), (d) numerous notifications added to dovan and mara. No cleanup required — transitions are idempotent and tests use delta-counts where order matters.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase C is now 31/31 across two test files (test_phase_c_employment.py 18/18 + test_phase_c_fixes.py 13/13). Run both with: pytest /app/backend/tests/test_phase_c_employment.py /app/backend/tests/test_phase_c_fixes.py -v -p no:xdist -o addopts=. The 4 iter_6 fixes are landed and verified end-to-end through the real /api routes — no mongo writes were used to fake the offer/decline/fire state, only to clean up duplicate-apply 409s. Phase D (life inbox / next phase) is still unbuilt. time_scale remains 1.0.",
+  "rca of the issue": "N/A — this run was a verification pass on 4 already-applied fixes. All four behave per the spec described in the review_request, including the negative paths (pending decline does not notify owner; first offer does not send 'Offer updated'; valid hours still start a shift)."
+}
