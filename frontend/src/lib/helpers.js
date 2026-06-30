@@ -142,3 +142,36 @@ export function fmtGameClock(d) {
     const mm = String(d.getUTCMinutes()).padStart(2, "0");
     return { day: `Day ${dayIndex}`, time: `${hh}:${mm}`, date: `${GAME_MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}` };
 }
+
+// ---------- Scheduled working hours ----------
+export const SHIFT_PRESETS = {
+    early: { label: "Early Shift", start: 8, end: 16 },
+    late: { label: "Late Shift", start: 14, end: 22 },
+    night: { label: "Night Shift", start: 22, end: 6 },
+    morning: { label: "Part-Time Morning", start: 8, end: 12 },
+    evening: { label: "Part-Time Evening", start: 18, end: 22 },
+};
+
+export function scheduleLabel(sch) {
+    if (!sch) return "No schedule";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${sch.label || "Shift"} · ${pad(sch.start)}:00–${pad(sch.end)}:00`;
+}
+
+// ---------- Tooltip / explainer copy ----------
+export const STAT_INFO = {
+    energy: "Energy fuels activities. It drops as you stay awake and work; sleep and rest restore it.",
+    fatigue: "Fatigue builds the longer you're active. High fatigue lowers your effectiveness — sleep to reduce it.",
+    hunger: "Hunger rises over time. Eating lowers it; starving harms your health and mood.",
+    hygiene: "Hygiene falls over time and during work. Shower to restore it; low hygiene hurts mood and social outcomes.",
+    mood: "Mood reflects how you feel. Good housing, rest and relationships lift it; stress and neglect lower it.",
+    stress: "Stress rises from work and crime. High stress damages health and mood — relax, sleep or socialize.",
+    health: "Health is your overall condition. It falls from neglect, hunger and stress. At zero you collapse and go to hospital.",
+    reputation: "Reputation is your public standing — it affects job offers, wages and your business reputation.",
+    legal_reputation: "Legal Standing reflects your record. Crime lowers it; a low value blocks jobs and credit.",
+    criminal_suspicion: "Criminal Suspicion is how closely the police watch you. Higher suspicion raises your chance of getting caught.",
+    social_status: "Social Status is your standing in society, raised by education, wealth and relationships.",
+};
+
+export const XP_INFO = "Experience (XP) accumulates from actions, work and study. Fill the bar to reach the next Level, which unlocks better opportunities.";
+export const SKILL_INFO = "Skills grow as you work, study and act. Higher skill levels unlock jobs and businesses and improve your outcomes and pay.";

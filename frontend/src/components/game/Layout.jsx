@@ -6,7 +6,7 @@ import { Money, StatBar, Pill } from "@/components/game/primitives";
 import ActivityPanel from "@/components/game/ActivityPanel";
 import EventLog from "@/components/game/EventLog";
 import ChatWidget from "@/components/game/ChatWidget";
-import { NEED_META, statusLabel, statusColor, timeMode, computeGameTime, fmtGameClock } from "@/lib/helpers";
+import { NEED_META, statusLabel, statusColor, timeMode, computeGameTime, fmtGameClock, STAT_INFO } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import {
     LayoutDashboard, Home, Briefcase, BadgeCheck, GraduationCap, ShoppingCart,
@@ -273,6 +273,7 @@ export default function Layout({ children }) {
                                     value={player[key]}
                                     color={meta.color}
                                     invert={meta.invert}
+                                    info={STAT_INFO[key]}
                                     testid={`need-${key}`}
                                 />
                             ))}

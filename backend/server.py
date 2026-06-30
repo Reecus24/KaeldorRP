@@ -210,6 +210,8 @@ def decorate_employment(e):
     """Add hourly-wage fallback + hours-based raise eligibility to a player_employment doc."""
     if e.get("wage_per_hour") is None:
         e["wage_per_hour"] = round(e.get("wage_per_shift", 60) / 4.0, 2)
+    if not e.get("schedule"):
+        e["schedule"] = employment.make_schedule("early")
     worked = e.get("total_hours_worked", 0)
     last = e.get("hours_at_last_raise", 0)
     e["raise_due"] = (worked - last) >= RAISE_INTERVAL_HOURS
@@ -217,11 +219,23 @@ def decorate_employment(e):
     return e
 
 
+def decorate_employment_live(e, cfg, g_now):
+    """decorate_employment + live on-shift status for the employee's own views."""
+    de = decorate_employment(e)
+    de["on_shift"] = employment.emp_on_shift(e, g_now)
+    wb = employment.current_window_bounds(e.get("schedule") or {}, g_now)
+    de["window_ends_at_game"] = wb[1].isoformat() if (de["on_shift"] and wb) else None
+    return de
+
+
 def ensure_free(p):
     if p.get("status") == "jail":
         raise HTTPException(status_code=409, detail="You are in jail. Wait it out or post bail.")
     if p.get("status") == "hospital":
         raise HTTPException(status_code=409, detail="You are in hospital recovering.")
+    os_shift = p.get("on_shift")
+    if os_shift:
+        raise HTTPException(status_code=409, detail=f"You're on shift at {os_shift.get('business_name', 'work')}. Clock out early first to do something else.")
     if p.get("current_activity"):
         raise HTTPException(status_code=409, detail="You are already busy with another activity.")
 
@@ -519,7 +533,9 @@ async def current_job(user: dict = Depends(current_user)):
             promo = {"target": target, **ev}
         npc = {"job": p["job"], "details": jd, "promotion": promo}
     pe = await db.player_employment.find({"employee_player_id": p["id"], "status": "active"}, {"_id": 0}).to_list(50)
-    player_jobs = [decorate_employment(e) for e in pe]
+    cfg = await get_config(db)
+    g_now = game_now(cfg, now_utc())
+    player_jobs = [decorate_employment_live(e, cfg, g_now) for e in pe]
     return {"npc": npc, "player_jobs": player_jobs,
             "job": p.get("job"), "details": jd, "promotion": (npc or {}).get("promotion") if npc else None}
 
@@ -1223,7 +1239,21 @@ async def _get_employee(p, emp_id):
 async def business_detail(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     b = await _get_owned_business(p, biz_id)
-    return {"business": b, "metrics": await employee_engine.business_metrics(db, b)}
+    pp = b.get("purchase_price", 1)
+    lvl = b.get("level", 1)
+    mkt = b.get("marketing_level", 0)
+    rep = b.get("reputation", 50)
+    can_upgrade = lvl < b.get("max_level", 1)
+    costs = {
+        "upgrade_cost": round(pp * 0.4 * lvl) if can_upgrade else None,
+        "upgrade_from_level": lvl, "upgrade_to_level": lvl + 1 if can_upgrade else lvl,
+        "upgrade_revenue_boost_pct": 35, "upgrade_reputation_gain": 4, "can_upgrade": can_upgrade,
+        "marketing_cost": round(pp * 0.12 * (mkt + 1)),
+        "marketing_level": mkt, "marketing_next_level": mkt + 1,
+        "marketing_revenue_boost_pct": 6, "marketing_reputation_gain": 8,
+        "sell_value": max(0, round(pp * 0.5 * lvl * (0.6 + 0.4 * rep / 100) - b.get("debt", 0) + b.get("cash", 0))),
+    }
+    return {"business": b, "metrics": await employee_engine.business_metrics(db, b), "costs": costs}
 
 
 @api.get("/businesses/{biz_id}/employees")
@@ -1486,14 +1516,16 @@ class MarketApplyBody(BaseModel):
 class OfferBody(BaseModel):
     wage_per_hour: float
     role: Optional[str] = None
+    schedule: Optional[str] = None
+
+
+class BackupBody(BaseModel):
+    role: str
+    enabled: bool
 
 
 class WageBody(BaseModel):
     wage_per_hour: float
-
-
-class WorkBody(BaseModel):
-    hours: int = 4
 
 
 async def _staffing_roles(b):
@@ -1505,6 +1537,12 @@ async def _staffing_roles(b):
         out.append({"role": r["role"], "label": rd.get("label", r["role"].replace("_", " ").title()),
                     "desc": rd.get("desc", ""), "recommended": r.get("recommended", 1)})
     return out
+
+
+@api.get("/shift-presets")
+async def shift_presets(user: dict = Depends(current_user)):
+    return [{"preset": k, "label": v["label"], "start": v["start"], "end": v["end"]}
+            for k, v in employment.SHIFT_PRESETS.items()]
 
 
 # --- NPC applications (applicant) ---
@@ -1606,9 +1644,11 @@ async def apply_to_business(business_id: str, body: MarketApplyBody, user: dict 
 @api.get("/jobs/employment")
 async def my_employment(user: dict = Depends(current_user)):
     p = await get_state(user)
+    cfg = await get_config(db)
+    g_now = game_now(cfg, now_utc())
     emps = await db.player_employment.find({"employee_player_id": p["id"], "status": "active"}, {"_id": 0}).to_list(50)
     apps = await db.business_applications.find({"applicant_id": p["id"], "status": {"$in": ["pending", "offered", "rejected"]}}, {"_id": 0}).sort("submitted_at", -1).to_list(50)
-    return {"employments": [decorate_employment(e) for e in emps], "applications": apps}
+    return {"employments": [decorate_employment_live(e, cfg, g_now) for e in emps], "applications": apps}
 
 
 @api.post("/jobs/employment/applications/{app_id}/accept")
@@ -1623,13 +1663,15 @@ async def accept_business_offer(app_id: str, user: dict = Depends(current_user))
     emp = {"id": uuid.uuid4().hex, "business_id": a["business_id"], "business_name": a["business_name"],
            "owner_id": a["owner_id"], "employee_player_id": p["id"], "employee_name": p["name"],
            "role": a.get("role", "staff"), "wage_per_hour": a["wage_offer"], "status": "active",
+           "schedule": a.get("schedule") or employment.make_schedule("early"), "clocked_out_until": None,
            "hired_at": now_utc().isoformat(), "reliability": 60, "performance": 60,
            "total_hours_worked": 0, "total_wages_earned": 0.0, "total_value_added": 0.0,
-           "hours_at_last_raise": 0, "last_paid_at": None}
+           "hours_at_last_raise": 0, "last_paid_at": None, "today": None, "last_impact": None}
     await db.player_employment.insert_one({**emp})
     await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "accepted"}})
+    sched = emp["schedule"]
     await add_notification(db, a["owner_id"], "business", "Offer accepted", f"{p['name']} accepted your offer at {a['business_name']}.", "success", f"/businesses/{a['business_id']}")
-    await add_event(db, p["id"], f"You're now working at {a['business_name']} as {a.get('role', 'staff')} (${a['wage_offer']}/h).", "job", "success")
+    await add_event(db, p["id"], f"You're now working at {a['business_name']} as {a.get('role', 'staff')} (${a['wage_offer']}/h, {sched['label']} {sched['start']:02d}:00–{sched['end']:02d}:00).", "job", "success")
     return {"ok": True}
 
 
@@ -1660,26 +1702,18 @@ async def withdraw_business_application(app_id: str, user: dict = Depends(curren
     return {"ok": True}
 
 
-@api.post("/jobs/employment/{emp_id}/work")
-async def work_player_shift(emp_id: str, body: WorkBody, user: dict = Depends(current_user)):
+@api.post("/jobs/employment/{emp_id}/clock-out")
+async def clock_out_player_shift(emp_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
-    ensure_free(p)
     emp = await db.player_employment.find_one({"id": emp_id, "employee_player_id": p["id"], "status": "active"}, {"_id": 0})
     if not emp:
         raise HTTPException(status_code=404, detail="You don't work there")
-    if p["energy"] < 10:
-        raise HTTPException(status_code=400, detail="Too exhausted to work. Rest first.")
-    if body.hours not in (2, 4, 6, 8):
-        raise HTTPException(status_code=400, detail="Shift length must be 2, 4, 6, or 8 hours.")
-    hours = body.hours
     cfg = await get_config(db)
-    payload = {"employment_id": emp_id, "business_id": emp["business_id"], "hours": hours,
-               "fatigue": 5, "energy": 4, "skills": ["fitness"]}
-    set_activity(p, "player_shift", f"Shift @ {emp['business_name']} ({hours}h)", hours * 60, cfg, payload, blocking=True)
-    p["status"] = "working"
-    await add_event(db, p["id"], f"Clocked in for a {hours}h shift at {emp['business_name']}.", "job", "info")
+    res = await employment.clock_out_early(db, p, cfg, emp)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("detail", "You're not on a scheduled shift right now."))
     await save_player(p)
-    return {"ok": True, "activity": serialize_activity(p)}
+    return res
 
 
 @api.post("/jobs/employment/{emp_id}/quit")
@@ -1718,13 +1752,14 @@ async def offer_player(biz_id: str, app_id: str, body: OfferBody, user: dict = D
     wage = round(max(1.0, body.wage_per_hour), 2)
     prev = a.get("wage_offer")
     was_offered = a["status"] == "offered"
-    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "offered", "wage_offer": wage, "role": role, "role_matches_staffing": matches}})
+    schedule = employment.make_schedule(body.schedule or (a.get("schedule") or {}).get("preset") or "early")
+    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "offered", "wage_offer": wage, "role": role, "role_matches_staffing": matches, "schedule": schedule}})
     rl = role.replace("_", " ")
     if was_offered and prev:
         direction = "increased to" if wage >= prev else "lowered to"
-        await add_notification(db, a["applicant_id"], "job", "Offer updated", f"{b['name']}: wage {direction} ${wage}/h, previously ${prev}/h (as {rl}).", "info", "/job-market")
+        await add_notification(db, a["applicant_id"], "job", "Offer updated", f"{b['name']}: wage {direction} ${wage}/h, previously ${prev}/h (as {rl}, {schedule['label']}).", "info", "/job-market")
     else:
-        await add_notification(db, a["applicant_id"], "job", "Job offer!", f"{b['name']} offered you ${wage}/h as {rl}.", "success", "/job-market")
+        await add_notification(db, a["applicant_id"], "job", "Job offer!", f"{b['name']} offered you ${wage}/h as {rl} ({schedule['label']}).", "success", "/job-market")
     return {"ok": True, "role_matches_staffing": matches}
 
 
@@ -1744,8 +1779,10 @@ async def reject_player(biz_id: str, app_id: str, user: dict = Depends(current_u
 async def biz_player_employees(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     await _get_owned_business(p, biz_id)
+    cfg = await get_config(db)
+    g_now = game_now(cfg, now_utc())
     emps = await db.player_employment.find({"business_id": biz_id, "status": "active"}, {"_id": 0}).to_list(100)
-    return [decorate_employment(e) for e in emps]
+    return [decorate_employment_live(e, cfg, g_now) for e in emps]
 
 
 @api.post("/businesses/{biz_id}/player-employees/{emp_id}/fire")
@@ -1782,6 +1819,19 @@ async def toggle_hiring(biz_id: str, user: dict = Depends(current_user)):
     newv = not b.get("hiring_open", False)
     await db.businesses.update_one({"id": biz_id}, {"$set": {"hiring_open": newv}})
     return {"ok": True, "hiring_open": newv}
+
+
+@api.post("/businesses/{biz_id}/backup")
+async def toggle_backup(biz_id: str, body: BackupBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    backup = dict(b.get("backup_roles") or {})
+    if body.enabled:
+        backup[body.role] = True
+    else:
+        backup.pop(body.role, None)
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"backup_roles": backup}})
+    return {"ok": True, "backup_roles": backup}
 
 
 # ============================ NOTIFICATIONS & DAILY SUMMARY ============================
@@ -2112,6 +2162,9 @@ async def migrate_player_employment_hourly():
         await db.player_employment.update_one({"id": e["id"]}, {"$set": {"wage_per_hour": wph, "total_value_added": 0.0}})
     async for a in db.business_applications.find({"status": "offered", "wage_offer": {"$ne": None}, "wage_hourly_migrated": {"$ne": True}}, {"_id": 0, "id": 1, "wage_offer": 1}):
         await db.business_applications.update_one({"id": a["id"]}, {"$set": {"wage_offer": round(a["wage_offer"] / 4.0, 2), "wage_hourly_migrated": True}})
+    async for e in db.player_employment.find({"schedule": {"$exists": False}}, {"_id": 0, "id": 1}):
+        await db.player_employment.update_one({"id": e["id"]}, {"$set": {
+            "schedule": employment.make_schedule("early"), "clocked_out_until": None}})
     # tag legacy finance-history entries so the UI can label them Forecast vs Booking
     async for b in db.businesses.find({"history": {"$exists": True, "$ne": []}}, {"_id": 0, "id": 1, "history": 1}):
         hist = b.get("history") or []

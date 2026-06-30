@@ -4,6 +4,7 @@ import { api, errMessage } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, EmptyState } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
+import { scheduleLabel } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import { Store, Briefcase, Send, Clock, X, CheckCircle2, XCircle, LogOut, Building2, Star } from "lucide-react";
 
@@ -81,22 +82,21 @@ function MarketTab() {
 }
 
 function MyJobsTab() {
-    const { state, refresh } = useGame();
+    const { refresh } = useGame();
     const [data, setData] = useState(null);
     const [busy, setBusy] = useState(null);
-    const busyActivity = !!state?.activity;
     const load = useCallback(() => api.get("/jobs/employment").then(({ data }) => setData(data)).catch(() => setData({ employments: [], applications: [] })), []);
     useEffect(() => { load(); }, [load]);
 
-    const work = async (emp, hours) => {
+    const clockOut = async (emp) => {
         setBusy(emp.id);
-        try { await api.post(`/jobs/employment/${emp.id}/work`, { hours }); toast.success(`Shift started at ${emp.business_name}`); await Promise.all([load(), refresh()]); }
+        try { await api.post(`/jobs/employment/${emp.id}/clock-out`); toast.success("You clocked out early"); await Promise.all([load(), refresh()]); }
         catch (e) { toast.error(errMessage(e)); }
         setBusy(null);
     };
     const quit = async (emp) => {
         setBusy(emp.id + "q");
-        try { await api.post(`/jobs/employment/${emp.id}/quit`); toast.success("You quit the job"); await load(); } catch (e) { toast.error(errMessage(e)); }
+        try { await api.post(`/jobs/employment/${emp.id}/quit`); toast.success("You quit the job"); await Promise.all([load(), refresh()]); } catch (e) { toast.error(errMessage(e)); }
         setBusy(null);
     };
     const withdraw = async (app) => {
@@ -125,7 +125,9 @@ function MyJobsTab() {
                         {offers.map((a) => (
                             <div key={a.id} className="flex items-center justify-between gap-3 p-2.5 border border-white/10 rounded-sm" data-testid={`offer-${a.id}`}>
                                 <div><span className="font-display font-bold text-white text-sm">{a.business_name}</span>
-                                    <div className="text-[11px] text-neon-green">{(a.role || "").replace(/_/g, " ")} · ${a.wage_offer}/h <span className="text-muted-foreground">(≈ ${Math.round((a.wage_offer || 0) * 4)} for a 4h shift)</span></div></div>
+                                    <div className="text-[11px] text-neon-green">{(a.role || "").replace(/_/g, " ")} · ${a.wage_offer}/h</div>
+                                    <div className="text-[10px] text-neon-purple flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {scheduleLabel(a.schedule)}</div>
+                                </div>
                                 <div className="flex gap-2">
                                     <KButton variant="green" loading={busy === a.id} onClick={() => respond(a, "accept")} data-testid={`offer-accept-${a.id}`}><CheckCircle2 className="w-3.5 h-3.5" /> Accept</KButton>
                                     <KButton variant="ghost" onClick={() => respond(a, "decline")} data-testid={`offer-decline-${a.id}`}>Decline</KButton>
@@ -137,7 +139,8 @@ function MyJobsTab() {
             )}
 
             <div>
-                <div className="font-display font-bold text-white mb-3">Your Jobs</div>
+                <div className="font-display font-bold text-white mb-1">Your Jobs</div>
+                <p className="text-[11px] text-muted-foreground mb-3">Player-business jobs run on a fixed schedule — you auto-work during your hours (even offline) and can't start other physical activities while on shift. Clock out early to free up (you forfeit the rest of today's pay and lose reliability).</p>
                 {data.employments.length === 0 ? (
                     <EmptyState icon={Briefcase} title="Not employed by any player yet" sub="Browse the Job Market and apply to a player-owned business." />
                 ) : (
@@ -148,28 +151,31 @@ function MyJobsTab() {
                                     <span className="font-display font-bold text-white">{e.business_name}</span>
                                     <Pill tone="green">${e.wage_per_hour}/h</Pill>
                                 </div>
-                                <div className="flex items-center gap-2 mb-2">
+                                <div className="flex items-center gap-2 mb-2 flex-wrap">
                                     <span className="text-[11px] text-muted-foreground capitalize">{(e.role || "").replace(/_/g, " ")}</span>
+                                    {e.on_shift
+                                        ? <Pill tone="green" data-testid={`emp-onshift-${e.id}`}>On shift now</Pill>
+                                        : <Pill tone="yellow" data-testid={`emp-offshift-${e.id}`}>Off shift</Pill>}
                                     {e.raise_due && <Pill tone="yellow" data-testid={`raise-due-${e.id}`}>Raise due</Pill>}
                                 </div>
+                                <div className="text-[11px] text-neon-purple flex items-center gap-1 mb-2"><Clock className="w-3 h-3" /> {scheduleLabel(e.schedule)}</div>
                                 <div className="grid grid-cols-4 gap-2 text-center text-[10px] mb-3">
                                     <div><div className="text-muted-foreground uppercase">Perf</div><div className="font-mono text-neon-cyan">{Math.round(e.performance)}</div></div>
                                     <div><div className="text-muted-foreground uppercase">Reliab</div><div className="font-mono text-neon-green">{Math.round(e.reliability)}</div></div>
                                     <div><div className="text-muted-foreground uppercase">Hours</div><div className="font-mono text-neon-purple">{Math.round(e.total_hours_worked || 0)}h</div></div>
                                     <div><div className="text-muted-foreground uppercase">Earned</div><div className="font-mono text-white">${Math.round(e.total_wages_earned)}</div></div>
                                 </div>
-                                {e.last_shift && (
-                                    <div className="text-[10px] text-muted-foreground mb-2 border-l-2 border-neon-purple/40 pl-2">
-                                        Last shift: {e.last_shift.hours}h · earned <span className="text-neon-green">${Math.round(e.last_shift.wage)}</span> · productivity {Math.round(e.last_shift.productivity * 100)}%
+                                {e.today && e.today.hours > 0 && (
+                                    <div className="text-[10px] text-muted-foreground mb-3 border-l-2 border-neon-purple/40 pl-2" data-testid={`emp-today-${e.id}`}>
+                                        Today: {e.today.hours}h worked · earned <span className="text-neon-green">${Math.round(e.today.wage)}</span>
                                     </div>
                                 )}
-                                <div className="text-[10px] text-muted-foreground mb-1">Shift pays ${e.wage_per_hour}/h:</div>
-                                <div className="flex flex-wrap gap-1.5 mb-2">
-                                    {[2, 4, 6, 8].map((h) => (
-                                        <KButton key={h} variant="primary" className="!px-2.5 flex-1" disabled={busyActivity} loading={busy === e.id} onClick={() => work(e, h)} data-testid={`work-${e.id}-${h}`}>{h}h<span className="text-[9px] opacity-70 ml-0.5">${Math.round(e.wage_per_hour * h)}</span></KButton>
-                                    ))}
-                                </div>
-                                <KButton variant="ghost" className="w-full" loading={busy === e.id + "q"} onClick={() => quit(e)} data-testid={`quit-${e.id}`}><LogOut className="w-3.5 h-3.5" /> Quit</KButton>
+                                {e.on_shift ? (
+                                    <KButton variant="danger" className="w-full mb-2" loading={busy === e.id} onClick={() => clockOut(e)} data-testid={`clock-out-${e.id}`}><LogOut className="w-3.5 h-3.5" /> Clock Out Early</KButton>
+                                ) : (
+                                    <div className="text-[10px] text-muted-foreground mb-2 text-center">Off shift — auto-work resumes at your next scheduled start.</div>
+                                )}
+                                <KButton variant="ghost" className="w-full" loading={busy === e.id + "q"} onClick={() => quit(e)} data-testid={`quit-${e.id}`}><LogOut className="w-3.5 h-3.5" /> Quit Job</KButton>
                             </Panel>
                         ))}
                     </div>
@@ -196,7 +202,7 @@ export default function JobMarket() {
     return (
         <div className="space-y-6">
             <SectionTitle icon={Store} kicker="Work for other players" title="Player Job Market"
-                sub="Apply to businesses run by real players, accept offers, and work real-time shifts. Your skills and condition decide how well you perform — and how much the business gains." />
+                sub="Apply to businesses run by real players and accept offers. Each job has fixed working hours — you auto-work on schedule (even offline), and your skills and condition decide how much the business gains." />
             <div className="flex gap-2">
                 <button onClick={() => setTab("market")} data-testid="jm-tab-market"
                     className={cn("inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded-sm border transition-colors",

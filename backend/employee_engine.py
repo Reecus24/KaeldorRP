@@ -6,7 +6,8 @@ import random
 from datetime import timedelta
 
 from game_models import clamp, now_utc
-from game_engine import add_event, parse_dt, real_seconds, ledger_add, add_notification
+from game_engine import add_event, parse_dt, real_seconds, ledger_add, add_notification, game_now, get_config
+import employment
 
 
 FIRST_NAMES = [
@@ -38,39 +39,72 @@ async def _traits_map(db):
 
 
 async def business_metrics(db, b):
-    """Read-only staffing/financial snapshot used by API responses."""
+    """Read-only staffing/financial snapshot used by API responses (roster vs active coverage)."""
+    cfg = await get_config(db)
+    g_now = game_now(cfg, now_utc())
     reqs = await get_staffing(db, b)
     actives = await db.employees.find({"business_id": b["id"], "status": "active"}, {"_id": 0}).to_list(300)
     sick = await db.employees.find({"business_id": b["id"], "status": "sick"}, {"_id": 0}).to_list(300)
     applicants = await db.employees.count_documents({"business_id": b["id"], "status": "applicant"})
     pemps = await db.player_employment.find({"business_id": b["id"], "status": "active"}, {"_id": 0}).to_list(100)
     req_roles = {r["role"] for r in reqs}
-    p_by_role, unmatched_players = {}, 0
+    backup_roles = b.get("backup_roles") or {}
+
+    npc_by_role = {}
+    for e in actives:
+        npc_by_role[e["role"]] = npc_by_role.get(e["role"], 0) + 1
+    p_roster, p_active, unmatched_players = {}, {}, 0
     for pe in pemps:
-        if pe.get("role") in req_roles:
-            p_by_role[pe["role"]] = p_by_role.get(pe["role"], 0) + 1
+        r = pe.get("role")
+        if r in req_roles:
+            p_roster[r] = p_roster.get(r, 0) + 1
+            if employment.emp_on_shift(pe, g_now):
+                p_active[r] = p_active.get(r, 0) + 1
         else:
             unmatched_players += 1
-    by_role = {}
-    for e in actives:
-        by_role[e["role"]] = by_role.get(e["role"], 0) + 1
-    staffing, ratios, missing = [], [], 0
+
+    staffing, active_ratios, roster_ratios, missing = [], [], [], 0
     for r in reqs:
         rec = r.get("recommended", 1)
-        have = by_role.get(r["role"], 0)
-        p_have = p_by_role.get(r["role"], 0)
-        effective = have + p_have * PLAYER_PRESENCE
-        staffing.append({"role": r["role"], "have": have, "player_have": p_have, "recommended": rec})
-        ratios.append(min(1, effective / rec) if rec else 1)
-        if effective <= 0 and rec > 0:
+        npc = npc_by_role.get(r["role"], 0)
+        roster_p = p_roster.get(r["role"], 0)
+        active_p = p_active.get(r["role"], 0)
+        be = bool(backup_roles.get(r["role"]))
+        roster_filled = npc + roster_p
+        active_workers = npc + active_p
+        backup_active = be and active_workers <= 0 and rec > 0
+        active_filled = active_workers + (rec if backup_active else 0)
+        if active_workers > 0:
+            status = "Working now"
+        elif backup_active:
+            status = "Covered by NPC backup"
+        elif roster_p > 0:
+            status = "Player employee off shift — role uncovered"
+        elif roster_filled <= 0:
+            status = "Unfilled"
+        else:
+            status = "Off shift"
+        staffing.append({
+            "role": r["role"], "recommended": rec,
+            "npc_have": npc, "player_roster": roster_p, "player_active": active_p,
+            "roster_filled": roster_filled, "active_working": active_workers,
+            "active_filled": min(active_filled, rec) if rec else active_filled,
+            "backup_enabled": be, "backup_active": backup_active, "status": status,
+            "have": npc, "player_have": roster_p,  # legacy keys
+        })
+        active_ratios.append(min(1, active_filled / rec) if rec else 1)
+        roster_ratios.append(min(1, roster_filled / rec) if rec else 1)
+        if active_filled <= 0 and rec > 0:
             missing += 1
-    coverage = sum(ratios) / len(ratios) if ratios else 1.0
+    coverage = sum(active_ratios) / len(active_ratios) if active_ratios else 1.0
+    roster_coverage = sum(roster_ratios) / len(roster_ratios) if roster_ratios else 1.0
     allp = actives + sick
     morale_avg = round(sum(e.get("morale", 60) for e in allp) / len(allp)) if allp else 0
     wage_day = round(sum(e.get("daily_wage", 0) for e in allp), 2)
     risk = clamp((b.get("debt", 0) / max(1, b.get("purchase_price", 1) * 0.85)) * 100)
     return {
-        "staffing": staffing, "coverage": round(coverage, 2), "missing_roles": missing,
+        "staffing": staffing, "coverage": round(coverage, 2), "active_coverage": round(coverage, 2),
+        "roster_coverage": round(roster_coverage, 2), "missing_roles": missing,
         "employee_count": len(actives), "sick_count": len(sick), "applicant_count": applicants,
         "player_employee_count": len(pemps), "unmatched_player_count": unmatched_players,
         "morale_avg": morale_avg, "wage_per_day": wage_day,
@@ -78,6 +112,7 @@ async def business_metrics(db, b):
         "rev_day": round(b.get("rev_day", b.get("base_revenue_per_day", 0)), 2),
         "exp_day": round(b.get("exp_day", 0), 2),
         "net_day": round(b.get("last_net_day", 0), 2),
+        "backup_wage_day": round(b.get("backup_wage_day", 0), 2),
         "bankruptcy_risk": round(risk),
     }
 
@@ -225,13 +260,17 @@ async def resolve_business(db, p, cfg, gh, now, b):
     active = [e for e in staff if e.get("status") == "active"]
     sicklist = [e for e in staff if e.get("status") == "sick"]
     has_manager = any(e["role"] == "manager" for e in active)
+    g_now = game_now(cfg, now)
     pemps = await db.player_employment.find({"business_id": bid, "status": "active"}, {"_id": 0}).to_list(100)
     req_roles = {r["role"] for r in reqs}
     p_by_role = {}
     for pe in pemps:
-        if pe.get("role") in req_roles:
+        if pe.get("role") in req_roles and employment.emp_on_shift(pe, g_now):
             p_by_role[pe["role"]] = p_by_role.get(pe["role"], 0) + PLAYER_PRESENCE
 
+    backup_roles = b.get("backup_roles") or {}
+    backup_wage_day = 0.0
+    roles_doc = None
     by_role = {}
     for e in active:
         by_role[e["role"]] = by_role.get(e["role"], 0) + 1
@@ -239,9 +278,16 @@ async def resolve_business(db, p, cfg, gh, now, b):
     for r in reqs:
         rec = r.get("recommended", 1)
         have = by_role.get(r["role"], 0) + p_by_role.get(r["role"], 0)
+        if have <= 0 and rec > 0 and backup_roles.get(r["role"]):
+            if roles_doc is None:
+                roles_doc = {rr["id"]: rr for rr in await db.employee_roles.find({}, {"_id": 0}).to_list(100)}
+            rd = roles_doc.get(r["role"], {})
+            backup_wage_day += (rd.get("wage_min", 80) + rd.get("wage_max", 120)) / 2.0 * rec
+            have = rec  # NPC backup covers the role while no one is actively working it
         ratios.append(min(1, have / rec) if rec else 1)
         if have <= 0 and rec > 0:
             missing += 1
+    b["backup_wage_day"] = round(backup_wage_day, 2)
     avg_ratio = sum(ratios) / len(ratios) if ratios else 1.0
     final_staff = max(0.35, avg_ratio) * (0.85 ** missing)
 
@@ -269,7 +315,7 @@ async def resolve_business(db, p, cfg, gh, now, b):
 
     wages_day = round(sum(e.get("daily_wage", 0) for e in (active + sicklist)), 2)
     rev_day = b.get("base_revenue_per_day", 0) * (1 + 0.35 * (level - 1)) * mkt * rep_factor * staff_mult * sat_factor
-    exp_day = b.get("base_expenses_per_day", 0) * (1 + 0.2 * (level - 1)) + b.get("rent_per_day", 0) + wages_day
+    exp_day = b.get("base_expenses_per_day", 0) * (1 + 0.2 * (level - 1)) + b.get("rent_per_day", 0) + wages_day + backup_wage_day
     net_day = rev_day - exp_day
     b["rev_day"] = round(rev_day, 2)
     b["exp_day"] = round(exp_day, 2)

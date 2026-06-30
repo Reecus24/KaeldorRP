@@ -1,5 +1,25 @@
 import { cn } from "@/lib/utils";
 import { money as fmtMoney, RISK_COLORS } from "@/lib/helpers";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Info } from "lucide-react";
+
+export function InfoTip({ text, className, side = "top", testid }) {
+    return (
+        <TooltipProvider delayDuration={120}>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <button type="button" data-testid={testid} onClick={(e) => e.preventDefault()}
+                        className={cn("inline-flex items-center text-muted-foreground/60 hover:text-neon-cyan transition-colors align-middle", className)}>
+                        <Info className="w-3 h-3" />
+                    </button>
+                </TooltipTrigger>
+                <TooltipContent side={side} className="max-w-[230px] bg-[#0C0C0C] border border-white/15 text-foreground text-[11px] leading-relaxed font-mono">
+                    {text}
+                </TooltipContent>
+            </Tooltip>
+        </TooltipProvider>
+    );
+}
 
 export function Panel({ className, children, ...props }) {
     return (
@@ -29,7 +49,7 @@ export function SectionTitle({ kicker, title, sub, right, icon: Icon }) {
     );
 }
 
-export function StatBar({ label, value, max = 100, color = "#00F3FF", invert = false, showValue = true, testid }) {
+export function StatBar({ label, value, max = 100, color = "#00F3FF", invert = false, showValue = true, testid, info }) {
     const pct = Math.max(0, Math.min(100, (value / max) * 100));
     // warning tint when in a bad zone
     const bad = invert ? value > 70 : value < 25;
@@ -38,7 +58,9 @@ export function StatBar({ label, value, max = 100, color = "#00F3FF", invert = f
         <div data-testid={testid}>
             {label && (
                 <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">{label}</span>
+                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-1">
+                        {label}{info && <InfoTip text={info} testid={testid ? `${testid}-info` : undefined} />}
+                    </span>
                     {showValue && <span className="font-mono text-[11px] text-white tnum">{Math.round(value)}</span>}
                 </div>
             )}

@@ -1,6 +1,6 @@
 import { useGame } from "@/context/GameContext";
-import { SectionTitle, Spinner, Panel } from "@/components/game/primitives";
-import { SKILL_LABELS } from "@/lib/helpers";
+import { SectionTitle, Spinner, Panel, InfoTip } from "@/components/game/primitives";
+import { SKILL_LABELS, SKILL_INFO, XP_INFO } from "@/lib/helpers";
 import { Sparkles } from "lucide-react";
 
 export default function Skills() {
@@ -13,6 +13,11 @@ export default function Skills() {
         <div className="space-y-6">
             <SectionTitle icon={Sparkles} kicker="Your abilities" title="Skills"
                 sub="Skills grow as you work, study and act. Higher skills unlock jobs, businesses and better outcomes." />
+
+            <Panel className="p-3 flex items-center gap-2 text-[11px] text-muted-foreground" data-testid="skills-explainer">
+                <InfoTip text={SKILL_INFO} testid="skills-info" />
+                <span>Each skill levels up by filling its XP bar. <span className="text-foreground/80">{XP_INFO}</span></span>
+            </Panel>
 
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {Object.entries(SKILL_LABELS).map(([key, label]) => {

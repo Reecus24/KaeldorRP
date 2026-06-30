@@ -11,7 +11,8 @@ import uuid
 import random
 from datetime import timedelta
 from game_models import now_utc, clamp
-from game_engine import parse_dt, add_event, add_notification, charge, add_money, ledger_add
+from game_engine import (parse_dt, add_event, add_notification, charge, add_money, ledger_add,
+                         game_now, effectiveness, add_skill_xp)
 
 
 # ----------------------------- shared stat helpers -----------------------------
@@ -50,6 +51,78 @@ def role_fit(p, role):
     sk = ROLE_SKILL.get(role)
     lvl = p["skills"].get(sk, {}).get("level", 1) if sk else _avg(_top_skills(p))
     return round(clamp(0.55 + (lvl - 1) / 9 * 0.75, 0.55, 1.3), 2)
+
+
+# ----------------------------- scheduled working hours -----------------------------
+SHIFT_PRESETS = {
+    "early":   {"label": "Early Shift", "start": 8,  "end": 16},
+    "late":    {"label": "Late Shift",  "start": 14, "end": 22},
+    "night":   {"label": "Night Shift", "start": 22, "end": 6},
+    "morning": {"label": "Part-Time Morning", "start": 8, "end": 12},
+    "evening": {"label": "Part-Time Evening", "start": 18, "end": 22},
+}
+DEFAULT_SHIFT = "early"
+
+
+def make_schedule(preset):
+    key = preset if preset in SHIFT_PRESETS else DEFAULT_SHIFT
+    pr = SHIFT_PRESETS[key]
+    return {"preset": key, "label": pr["label"], "start": pr["start"], "end": pr["end"]}
+
+
+def _hours_in_window(start_h, end_h, g):
+    h = g.hour + g.minute / 60.0
+    if end_h > start_h:
+        return start_h <= h < end_h
+    return h >= start_h or h < end_h  # wraps past midnight
+
+
+def current_window_bounds(schedule, g):
+    """(window_start, window_end) datetimes for the shift window containing game-time g, else None."""
+    start_h, end_h = schedule.get("start", 8), schedule.get("end", 16)
+    day0 = g.replace(hour=0, minute=0, second=0, microsecond=0)
+    for off in (-1, 0):
+        d = day0 + timedelta(days=off)
+        ws = d + timedelta(hours=start_h)
+        we = d + timedelta(hours=end_h if end_h > start_h else end_h + 24)
+        if ws <= g < we:
+            return ws, we
+    return None
+
+
+def emp_on_shift(emp, g_now):
+    """True if a player employee is inside their scheduled hours right now (and hasn't clocked out)."""
+    if emp.get("status") != "active":
+        return False
+    sch = emp.get("schedule")
+    if not sch:
+        return False
+    if not _hours_in_window(sch.get("start", 8), sch.get("end", 16), g_now):
+        return False
+    co = parse_dt(emp.get("clocked_out_until"))
+    if co and g_now < co:
+        return False
+    return True
+
+
+def active_hours_in_range(schedule, g_start, g_end, clocked_out_until=None):
+    """Game-hours within [g_start, g_end] that fall inside the recurring daily shift window."""
+    if g_end <= g_start:
+        return 0.0
+    start_h, end_h = schedule.get("start", 8), schedule.get("end", 16)
+    span = 0.0
+    day = (g_start - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    end_day = (g_end + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    while day <= end_day:
+        ws = day + timedelta(hours=start_h)
+        we = day + timedelta(hours=end_h if end_h > start_h else end_h + 24)
+        lo, hi = max(ws, g_start), min(we, g_end)
+        if clocked_out_until and clocked_out_until > lo:
+            lo = clocked_out_until
+        if hi > lo:
+            span += (hi - lo).total_seconds() / 3600.0
+        day += timedelta(days=1)
+    return round(span, 4)
 
 
 # ----------------------------- NPC job applications -----------------------------
@@ -165,13 +238,42 @@ def applicant_snapshot(p, cfg, role=None, reqs=None):
     }
 
 
-async def complete_player_shift(db, p, cfg, payload, eff):
-    emp = await db.player_employment.find_one({"id": payload.get("employment_id")}, {"_id": 0})
-    if not emp or emp.get("status") != "active":
-        await add_event(db, p["id"], "Your shift ended, but you're no longer employed there.", "job", "warning")
-        return
+async def accrue_player_employment(db, p, cfg, gh, now):
+    """Continuous, offline-safe auto-work for player employees on scheduled shifts.
+
+    During scheduled hours the player automatically works: wages accrue to the player and
+    revenue (net of wage) accrues to the employing business. Sets p['on_shift'] for activity gating.
+    """
+    emps = await db.player_employment.find({"employee_player_id": p["id"], "status": "active"}, {"_id": 0}).to_list(50)
+    g_now = game_now(cfg, now)
+    last = parse_dt(p.get("last_resolved_at")) or now
+    g_last = game_now(cfg, last)
+    eff = effectiveness(p)
+    on_shift = None
+    busy = bool(p.get("current_activity"))
+    for emp in emps:
+        sch = emp.get("schedule")
+        if not sch:
+            continue
+        if emp_on_shift(emp, g_now):
+            wb = current_window_bounds(sch, g_now)
+            on_shift = {"employment_id": emp["id"], "business_id": emp["business_id"],
+                        "business_name": emp.get("business_name"), "role": emp.get("role"),
+                        "schedule": sch, "ends_at_game": wb[1].isoformat() if wb else None}
+        if busy:
+            continue  # cannot auto-work while in a blocking activity -> role left uncovered
+        hired = parse_dt(emp.get("hired_at"))
+        g_hired = game_now(cfg, hired) if hired else g_last
+        a_start = max(g_last, g_hired)
+        co = parse_dt(emp.get("clocked_out_until"))
+        hours = active_hours_in_range(sch, a_start, g_now, co)
+        if hours > 0.001:
+            await _accrue_one(db, p, cfg, emp, hours, eff, now)
+    p["on_shift"] = on_shift
+
+
+async def _accrue_one(db, p, cfg, emp, hours, eff, now):
     biz = await db.businesses.find_one({"id": emp["business_id"]}, {"_id": 0})
-    hours = payload.get("hours", 4)
     e = cfg.get("employment", {})
     wph = emp.get("wage_per_hour") or round(emp.get("wage_per_shift", 60) / 4.0, 2)
     wage = round(wph * hours, 2)
@@ -183,44 +285,82 @@ async def complete_player_shift(db, p, cfg, payload, eff):
 
     add_money(p, wage)
     ledger_add(p, "wages_earned", wage)
-    p["fatigue"] = clamp(p["fatigue"] + payload.get("fatigue", 5) * hours)
-    p["energy"] = clamp(p["energy"] - payload.get("energy", 4) * hours)
-    p["stress"] = clamp(p["stress"] + 2 * hours)
+    p["fatigue"] = clamp(p["fatigue"] + 1.4 * hours)
+    p["energy"] = clamp(p["energy"] - 1.1 * hours)
+    p["stress"] = clamp(p["stress"] + 0.8 * hours)
+    p["hygiene"] = clamp(p["hygiene"] - 0.8 * hours)
+    sk = ROLE_SKILL.get(role)
+    if sk:
+        add_skill_xp(p, sk, 3.0 * hours * eff, cfg)
 
     output_mult = e.get("player_output_multiplier", 1.8)
     revenue = round(wph * hours * output_mult * productivity, 2)
     net = round(revenue - wage, 2)
 
-    emp["total_hours_worked"] = emp.get("total_hours_worked", 0) + hours
+    emp["total_hours_worked"] = round(emp.get("total_hours_worked", 0) + hours, 2)
     emp["total_wages_earned"] = round(emp.get("total_wages_earned", 0) + wage, 2)
     emp["total_value_added"] = round(emp.get("total_value_added", 0) + revenue, 2)
-    emp["last_paid_at"] = now_utc().isoformat()
-    emp["reliability"] = clamp(emp.get("reliability", 60) + (3 if perf >= 0.8 else -2))
-    emp["performance"] = round(clamp(emp.get("performance", 60) * 0.7 + productivity * 100 * 0.3, 0, 100), 1)
-    emp["last_shift"] = {"hours": hours, "wage": wage, "revenue": revenue, "net": net,
-                         "productivity": productivity, "perf": perf, "role_fit": fit,
-                         "at": now_utc().isoformat()}
-    await db.player_employment.update_one({"id": emp["id"]}, {"$set": emp})
+    emp["last_paid_at"] = now.isoformat()
+    emp["reliability"] = clamp(emp.get("reliability", 60) + (0.05 if perf >= 0.8 else -0.05) * hours)
+    emp["performance"] = round(clamp(emp.get("performance", 60) * 0.9 + productivity * 100 * 0.1, 0, 100), 1)
+    gd = game_now(cfg, now).date().isoformat()
+    today = emp.get("today") or {}
+    if today.get("date") != gd:
+        today = {"date": gd, "hours": 0.0, "wage": 0.0, "revenue": 0.0, "net": 0.0}
+    today["hours"] = round(today["hours"] + hours, 2)
+    today["wage"] = round(today["wage"] + wage, 2)
+    today["revenue"] = round(today["revenue"] + revenue, 2)
+    today["net"] = round(today["net"] + net, 2)
+    emp["today"] = today
+    emp["last_impact"] = {"hours": round(hours, 2), "wage": wage, "revenue": revenue, "net": net,
+                          "productivity": productivity, "at": now.isoformat()}
+    await db.player_employment.update_one({"id": emp["id"]}, {"$set": {
+        "total_hours_worked": emp["total_hours_worked"], "total_wages_earned": emp["total_wages_earned"],
+        "total_value_added": emp["total_value_added"], "last_paid_at": emp["last_paid_at"],
+        "reliability": emp["reliability"], "performance": emp["performance"],
+        "today": emp["today"], "last_impact": emp["last_impact"]}})
 
     if biz and not biz.get("bankrupt"):
-        biz["cash"] = round(biz.get("cash", 0) + net, 2)
-        if biz["cash"] < 0:
-            biz["debt"] = round(biz.get("debt", 0) - biz["cash"], 2)
-            biz["cash"] = 0.0
-        biz["satisfaction"] = clamp(biz.get("satisfaction", 60) + (productivity - 1.0) * 4)
-        biz["reputation"] = clamp(biz.get("reputation", 50) + (1 if productivity >= 1 else -0.5))
-        biz["revenue_total"] = round(biz.get("revenue_total", 0) + max(revenue, 0), 2)
+        new_cash = round(biz.get("cash", 0) + net, 2)
+        debt = biz.get("debt", 0)
+        if new_cash < 0:
+            debt = round(debt - new_cash, 2)
+            new_cash = 0.0
+        sat = clamp(biz.get("satisfaction", 60) + (productivity - 1.0) * 1.0)
+        rep = clamp(biz.get("reputation", 50) + (0.1 if productivity >= 1 else -0.05))
+        rev_total = round(biz.get("revenue_total", 0) + max(revenue, 0), 2)
         hist = biz.get("history", [])
-        hist.append({"ts": now_utc().isoformat(), "kind": "shift", "amount": net, "rev": revenue, "wage": wage,
-                     "label": f"{p['name']} — {hours}h {role} shift", "cash": biz["cash"], "debt": biz.get("debt", 0)})
-        biz["history"] = hist[-60:]
+        hist.append({"ts": now.isoformat(), "kind": "shift", "amount": net, "rev": revenue, "wage": wage,
+                     "label": f"{p['name']} — {round(hours, 1)}h {role}", "cash": new_cash, "debt": debt})
         await db.businesses.update_one({"id": biz["id"]}, {"$set": {
-            "cash": biz["cash"], "debt": biz.get("debt", 0), "satisfaction": biz["satisfaction"],
-            "reputation": biz["reputation"], "revenue_total": biz["revenue_total"], "history": biz["history"]}})
-        sign = "+" if net >= 0 else ""
-        await add_notification(db, emp["owner_id"], "business", f"{p['name']} worked a {hours}h shift",
-                               f"+${revenue} revenue − ${wage} wage = net {sign}${net} at {biz['name']} (productivity {int(productivity*100)}%).",
-                               "success" if net >= 0 else "warning", f"/businesses/{biz['id']}")
+            "cash": new_cash, "debt": debt, "satisfaction": sat, "reputation": rep,
+            "revenue_total": rev_total, "history": hist[-60:]}})
 
-    quality = "great" if productivity >= 1.1 else "solid" if productivity >= 0.8 else "rough"
-    await add_event(db, p["id"], f"You finished a {hours}h shift at {emp['business_name']} as {role} — a {quality} one. Earned ${wage}.", "job", "success" if productivity >= 0.8 else "info")
+
+async def clock_out_early(db, p, cfg, emp):
+    """Player leaves before their shift window ends: prorated pay only, reliability -10, role uncovered."""
+    now = now_utc()
+    g_now = game_now(cfg, now)
+    sch = emp.get("schedule")
+    if not sch or not emp_on_shift(emp, g_now):
+        return {"ok": False, "detail": "You're not currently on a scheduled shift."}
+    wb = current_window_bounds(sch, g_now)
+    we = wb[1] if wb else g_now
+    await db.player_employment.update_one({"id": emp["id"]}, {"$set": {
+        "clocked_out_until": we.isoformat(), "reliability": clamp(emp.get("reliability", 60) - 10)}})
+    p["on_shift"] = None
+    bname = emp.get("business_name", "the business")
+    role_lbl = (emp.get("role") or "").replace("_", " ")
+    await add_event(db, p["id"], f"You clocked out early from {bname}. You forfeit the rest of today's pay and your reliability dropped.", "job", "warning")
+    await add_notification(db, emp["owner_id"], "business", "Employee clocked out early",
+                           f"{p['name']} left their {sch.get('label', 'shift')} early at {bname} — the {role_lbl} role is now uncovered.",
+                           "warning", f"/businesses/{emp['business_id']}")
+    biz = await db.businesses.find_one({"id": emp["business_id"]}, {"_id": 0})
+    if biz:
+        hist = biz.get("history", [])
+        hist.append({"ts": now.isoformat(), "kind": "shift", "amount": 0.0, "rev": 0.0, "wage": 0.0,
+                     "label": f"{p['name']} clocked out early — {role_lbl} uncovered",
+                     "cash": biz.get("cash", 0), "debt": biz.get("debt", 0)})
+        await db.businesses.update_one({"id": biz["id"]}, {"$set": {"history": hist[-60:]}})
+        await add_event(db, emp["owner_id"], f"{p['name']} clocked out early at {bname}; {role_lbl} role uncovered until their next shift.", "business", "warning", emp["business_id"])
+    return {"ok": True, "until": we.isoformat()}

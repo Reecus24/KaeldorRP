@@ -2,16 +2,18 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api, errMessage } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
-import { SectionTitle, Spinner, Panel, Pill, StatBar, Money, EmptyState } from "@/components/game/primitives";
+import { SectionTitle, Spinner, Panel, Pill, StatBar, Money, EmptyState, InfoTip } from "@/components/game/primitives";
 import { KButton, KInput } from "@/components/game/controls";
-import { money, fmtDuration, realDurationLabel } from "@/lib/helpers";
+import { money, fmtDuration, realDurationLabel, scheduleLabel, SHIFT_PRESETS } from "@/lib/helpers";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
     Boxes, ArrowLeft, Users, UserPlus, GraduationCap, ScrollText, LineChart, LayoutGrid,
     TrendingUp, TrendingDown, AlertTriangle, Megaphone, ArrowUpCircle, Smile, Gauge,
-    Heart, BadgeDollarSign, Sparkles, X,
+    Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck,
 } from "lucide-react";
+
+const pad2 = (n) => String(n).padStart(2, "0");
 
 const SEV = { success: "text-neon-green", info: "text-neon-cyan/90", warning: "text-neon-yellow", danger: "text-neon-red" };
 
@@ -52,6 +54,7 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
     const [emps, setEmps] = useState([]);
     const [wages, setWages] = useState({});
     const [roleSel, setRoleSel] = useState({});
+    const [schedSel, setSchedSel] = useState({});
     const [busy, setBusy] = useState(null);
     const load = useCallback(async () => {
         const [a, e] = await Promise.all([
@@ -73,8 +76,9 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
     const offer = async (a) => {
         const w = parseFloat(wages[a.id] ?? a.recommended_wage);
         const role = roleSel[a.id] ?? a.role;
+        const schedule = schedSel[a.id] ?? a.schedule?.preset ?? "early";
         setBusy(a.id);
-        try { await api.post(`/businesses/${bizId}/player-applications/${a.id}/offer`, { wage_per_hour: w, role }); toast.success(`Offer sent to ${a.applicant_name}`); await load(); }
+        try { await api.post(`/businesses/${bizId}/player-applications/${a.id}/offer`, { wage_per_hour: w, role, schedule }); toast.success(`Offer sent to ${a.applicant_name}`); await load(); }
         catch (e) { toast.error(errMessage(e)); }
         setBusy(null);
     };
@@ -111,6 +115,10 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
                 <select value={roleSel[a.id] ?? a.role} onChange={(e) => setRoleSel((s) => ({ ...s, [a.id]: e.target.value }))} data-testid={`offer-role-${a.id}`}
                     className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white capitalize focus:outline-none focus:border-neon-cyan/50">
                     {roleOptions(a).map((r) => <option key={r} value={r} className="bg-[#0d0d12]">{roleLabel(r)}</option>)}
+                </select>
+                <select value={schedSel[a.id] ?? a.schedule?.preset ?? "early"} onChange={(e) => setSchedSel((s) => ({ ...s, [a.id]: e.target.value }))} data-testid={`offer-schedule-${a.id}`}
+                    className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white focus:outline-none focus:border-neon-cyan/50">
+                    {Object.entries(SHIFT_PRESETS).map(([k, v]) => <option key={k} value={k} className="bg-[#0d0d12]">{v.label} {pad2(v.start)}:00–{pad2(v.end)}:00</option>)}
                 </select>
                 <span className="text-[11px] text-muted-foreground">$/h</span>
                 <WageInput value={wages[a.id] ?? a.recommended_wage} onChange={(v) => setW(a.id, v)} testid={`offer-wage-${a.id}`} />
@@ -160,11 +168,15 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
                                     <div className="min-w-0">
                                         <span className="font-display font-bold text-white text-sm">{e.employee_name}</span>
                                         <span className="text-[11px] text-muted-foreground ml-2 capitalize">{roleLabel(e.role)} · ${e.wage_per_hour}/h</span>
+                                        {e.on_shift
+                                            ? <Pill tone="green" className="ml-2" data-testid={`emp-onshift-${e.id}`}>Working now</Pill>
+                                            : <Pill tone="yellow" className="ml-2" data-testid={`emp-offshift-${e.id}`}>Off shift</Pill>}
                                         {e.raise_due && <Pill tone="yellow" className="ml-2" data-testid={`emp-raise-due-${e.id}`}>Raise due</Pill>}
+                                        <div className="text-[11px] text-neon-purple flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {scheduleLabel(e.schedule)}</div>
                                         <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)} · {Math.round(e.total_hours_worked || 0)}h worked · earned ${Math.round(e.total_wages_earned)} · value added ${Math.round(e.total_value_added || 0)}</div>
-                                        {e.last_shift && (
+                                        {e.today && e.today.hours > 0 && (
                                             <div className="text-[11px] mt-0.5" data-testid={`emp-net-${e.id}`}>
-                                                Last shift ({e.last_shift.hours}h): <span className="text-neon-green">+${Math.round(e.last_shift.revenue)} revenue</span> − <span className="text-neon-red">${Math.round(e.last_shift.wage)} wage</span> = net <span className={e.last_shift.net >= 0 ? "text-neon-green" : "text-neon-red"}>{e.last_shift.net >= 0 ? "+" : ""}${Math.round(e.last_shift.net)}</span>
+                                                Today ({e.today.hours}h): <span className="text-neon-green">+${Math.round(e.today.revenue)} revenue</span> − <span className="text-neon-red">${Math.round(e.today.wage)} wages</span> = net <span className={e.today.net >= 0 ? "text-neon-green" : "text-neon-red"}>{e.today.net >= 0 ? "+" : ""}${Math.round(e.today.net)}</span>
                                             </div>
                                         )}
                                     </div>
@@ -198,6 +210,7 @@ export default function BusinessManage() {
     const [busy, setBusy] = useState(null);
     const [inject, setInject] = useState("");
     const [trainEmp, setTrainEmp] = useState(null);
+    const [confirmSell, setConfirmSell] = useState(false);
 
     const loadAll = useCallback(async () => {
         try {
@@ -238,8 +251,13 @@ export default function BusinessManage() {
         setBusy("sell");
         const r = await act(() => api.post(`/businesses/${id}/sell`), null);
         if (r?.ok) toast.success(`Sold for $${(r.res.data.value ?? 0).toLocaleString()}`);
+        setConfirmSell(false);
         await loadAll();
         setBusy(null);
+    };
+    const toggleBackup = async (role, enabled) => {
+        await act(() => api.post(`/businesses/${id}/backup`, { role, enabled }), enabled ? `NPC backup enabled for ${role.replace(/_/g, " ")}` : `NPC backup disabled for ${role.replace(/_/g, " ")}`);
+        await loadAll();
     };
 
     const doTrain = async (emp, opt) => {
@@ -253,6 +271,7 @@ export default function BusinessManage() {
     if (!detail) return <Spinner />;
     const b = detail.business;
     const m = detail.metrics;
+    const costs = detail.costs || {};
     const net = m.net_day || 0;
 
     return (
@@ -281,7 +300,7 @@ export default function BusinessManage() {
                         <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00F3FF" />
                         <Tile label="Expenses / day" value={money(m.exp_day)} accent="#FFC300" />
                         <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#FF8A00" />
-                        <Tile label="Staff Coverage" value={`${Math.round(m.coverage * 100)}%`} accent={m.coverage >= 0.9 ? "#00FF66" : m.coverage < 0.6 ? "#FF0055" : "#FFC300"} sub={m.missing_roles ? `${m.missing_roles} role(s) empty` : "fully staffed"} />
+                        <Tile label="Active Coverage" value={`${Math.round((m.active_coverage ?? m.coverage) * 100)}%`} accent={(m.active_coverage ?? m.coverage) >= 0.9 ? "#00FF66" : (m.active_coverage ?? m.coverage) < 0.6 ? "#FF0055" : "#FFC300"} sub={`Roster ${Math.round((m.roster_coverage ?? 1) * 100)}%`} />
                         <Tile label="Satisfaction" value={`${m.satisfaction}%`} accent="#00F3FF" />
                         <Tile label="Avg Morale" value={`${m.morale_avg}%`} accent="#B026FF" />
                         <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" />
@@ -292,31 +311,66 @@ export default function BusinessManage() {
                     </div>
 
                     <Panel className="p-5">
-                        <div className="font-display font-bold text-white mb-3">Staffing Requirements</div>
-                        <div className="space-y-2">
+                        <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+                            <div className="font-display font-bold text-white flex items-center gap-1.5">
+                                Staffing — Roster vs Active Coverage
+                                <InfoTip text="Roster = who's officially hired/scheduled for a role. Active = who's actually working right now. Business output only comes from active coverage. Enable NPC backup to auto-cover a role when nobody is working it (the business pays a backup wage)." testid="staffing-info" />
+                            </div>
+                            <div className="text-[11px] font-mono text-muted-foreground">Roster {Math.round((m.roster_coverage ?? 1) * 100)}% · Active {Math.round((m.active_coverage ?? m.coverage) * 100)}%</div>
+                        </div>
+                        <div className="space-y-2 mt-2">
                             {m.staffing.length === 0 && <div className="text-sm text-muted-foreground">No specific staffing needed.</div>}
                             {m.staffing.map((s) => {
-                                const effective = s.have + (s.player_have || 0) * 0.6;
-                                const ok = effective >= s.recommended;
+                                const activeOk = (s.active_filled ?? 0) >= s.recommended;
                                 return (
-                                    <div key={s.role} className="flex items-center justify-between text-sm" data-testid={`staffing-${s.role}`}>
-                                        <span className="capitalize text-white">{s.role.replace(/_/g, " ")}</span>
-                                        <span className={cn("font-mono", ok ? "text-neon-green" : "text-neon-red")}>
-                                            {s.have}{s.player_have ? ` (+${s.player_have} player)` : ""} / {s.recommended} {ok ? "✓" : "understaffed"}
-                                        </span>
+                                    <div key={s.role} className="flex items-center justify-between gap-3 border-b border-white/5 pb-2 last:border-0" data-testid={`staffing-${s.role}`}>
+                                        <div className="min-w-0">
+                                            <span className="capitalize text-white text-sm">{s.role.replace(/_/g, " ")}</span>
+                                            <div className="text-[11px] font-mono">
+                                                <span className="text-muted-foreground">Roster {s.roster_filled}/{s.recommended}</span>
+                                                <span className="text-muted-foreground"> · </span>
+                                                <span className={activeOk ? "text-neon-green" : "text-neon-yellow"} data-testid={`staffing-active-${s.role}`}>
+                                                    Active {s.active_working}{s.backup_active ? " (+backup)" : ""}/{s.recommended}
+                                                </span>
+                                            </div>
+                                            <div className="text-[10px] text-muted-foreground">{s.status}{s.npc_have ? ` · ${s.npc_have} NPC` : ""}{s.player_roster ? ` · ${s.player_roster} player` : ""}</div>
+                                        </div>
+                                        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer shrink-0" title="Auto-cover this role with an NPC when nobody is actively working it (the business pays a backup wage).">
+                                            <input type="checkbox" checked={!!s.backup_enabled} onChange={(e) => toggleBackup(s.role, e.target.checked)} className="accent-neon-cyan" data-testid={`backup-toggle-${s.role}`} />
+                                            <ShieldCheck className="w-3 h-3" /> NPC backup
+                                        </label>
                                     </div>
                                 );
                             })}
                         </div>
+                        {m.backup_wage_day > 0 && <div className="text-[11px] text-neon-yellow mt-2">NPC backup currently costs ~{money(m.backup_wage_day)}/day while covering empty roles.</div>}
                     </Panel>
 
                     {!b.bankrupt ? (
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-                            <KButton variant="green" disabled={b.cash <= 0} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(b.cash)}</KButton>
-                            <KButton variant="primary" disabled={b.level >= b.max_level} loading={busy === "upgrade"} onClick={() => run(() => api.post(`/businesses/${id}/upgrade`), "Upgraded", "upgrade")} data-testid="ov-upgrade"><ArrowUpCircle className="w-3.5 h-3.5" /> Upgrade</KButton>
-                            <KButton className="border border-neon-purple text-neon-purple hover:bg-neon-purple hover:text-white" loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign run", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> Market</KButton>
-                            <KButton variant="ghost" loading={busy === "sell"} onClick={sellBiz} data-testid="ov-sell">Sell</KButton>
-                        </div>
+                        <Panel className="p-4" data-testid="biz-actions">
+                            <div className="grid sm:grid-cols-2 gap-3">
+                                <div className="border border-white/10 rounded-sm p-3 flex flex-col">
+                                    <div className="font-display font-bold text-white text-sm mb-0.5">Collect Profit</div>
+                                    <p className="text-[11px] text-muted-foreground mb-3 flex-1">Move the business's uncollected cash into your wallet. Instant.</p>
+                                    <KButton variant="green" disabled={b.cash <= 0} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(b.cash)}</KButton>
+                                </div>
+                                <div className="border border-white/10 rounded-sm p-3 flex flex-col">
+                                    <div className="font-display font-bold text-white text-sm mb-0.5">Upgrade · Lvl {costs.upgrade_from_level} → {costs.upgrade_to_level}</div>
+                                    <p className="text-[11px] text-muted-foreground mb-3 flex-1">{costs.can_upgrade ? `+${costs.upgrade_revenue_boost_pct}% revenue capacity per level and +${costs.upgrade_reputation_gain} reputation. Instant.` : "This business is already at its maximum level."}</p>
+                                    <KButton variant="primary" disabled={!costs.can_upgrade} loading={busy === "upgrade"} onClick={() => run(() => api.post(`/businesses/${id}/upgrade`), "Upgraded", "upgrade")} data-testid="ov-upgrade"><ArrowUpCircle className="w-3.5 h-3.5" /> {costs.can_upgrade ? `Upgrade · ${money(costs.upgrade_cost)}` : "Max level"}</KButton>
+                                </div>
+                                <div className="border border-white/10 rounded-sm p-3 flex flex-col">
+                                    <div className="font-display font-bold text-white text-sm mb-0.5">Marketing · Level {costs.marketing_level} → {costs.marketing_next_level}</div>
+                                    <p className="text-[11px] text-muted-foreground mb-3 flex-1">+{costs.marketing_revenue_boost_pct}% ongoing revenue and +{costs.marketing_reputation_gain} reputation. Instant, permanent demand boost.</p>
+                                    <KButton className="border border-neon-purple text-neon-purple hover:bg-neon-purple hover:text-white" loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign run", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> Run Marketing · {money(costs.marketing_cost)}</KButton>
+                                </div>
+                                <div className="border border-white/10 rounded-sm p-3 flex flex-col">
+                                    <div className="font-display font-bold text-white text-sm mb-0.5">Sell Business</div>
+                                    <p className="text-[11px] text-muted-foreground mb-3 flex-1">Permanently sell this business. Estimated payout <span className="text-neon-green">{money(costs.sell_value)}</span> (asset value − debt + uncollected cash).</p>
+                                    <KButton variant="ghost" onClick={() => setConfirmSell(true)} data-testid="ov-sell">Sell · ~{money(costs.sell_value)}</KButton>
+                                </div>
+                            </div>
+                        </Panel>
                     ) : (
                         <Panel className="p-4 border-neon-red/40 flex items-center gap-2 text-neon-red text-sm">
                             <AlertTriangle className="w-4 h-4" /> Bankrupt. Pay off the debt below to revive, or sell.
@@ -424,9 +478,13 @@ export default function BusinessManage() {
                                             <div>
                                                 <span className="font-display font-bold text-white text-sm">{e.employee_name}</span>
                                                 <Pill tone="purple" className="ml-2 capitalize">{(e.role || "").replace(/_/g, " ")}</Pill>
+                                                {e.on_shift
+                                                    ? <Pill tone="green" className="ml-2">Working now</Pill>
+                                                    : <Pill tone="yellow" className="ml-2">Off shift</Pill>}
                                                 <span className="text-[11px] text-muted-foreground ml-2">${e.wage_per_hour}/h · {Math.round(e.total_hours_worked || 0)}h worked</span>
+                                                <div className="text-[11px] text-neon-purple flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {scheduleLabel(e.schedule)}</div>
                                             </div>
-                                            <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)}{e.last_shift ? ` · last net ${e.last_shift.net >= 0 ? "+" : ""}$${Math.round(e.last_shift.net)}` : ""}</div>
+                                            <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)}{e.today && e.today.hours > 0 ? ` · today net ${e.today.net >= 0 ? "+" : ""}$${Math.round(e.today.net)}` : ""}</div>
                                         </div>
                                     </Panel>
                                 ))}
@@ -512,6 +570,30 @@ export default function BusinessManage() {
                         </div>
                     ))}
                 </Panel>
+            )}
+
+            {/* SELL CONFIRM MODAL */}
+            {confirmSell && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="sell-confirm-modal">
+                    <div className="absolute inset-0 bg-black/75" onClick={() => setConfirmSell(false)} />
+                    <Panel className="relative w-full max-w-md p-5">
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="font-display font-bold text-white flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-neon-yellow" /> Sell {b.name}?</span>
+                            <button onClick={() => setConfirmSell(false)}><X className="w-5 h-5 text-muted-foreground" /></button>
+                        </div>
+                        <p className="text-[13px] text-muted-foreground mb-3">This permanently sells the business. All employees are let go and this can't be undone.</p>
+                        <div className="space-y-1.5 font-mono text-sm border border-white/10 rounded-sm p-3 mb-4">
+                            <div className="flex justify-between"><span className="text-muted-foreground">Asset value (level {b.level}, rep {Math.round(b.reputation)})</span><span className="text-white">{money(Math.max(0, Math.round(b.purchase_price * 0.5 * b.level * (0.6 + 0.4 * b.reputation / 100))))}</span></div>
+                            <div className="flex justify-between"><span className="text-muted-foreground">+ Uncollected cash</span><span className="text-neon-green">{money(b.cash)}</span></div>
+                            <div className="flex justify-between"><span className="text-muted-foreground">− Outstanding debt</span><span className="text-neon-red">{money(b.debt)}</span></div>
+                            <div className="flex justify-between border-t border-white/10 pt-1.5 mt-1.5"><span className="text-white font-bold">You receive</span><span className="text-neon-green font-bold" data-testid="sell-final-amount">{money(costs.sell_value)}</span></div>
+                        </div>
+                        <div className="flex gap-2">
+                            <KButton variant="danger" className="flex-1" loading={busy === "sell"} onClick={sellBiz} data-testid="sell-confirm-button">Confirm Sale · {money(costs.sell_value)}</KButton>
+                            <KButton variant="ghost" onClick={() => setConfirmSell(false)} data-testid="sell-cancel-button">Cancel</KButton>
+                        </div>
+                    </Panel>
+                </div>
             )}
 
             {/* TRAIN MODAL */}

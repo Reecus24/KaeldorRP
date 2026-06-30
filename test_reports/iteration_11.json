@@ -1,0 +1,40 @@
+{
+  "summary": "Phase 1.1 (scheduled player-business auto-shifts) tested end-to-end. Engine smoke (14/14 PASS) + new HTTP test file (8/8 PASS) + Playwright UI smoke confirm: shift presets endpoint, OfferBody.schedule, accept carries schedule, on_shift/window decoration, removal of POST /jobs/employment/{id}/work (404), retention of NPC /jobs/work, /clock-out endpoint, /businesses/{id}/backup toggle, business_detail.costs block, staffing metrics with player_roster/player_active/status, Marketing rename + cost previews, Sell confirm modal, Stats/XP/Skills tooltip testids. Mara is currently auto-working at Dovan's kiosk (Early 08-16, WORKING NOW, today 0.95h earned $21) and the new fresh test player accepted a Late 14-22 offer (OFF SHIFT, schedule preserved).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "JobMarket / Player Jobs sidebar link (/player-jobs)", "issue": "Navigating directly to /player-jobs from the sidebar did not surface 'Early Shift' label or any clock-out-<empId> button (0 found). The same employment shows correctly on /current-job with the Clock Out Early button. Likely the 'My Jobs' tab inside JobMarket is not the default tab on that route, so users opening Player Jobs may not see their on-shift status / clock-out at first glance.", "selector": "[data-testid^='clock-out-']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "BusinessManage > Player Hiring", "issues": ["Net display reads 'net $-13' (e.g. '+$57 revenue − $21 wages = net $-13') — minus sign appears after the $ instead of before; should render as '-$13' for consistency with other money values."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase11_player_employment.py",
+    "/app/backend/tests/smoke_phase11.py",
+    "/app/test_reports/pytest/phase11_results.xml"
+  ],
+  "action_items": [
+    "(Optional/LOW) Ensure /player-jobs default tab is 'My Jobs' (or render schedule + clock-out CTA on the listings tab too) so the Clock Out Early button is reachable from the Player Jobs sidebar entry — currently only /current-job exposes it.",
+    "(Cosmetic) Format negative net as '-$13' instead of 'net $-13' in BusinessManage > Player Hiring employee row."
+  ],
+  "critical_code_review_comments": [
+    "employment.py:241 accrue_player_employment skips auto-work entirely if p.get('current_activity') is set ('busy' branch with continue), but the on_shift flag IS still set and ensure_free() also rejects new activities while on_shift. Together this correctly enforces 'shift blocks activities AND activities don't double-accrue', but be aware: a player who somehow has a lingering current_activity overlapping a shift window will appear on_shift yet earn $0 — verified intentional, just worth a code comment.",
+    "server.py:1542 /shift-presets requires auth (Depends(current_user)); fine for in-game, but the offer schedule dropdown could optionally cache this list since presets are static.",
+    "Sell modal payout breakdown is clear; consider also showing it inside Confirm-sale toast for accessibility."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase11_player_employment.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "test_credentials": "admin@kaeldor.com/admin123; mara/dovan/kiri @kaeldor.com / demo123; fresh registrants Password123!",
+  "seed_data_creation": "Module-scoped fixture registers one disposable player test_p11_<rand>@kaeldor.com, creates character, applies to Dovan's kiosk, owner sends a Late-shift offer, applicant accepts. This adds 1 active player_employment row on biz 249566f3664b40a9b9934c150c713de2 each run; visible as 'P11 Tester …' in Player Hiring. Cleanup not implemented — main agent may want to fire/quit accumulated test employees periodically.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && export REACT_APP_BACKEND_URL=https://grind-nation.preview.emergentagent.com && python -m pytest tests/test_phase11_player_employment.py -v ; and PYTHONPATH=/app/backend python tests/smoke_phase11.py for engine-level checks. time_scale stayed at 1.0. The fresh-player offer test depends on the kiosk being hiring_open — it skips gracefully if closed. To prove offline accrual, smoke_phase11.py temporarily sets the test employee's schedule to {preset:'allday',start:0,end:24} then restores 'early'.",
+  "rca of the issue": "No critical bugs found. The /player-jobs minor finding is a routing/default-tab UX nit — the data-testid='clock-out-<id>' is implemented (proven on /current-job) so the underlying control is wired; only its discoverability on /player-jobs is sub-optimal."
+}

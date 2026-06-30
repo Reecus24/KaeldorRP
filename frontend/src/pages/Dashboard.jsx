@@ -1,8 +1,8 @@
 import { Link } from "react-router-dom";
 import { useGame } from "@/context/GameContext";
-import { Panel, SectionTitle, StatBar, StatTile, Money, Spinner } from "@/components/game/primitives";
+import { Panel, SectionTitle, StatBar, StatTile, Money, Spinner, InfoTip } from "@/components/game/primitives";
 import EventLog from "@/components/game/EventLog";
-import { money } from "@/lib/helpers";
+import { money, STAT_INFO, XP_INFO } from "@/lib/helpers";
 import {
     LayoutDashboard, Home, Briefcase, GraduationCap, Skull, Store,
     TrendingUp, Gauge, Shield, AlertTriangle, Star, Activity,
@@ -48,6 +48,7 @@ export default function Dashboard() {
                         <div className="flex items-center gap-2">
                             <Star className="w-4 h-4 text-neon-yellow" />
                             <span className="font-display font-bold text-white">Level {player.level}</span>
+                            <InfoTip text={XP_INFO} testid="xp-info" />
                         </div>
                         <span className="font-mono text-xs text-muted-foreground tnum">{Math.round(player.xp)} / {nextXp} XP</span>
                     </div>
@@ -77,10 +78,10 @@ export default function Dashboard() {
                     <span className="font-display font-bold text-white">Standing in the City</span>
                 </div>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <StatBar label="Reputation" value={player.reputation} color="#00FF66" testid="stat-reputation" />
-                    <StatBar label="Legal Standing" value={player.legal_reputation} color="#00F3FF" testid="stat-legal" />
-                    <StatBar label="Criminal Suspicion" value={player.criminal_suspicion} color="#FFC300" invert testid="stat-suspicion" />
-                    <StatBar label="Social Status" value={player.social_status} color="#B026FF" testid="stat-social" />
+                    <StatBar label="Reputation" value={player.reputation} color="#00FF66" info={STAT_INFO.reputation} testid="stat-reputation" />
+                    <StatBar label="Legal Standing" value={player.legal_reputation} color="#00F3FF" info={STAT_INFO.legal_reputation} testid="stat-legal" />
+                    <StatBar label="Criminal Suspicion" value={player.criminal_suspicion} color="#FFC300" invert info={STAT_INFO.criminal_suspicion} testid="stat-suspicion" />
+                    <StatBar label="Social Status" value={player.social_status} color="#B026FF" info={STAT_INFO.social_status} testid="stat-social" />
                 </div>
             </Panel>
 

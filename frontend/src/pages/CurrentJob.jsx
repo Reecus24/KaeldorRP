@@ -4,8 +4,8 @@ import { api } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { SKILL_LABELS } from "@/lib/helpers";
-import { BadgeCheck, TrendingUp, Briefcase, Clock, Building2 } from "lucide-react";
+import { SKILL_LABELS, scheduleLabel } from "@/lib/helpers";
+import { BadgeCheck, TrendingUp, Briefcase, Clock, Building2, LogOut } from "lucide-react";
 
 export default function CurrentJob() {
     const { state, player, act } = useGame();
@@ -15,11 +15,17 @@ export default function CurrentJob() {
     const load = () => api.get("/jobs/current").then(({ data }) => setData(data)).catch(() => setData({ job: null }));
     useEffect(() => { load(); }, [player?.job?.job_id]);
 
-    const blocked = !!state?.activity || ["jail", "hospital"].includes(player?.status);
+    const blocked = !!state?.activity || ["jail", "hospital"].includes(player?.status) || !!player?.on_shift;
 
     const work = async (hours) => {
         setBusy(true);
         await act(() => api.post("/jobs/work", { hours }), `Clocked in for a ${hours}h shift`);
+        await load();
+        setBusy(false);
+    };
+    const clockOut = async (e) => {
+        setBusy(true);
+        await act(() => api.post(`/jobs/employment/${e.id}/clock-out`), "You clocked out early");
         await load();
         setBusy(false);
     };
@@ -68,10 +74,16 @@ export default function CurrentJob() {
 
             {playerJobs.length > 0 && (
                 <Panel className="p-5" data-testid="current-player-jobs">
-                    <div className="flex items-center gap-2 mb-3">
+                    <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <Building2 className="w-4 h-4 text-neon-purple" />
                         <span className="font-display font-bold text-white">Player-Business Employment</span>
+                        <Pill tone="cyan">Auto-work on schedule</Pill>
                     </div>
+                    <p className="text-[11px] text-muted-foreground mb-3">
+                        You work automatically during your scheduled hours — wages and business output accrue in real time, even while offline.
+                        You can't start other physical activities (sleep, travel, courses, other shifts) while on shift. Clock out early to free up,
+                        but you forfeit the rest of today's pay and take a reliability hit.
+                    </p>
                     <div className="grid sm:grid-cols-2 gap-3">
                         {playerJobs.map((e) => (
                             <div key={e.id} className="p-3 border border-white/10 rounded-sm" data-testid={`cur-emp-${e.id}`}>
@@ -80,8 +92,24 @@ export default function CurrentJob() {
                                     <Pill tone="green">${e.wage_per_hour}/h</Pill>
                                 </div>
                                 <div className="text-[11px] text-muted-foreground capitalize mb-1">{(e.role || "").replace(/_/g, " ")} · {Math.round(e.total_hours_worked || 0)}h worked · perf {Math.round(e.performance)}</div>
-                                <div className="text-[10px] text-muted-foreground mb-2">Paid ${e.wage_per_hour}/h at the end of each shift (e.g. ${Math.round(e.wage_per_hour * 4)} for 4h).</div>
-                                <Link to="/job-market"><KButton variant="ghost" className="w-full" data-testid={`cur-emp-manage-${e.id}`}>Work shifts / Manage</KButton></Link>
+                                <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                                    <Pill tone="purple"><Clock className="w-3 h-3 mr-0.5" />{scheduleLabel(e.schedule)}</Pill>
+                                    {e.on_shift
+                                        ? <Pill tone="green" data-testid={`cur-emp-onshift-${e.id}`}>On shift now</Pill>
+                                        : <Pill tone="yellow" data-testid={`cur-emp-offshift-${e.id}`}>Off shift</Pill>}
+                                </div>
+                                {e.today && e.today.hours > 0 && (
+                                    <div className="text-[10px] text-muted-foreground mb-2 border-l-2 border-neon-purple/40 pl-2" data-testid={`cur-emp-today-${e.id}`}>
+                                        Today: {e.today.hours}h · earned <span className="text-neon-green">${Math.round(e.today.wage)}</span>
+                                    </div>
+                                )}
+                                {e.on_shift ? (
+                                    <KButton variant="danger" className="w-full" loading={busy} onClick={() => clockOut(e)} data-testid={`clock-out-${e.id}`}>
+                                        <LogOut className="w-3.5 h-3.5" /> Clock Out Early
+                                    </KButton>
+                                ) : (
+                                    <Link to="/job-market"><KButton variant="ghost" className="w-full" data-testid={`cur-emp-manage-${e.id}`}>Manage in Player Jobs</KButton></Link>
+                                )}
                             </div>
                         ))}
                     </div>
