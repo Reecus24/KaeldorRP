@@ -233,6 +233,10 @@ async def complete_activity(db, p, cfg):
     elif kind == "illegal":
         await _resolve_illegal(db, p, cfg, payload, eff)
 
+    elif kind == "social":
+        import social_engine
+        await social_engine.complete_social_activity(db, p, cfg, payload, eff)
+
     p["current_activity"] = None
     p["status"] = "jail" if parse_dt(p.get("jail_until")) and parse_dt(p["jail_until"]) > now_utc() else \
         ("hospital" if parse_dt(p.get("hospital_until")) and parse_dt(p["hospital_until"]) > now_utc() else "free")
@@ -244,6 +248,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
     street = p["skills"].get("street_smarts", {}).get("level", 1)
     # higher suspicion & lower street smarts -> easier to get caught
     catch = payload["police_risk"] * (1 + p["criminal_suspicion"] / 150.0) * (1 - min(0.4, street * 0.03))
+    catch *= payload.get("risk_mult", 1.0)
     fail = payload["failure_chance"] * (1 - min(0.3, street * 0.025))
     p["stats_meta"]["crimes_committed"] = p["stats_meta"].get("crimes_committed", 0) + 1
     for sk, xp in payload.get("skill_xp", {}).items():
@@ -369,6 +374,9 @@ async def resolve_player(db, p):
         await accrue_recurring(db, p, cfg, gh, housing_doc)
 
     await accrue_businesses(db, p, cfg, gh, now)
+
+    import social_engine
+    await social_engine.resolve_social(db, p, cfg, gh, now)
 
     # finalize status
     if p.get("status") not in ("jail", "hospital"):

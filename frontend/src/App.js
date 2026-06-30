@@ -24,6 +24,8 @@ import OwnedBusinesses from "@/pages/OwnedBusinesses";
 import BusinessManage from "@/pages/BusinessManage";
 import Underworld from "@/pages/Underworld";
 import Legal from "@/pages/Legal";
+import Social from "@/pages/Social";
+import ContactDetail from "@/pages/ContactDetail";
 import Hospital from "@/pages/Hospital";
 import Jail from "@/pages/Jail";
 import Leaderboard from "@/pages/Leaderboard";
@@ -93,6 +95,8 @@ function AppRoutes() {
                 <Route path="/business-market" element={<BusinessMarket />} />
                 <Route path="/businesses" element={<OwnedBusinesses />} />
                 <Route path="/businesses/:id" element={<BusinessManage />} />
+                <Route path="/social" element={<Social />} />
+                <Route path="/social/:cid" element={<ContactDetail />} />
                 <Route path="/underworld" element={<Underworld />} />
                 <Route path="/legal" element={<Legal />} />
                 <Route path="/hospital" element={<Hospital />} />

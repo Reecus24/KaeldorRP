@@ -124,4 +124,18 @@ DEFAULT_CONFIG = {
         "max_applicants": 6,
         "recruit_cost": 250,            # cost to recruit a premium applicant
     },
+    "social": {
+        "decay_per_day": 3.0,           # base relationship-score decay/real-day when ignored
+        "close_decay_mult": 0.4,        # close bonds decay this much slower
+        "angry_worsen_per_day": 1.5,    # damaged relationships worsen if left unaddressed
+        "decay_grace_hours": 8,         # real hours of grace before decay begins
+        "event_chance_per_day": 4.0,    # expected random social events per real day
+        "mood_factor": 0.35,            # how strongly your social life nudges mood/hour
+        "stress_factor": 0.25,          # how strongly your social life relieves stress/hour
+        "fire_risk_per_day": 0.15,      # chance/real-day of being fired by an angry boss
+        "evict_warn_per_day": 0.25,     # chance/real-day of an angry landlord eviction warning
+        "partner_cost_per_day": 25,     # daily life cost of a romantic partner
+        "shady_buff_hours": 6,          # how long a shady contact lowers your crime risk
+        "shady_buff_mult": 0.65,        # police-risk multiplier while the buff is active
+    },
 }

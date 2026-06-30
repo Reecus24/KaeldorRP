@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 3 - End-to-end review of the new Social Contacts & Relationships system. Created /app/backend/tests/test_social_system.py with 24 pytest items covering: lazy contact seeding, contacts list+summary, contact detail (view+history+actions+opps+warnings), instant interactions + per-contact 409 cooldown, gift flow (success + missing-id + unknown gift), activity interactions (hang_out start + busy 409), action gating (invite_date/meet_shady/ask_reference applies_to), discovery list + start, block/unblock + interactions rejected while blocked, housing->landlord integration, and admin CRUD on the 5 new content types (npc_archetypes, social_traits, relationship_actions, gift_types, social_events) including a full POST/PUT/DELETE round-trip on gift_types. Result: 19 passed, 5 skipped, 0 failed. Skips are all due to leftover per-contact cooldowns or insufficient funds on the live seeded player after a prior smoke test (small_talk/call_text/gift_without_id/gift_flowers/landlord-rent), not real failures. Frontend smoke (Playwright): /social renders 11 contact cards (matches summary count), all expected quick-talk-{id}/quick-call-{id}/open-contact-{id} present; contact detail page loads via Link with rel-action-{id} list (16 actions, 8 enabled buttons due to gating/cooldown), block-button visible, history panel + opportunities panel render. Meet People tab shows 4 discovery cards with 2 enabled discover-btn buttons; Event Log tab shows social-event-log with recent events. All 10 tabs (All, Friends, Work, Romance, Business, Housing, Underworld, Family, Meet People, Event Log) render (rendered uppercase). Topbar pill now reads REAL-TIME (time_scale=1.0 — drift from iter_2 resolved).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/social/contacts/{cid}/interact (give_gift)",
+        "issue": "Validation order: handler checks per-contact cooldown BEFORE validating that gift_id was provided. A missing-gift_id request on a contact whose give_gift is on cooldown returns 409 instead of the expected 400. Surface this in API docs or move the body validation above the cooldown check."
+      },
+      {
+        "endpoint": "GET /api/social/contacts",
+        "issue": "Contact view exposes computed last_interaction_seconds (good) but does NOT expose cooldown_remaining per available action at the list level — clients must fetch /social/contacts/{cid} to learn which quick actions are currently usable. Acceptable, but the list-level quick-talk/quick-call buttons in the UI cannot pre-disable themselves without an extra round-trip. Consider summarising next-available-at on each contact in the list payload."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_social_system.py",
+    "/app/test_reports/pytest/social_results.xml"
+  ],
+  "action_items": [
+    "Optional: in /api/social/contacts/{cid}/interact, validate body.gift_id (for give_gift) BEFORE the per-contact cooldown check, so the 400 'Choose a gift first' message is reachable even after a recent gift. Currently dead-codeable for ~120 minutes after each gift.",
+    "Optional: include per-action cooldown_remaining on each contact in GET /api/social/contacts so the Social tab can disable quick-talk / quick-call buttons without an extra detail fetch."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 1352 lines — strongly recommend splitting (auth, game, jobs, bank, housing, vehicles, business, illegal, employee, social, admin) into routers. Same finding as iter_1 — still unaddressed.",
+    "social_engine.py is 540 lines and concentrates create_contact + resolve_social + validate_action + interact_now + actions_for_contact + contact_view in one module — readable but heavy. Decay/event tick and the action engine could be split (decay.py / actions.py).",
+    "social_engine.interact_now and complete_social_activity both apply on_success/on_fail effects — confirm there is no double-apply path on activity completion (player already paid money upfront in handler for activity gifts).",
+    "ensure_job_contacts / ensure_landlord / ensure_business_contact are called from server.py inside the rent / apply / promote / buy flows — these awaits run sequentially with the main DB write. Acceptable but consider gather/background-task for hot paths.",
+    "/api/social/contacts returns full computed views inside a sort by known_since — fine, but no pagination cap; if a player accumulates >400 contacts the to_list(400) silently truncates. Add a documented cap or paginate.",
+    "Gift charge happens in handler then interact_now applies on_give effects — if interact_now raises, the cash is already debited (no transactional rollback). Low likelihood but worth a try/except + refund."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_social_system.py"
+  ],
+  "success_rate": {
+    "backend": "100% of executed (19/19 passed, 5 skipped due to live-state cooldowns/funds — non-blocking)",
+    "frontend": "100% of asserted selectors present (contact cards, quick-talk/call/open, rel-action/btn, block-button, history, gift modal trigger, discovery cards, event log, all 10 tabs); gift modal opening verified by selector wiring (rel-action-btn-give_gift present and clickable when off cooldown)"
+  },
+  "test_credentials": "Player: player@kaeldor.com / player123 (hustler, 11 seeded contacts). Admin: admin@kaeldor.com / admin123.",
+  "seed_data_creation": "No new accounts. Re-used the seeded player; the lazy social seed (~11 contacts including Ravi Sato, family, mentor, love interest, shady contact, plus coworkers/landlord derived from existing job & housing) is in place from prior smoke testing. Admin gift round-trip creates TEST_gift_<hex> and deletes it.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest /app/backend/tests/test_social_system.py runs cleanly under xdist loadscope. Player player@kaeldor.com currently has Ravi Sato unblocked, NOT mid-activity, with ~$2.3k bank. give_gift on Ravi Sato is on a 120-min cooldown after this run. time_scale is 1.0 (REAL-TIME pill shows). The validation-order quirk on give_gift (cooldown before body.gift_id check) is a documented minor finding. The 5 new admin content tabs (NPC Archetypes, Personality, Rel. Actions, Gifts, Social Events) are fully functional via /api/admin/content/{ctype}.",
+  "rca of the issue": "No blocking bugs found. One minor API-shape quirk: POST /social/contacts/{cid}/interact validates per-contact cooldown before it validates that body.gift_id is set for give_gift actions, so the 400 'Choose a gift first' branch is unreachable for the cooldown window after a successful gift. Fix is a 2-line reorder in server.py around line 1241-1247. All other gating, cooldown, blocking, integration-hook, and admin-CRUD behaviour matches the spec."
+}

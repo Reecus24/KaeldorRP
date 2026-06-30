@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import {
     LayoutDashboard, Home, Briefcase, BadgeCheck, GraduationCap, ShoppingCart,
     Landmark, Building2, Car, Store, Boxes, Sparkles, Skull, Stethoscope,
-    Lock, Trophy, Settings, LogOut, Menu, X, Activity, Zap, Clock3,
+    Lock, Trophy, Settings, LogOut, Menu, X, Activity, Zap, Clock3, Users,
 } from "lucide-react";
 
 const NAV = [
@@ -18,6 +18,7 @@ const NAV = [
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
     { to: "/home", label: "Home & Needs", icon: Home },
     { to: "/skills", label: "Skills", icon: Sparkles },
+    { to: "/social", label: "Social", icon: Users },
     { section: "Work" },
     { to: "/jobs", label: "Job Center", icon: Briefcase },
     { to: "/current-job", label: "Current Job", icon: BadgeCheck },

@@ -8,6 +8,7 @@ load_dotenv(ROOT_DIR / ".env")
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 import bcrypt
 import jwt
@@ -24,6 +25,7 @@ from game_engine import (
 )
 from seed_data import seed_content, CONTENT_MAP
 import employee_engine
+import social_engine
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -402,6 +404,7 @@ async def apply_job(job_id: str, user: dict = Depends(current_user)):
                 "hired_at": now_utc().isoformat()}
     await add_event(db, p["id"], f"You were hired as a {j['title']}!", "job", "success")
     await save_player(p)
+    await social_engine.ensure_job_contacts(db, p, j)
     return {"ok": True}
 
 
@@ -470,6 +473,7 @@ async def promote(user: dict = Depends(current_user)):
     p["social_status"] = clamp(p["social_status"] + 5)
     await add_event(db, p["id"], f"Promoted to {target['title']}! Bigger paycheck ahead.", "job", "success")
     await save_player(p)
+    await social_engine.ensure_job_contacts(db, p, target)
     return {"ok": True}
 
 
@@ -639,6 +643,7 @@ async def rent_house(house_id: str, user: dict = Depends(current_user)):
     p["housing"] = {"id": house_id, "owned": False, "since": now_utc().isoformat()}
     await add_event(db, p["id"], f"You moved into {h['name']} (renting).", "housing", "success")
     await save_player(p)
+    await social_engine.ensure_landlord(db, p, h)
     return {"ok": True}
 
 
@@ -752,6 +757,7 @@ async def buy_business(type_id: str, user: dict = Depends(current_user)):
         await employee_engine._create_applicant(db, p, cfg, biz, reqs, premium=False)
     await add_event(db, p["id"], f"You acquired a business: {t['name']}! Applicants are waiting to be hired.", "business", "success", biz["id"])
     await save_player(p)
+    await social_engine.ensure_business_contact(db, p, t)
     return {"ok": True}
 
 
@@ -873,6 +879,10 @@ async def commit_illegal(action_id: str, user: dict = Depends(current_user)):
     payload = {k: a.get(k) for k in ("name", "reward_min", "reward_max", "suspicion_gain", "police_risk",
                                      "failure_chance", "jail_minutes", "fine_amount", "reputation_impact",
                                      "skill_xp", "lowers_suspicion")}
+    buff = p.get("social_buffs", {})
+    until = parse_dt(buff.get("until")) if buff.get("until") else None
+    if buff.get("crime_risk_mult") and until and until > now_utc():
+        payload["risk_mult"] = buff["crime_risk_mult"]
     set_activity(p, "illegal", a["name"], a["duration_minutes"], cfg, payload, blocking=a.get("blocking", True))
     await add_event(db, p["id"], f"You started something risky: {a['name']}...", "crime", "warning")
     await save_player(p)
@@ -1162,6 +1172,145 @@ async def train_employee(emp_id: str, body: dict, user: dict = Depends(current_u
     await db.employees.update_one({"id": emp_id}, {"$set": {"training": tr}})
     await add_event(db, p["id"], f"{emp['name']} started training: {opt['label']}.", "business", "info", biz["id"])
     return {"ok": True}
+
+
+# ============================ SOCIAL CONTACTS ============================
+class InteractBody(BaseModel):
+    action_id: str
+    gift_id: Optional[str] = None
+
+
+async def _get_contact(p, cid):
+    c = await db.contacts.find_one({"id": cid, "player_id": p["id"]}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return c
+
+
+@api.get("/social/contacts")
+async def social_contacts(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    cs = await db.contacts.find({"player_id": p["id"]}, {"_id": 0}).sort("known_since", 1).to_list(400)
+    views = [social_engine.contact_view(c) for c in cs]
+    return {"contacts": views, "summary": social_engine.social_summary(views)}
+
+
+@api.get("/social/gifts")
+async def social_gifts(user: dict = Depends(current_user)):
+    return await db.gift_types.find({}, {"_id": 0}).to_list(50)
+
+
+@api.get("/social/discover-actions")
+async def social_discover_actions(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    acts = await db.relationship_actions.find({"untargeted": True}, {"_id": 0}).to_list(50)
+    out = []
+    for a in acts:
+        cd = p.get("cooldowns", {}).get("social_" + a["id"])
+        on_cd = cd and parse_dt(cd) > now_utc()
+        out.append({**a, "available": not on_cd,
+                    "cooldown_remaining": round((parse_dt(cd) - now_utc()).total_seconds()) if on_cd else 0})
+    return out
+
+
+@api.get("/social/contacts/{cid}")
+async def social_contact_detail(cid: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    c = await _get_contact(p, cid)
+    cfg = await get_config(db)
+    return {
+        "contact": social_engine.contact_view(c),
+        "history": list(reversed(c.get("history", [])))[:40],
+        "actions": await social_engine.actions_for_contact(db, p, c, cfg),
+        "opportunities": social_engine.contact_opportunities(c),
+        "warnings": social_engine.contact_warnings(c),
+    }
+
+
+@api.post("/social/contacts/{cid}/interact")
+async def social_interact(cid: str, body: InteractBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    c = await _get_contact(p, cid)
+    a = await db.relationship_actions.find_one({"id": body.action_id}, {"_id": 0})
+    if not a or a.get("untargeted"):
+        raise HTTPException(status_code=404, detail="Action not found")
+    cfg = await get_config(db)
+    ok, reason = social_engine.validate_action(p, c, a)
+    if not ok:
+        raise HTTPException(status_code=400, detail=reason)
+    cd = c.get("cooldowns", {}).get(a["id"])
+    if cd and parse_dt(cd) > now_utc():
+        raise HTTPException(status_code=409, detail="That interaction is on cooldown")
+    gift = None
+    if a.get("kind") == "give_gift":
+        if not body.gift_id:
+            raise HTTPException(status_code=400, detail="Choose a gift first")
+        gift = await db.gift_types.find_one({"id": body.gift_id}, {"_id": 0})
+        if not gift:
+            raise HTTPException(status_code=404, detail="Gift not found")
+        if p["cash"] + p["bank"] < gift["cost"]:
+            raise HTTPException(status_code=400, detail="You can't afford that gift")
+        charge(p, gift["cost"])
+    elif a.get("money_cost", 0) > 0:
+        if p["cash"] + p["bank"] < a["money_cost"]:
+            raise HTTPException(status_code=400, detail="Not enough money")
+        charge(p, a["money_cost"])
+
+    if a.get("timing") == "activity":
+        ensure_free(p)
+        payload = {"action_id": a["id"], "contact_id": cid, "name": a["label"]}
+        if gift:
+            payload["gift"] = gift
+        set_activity(p, "social", f"{a['label']} · {c['name']}", a["duration_minutes"], cfg, payload, blocking=a.get("blocking", True))
+        await add_event(db, p["id"], f"You're spending time with {c['name']}: {a['label']}.", "social", "info")
+        await save_player(p)
+        return {"ok": True, "started": True, "activity": serialize_activity(p)}
+
+    res = await social_engine.interact_now(db, p, cfg, c, a, gift)
+    await save_player(p)
+    return {"ok": True, **res}
+
+
+@api.post("/social/discover/{action_id}")
+async def social_discover(action_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    a = await db.relationship_actions.find_one({"id": action_id, "untargeted": True}, {"_id": 0})
+    if not a:
+        raise HTTPException(status_code=404, detail="Action not found")
+    ensure_free(p)
+    cfg = await get_config(db)
+    cdkey = "social_" + a["id"]
+    cd = p.get("cooldowns", {}).get(cdkey)
+    if cd and parse_dt(cd) > now_utc():
+        raise HTTPException(status_code=409, detail="On cooldown")
+    if a.get("money_cost", 0) > 0:
+        if p["cash"] + p["bank"] < a["money_cost"]:
+            raise HTTPException(status_code=400, detail="Not enough money")
+        charge(p, a["money_cost"])
+    payload = {"action_id": a["id"], "name": a["label"]}
+    set_activity(p, "social", a["label"], a["duration_minutes"], cfg, payload, blocking=a.get("blocking", True))
+    cdm = a.get("cooldown_minutes", 0)
+    if cdm > 0:
+        p.setdefault("cooldowns", {})[cdkey] = (
+            now_utc() + timedelta(seconds=real_seconds(a["duration_minutes"] + cdm, cfg["time_scale"]))).isoformat()
+    await add_event(db, p["id"], f"You head out: {a['label']}.", "social", "info")
+    await save_player(p)
+    return {"ok": True, "activity": serialize_activity(p)}
+
+
+@api.post("/social/contacts/{cid}/block")
+async def social_block(cid: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    c = await _get_contact(p, cid)
+    if c.get("status") == "blocked":
+        new_status = social_engine.derive_status({**c, "status": "active"})
+        verb = "unblocked"
+    else:
+        new_status = "blocked"
+        verb = "blocked"
+    await db.contacts.update_one({"id": cid}, {"$set": {"status": new_status}})
+    await add_event(db, p["id"], f"You {verb} {c['name']}.", "social", "warning" if verb == "blocked" else "info")
+    return {"ok": True, "status": new_status}
 
 
 # ============================ STARTUP ============================

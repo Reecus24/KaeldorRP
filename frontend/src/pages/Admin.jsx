@@ -22,6 +22,11 @@ const CONTENT_TYPES = [
     { key: "staffing_requirements", label: "Staffing", name: "id" },
     { key: "training_options", label: "Training", name: "label" },
     { key: "employee_events", label: "Staff Events", name: "message" },
+    { key: "npc_archetypes", label: "NPC Archetypes", name: "label" },
+    { key: "social_traits", label: "Personality", name: "label" },
+    { key: "relationship_actions", label: "Rel. Actions", name: "label" },
+    { key: "gift_types", label: "Gifts", name: "label" },
+    { key: "social_events", label: "Social Events", name: "message" },
 ];
 
 function JsonModal({ open, title, initial, onClose, onSave }) {

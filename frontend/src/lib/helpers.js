@@ -94,3 +94,30 @@ export function statusColor(status) {
     if (status === "free") return "text-neon-green border-neon-green/50";
     return "text-neon-cyan border-neon-cyan/50";
 }
+
+// ---------- Relationships ----------
+export const REL_STATUS = {
+    close: { label: "Close", tone: "green" },
+    romantic: { label: "Romantic", tone: "purple" },
+    active: { label: "Active", tone: "cyan" },
+    distant: { label: "Distant", tone: "yellow" },
+    angry: { label: "Angry", tone: "red" },
+    blocked: { label: "Blocked", tone: "default" },
+    ex_partner: { label: "Ex-Partner", tone: "red" },
+};
+
+export function scoreColor(s) {
+    if (s >= 60) return "#00FF66";
+    if (s >= 20) return "#00F3FF";
+    if (s >= -20) return "#FFC300";
+    return "#FF0055";
+}
+
+// Compact "time since" label from seconds.
+export function relTime(sec) {
+    const s = Math.max(0, Math.floor(sec || 0));
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+}
