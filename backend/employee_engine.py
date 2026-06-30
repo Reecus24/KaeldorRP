@@ -30,6 +30,9 @@ PLAYER_PRESENCE = 0.6
 
 
 async def get_staffing(db, b):
+    plan = b.get("roster_plan")
+    if plan:
+        return [{"role": x["role"], "recommended": int(x.get("recommended", 1))} for x in plan if x.get("recommended", 1) > 0]
     doc = await db.staffing_requirements.find_one({"id": b.get("type_id")}, {"_id": 0})
     return (doc or {}).get("requirements", [])
 

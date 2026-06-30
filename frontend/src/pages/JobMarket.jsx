@@ -6,7 +6,7 @@ import { SectionTitle, Spinner, Panel, Pill, EmptyState } from "@/components/gam
 import { KButton } from "@/components/game/controls";
 import { scheduleLabel } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
-import { Store, Briefcase, Send, Clock, X, CheckCircle2, XCircle, LogOut, Building2, Star } from "lucide-react";
+import { Store, Briefcase, Send, Clock, X, CheckCircle2, XCircle, LogOut, Building2, Star, GraduationCap } from "lucide-react";
 
 function ApplyModal({ biz, onClose, onApplied }) {
     const roles = biz.roles || [];
@@ -94,6 +94,18 @@ function MyJobsTab() {
         catch (e) { toast.error(errMessage(e)); }
         setBusy(null);
     };
+    const respondTraining = async (emp, action) => {
+        setBusy(emp.id + "t");
+        try { await api.post(`/jobs/employment/${emp.id}/training/${action}`); toast.success(action === "accept" ? "Training completed!" : "Training declined"); await Promise.all([load(), refresh()]); }
+        catch (e) { toast.error(errMessage(e)); }
+        setBusy(null);
+    };
+    const respondSchedule = async (emp, action) => {
+        setBusy(emp.id + "sc");
+        try { await api.post(`/jobs/employment/${emp.id}/schedule/${action}`); toast.success(action === "accept" ? "New schedule accepted" : "Schedule change declined"); await Promise.all([load(), refresh()]); }
+        catch (e) { toast.error(errMessage(e)); }
+        setBusy(null);
+    };
     const quit = async (emp) => {
         setBusy(emp.id + "q");
         try { await api.post(`/jobs/employment/${emp.id}/quit`); toast.success("You quit the job"); await Promise.all([load(), refresh()]); } catch (e) { toast.error(errMessage(e)); }
@@ -159,6 +171,24 @@ function MyJobsTab() {
                                     {e.raise_due && <Pill tone="yellow" data-testid={`raise-due-${e.id}`}>Raise due</Pill>}
                                 </div>
                                 <div className="text-[11px] text-neon-purple flex items-center gap-1 mb-2"><Clock className="w-3 h-3" /> {scheduleLabel(e.schedule)}</div>
+                                {e.training_offer && (
+                                    <div className="border border-neon-cyan/30 rounded-sm p-2 mb-2" data-testid={`training-offer-${e.id}`}>
+                                        <div className="text-[11px] text-white mb-1.5 flex items-center gap-1"><GraduationCap className="w-3.5 h-3.5 text-neon-cyan" /> Training offered: {e.training_offer.label} <span className="text-neon-green">(+{e.training_offer.skill_gain} {e.training_offer.skill})</span></div>
+                                        <div className="flex gap-2">
+                                            <KButton variant="green" className="!py-1 !px-2 !text-[11px] flex-1" loading={busy === e.id + "t"} onClick={() => respondTraining(e, "accept")} data-testid={`training-accept-${e.id}`}>Accept</KButton>
+                                            <KButton variant="ghost" className="!py-1 !px-2 !text-[11px]" onClick={() => respondTraining(e, "decline")} data-testid={`training-decline-${e.id}`}>Decline</KButton>
+                                        </div>
+                                    </div>
+                                )}
+                                {e.pending_schedule && (
+                                    <div className="border border-neon-yellow/30 rounded-sm p-2 mb-2" data-testid={`sched-proposal-${e.id}`}>
+                                        <div className="text-[11px] text-white mb-1.5 flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-neon-yellow" /> New schedule proposed: {scheduleLabel(e.pending_schedule)}</div>
+                                        <div className="flex gap-2">
+                                            <KButton variant="green" className="!py-1 !px-2 !text-[11px] flex-1" loading={busy === e.id + "sc"} onClick={() => respondSchedule(e, "accept")} data-testid={`sched-accept-${e.id}`}>Accept</KButton>
+                                            <KButton variant="ghost" className="!py-1 !px-2 !text-[11px]" onClick={() => respondSchedule(e, "decline")} data-testid={`sched-decline-${e.id}`}>Decline</KButton>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-4 gap-2 text-center text-[10px] mb-3">
                                     <div><div className="text-muted-foreground uppercase">Perf</div><div className="font-mono text-neon-cyan">{Math.round(e.performance)}</div></div>
                                     <div><div className="text-muted-foreground uppercase">Reliab</div><div className="font-mono text-neon-green">{Math.round(e.reliability)}</div></div>

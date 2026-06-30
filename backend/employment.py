@@ -238,6 +238,64 @@ def applicant_snapshot(p, cfg, role=None, reqs=None):
     }
 
 
+# ----------------------------- contribution projection ($/h) -----------------------------
+def worker_productivity(perf, fit, reliability, trait_mult=1.0):
+    """Unified productivity multiplier (same basis as live auto-work accrual)."""
+    return round(clamp(perf * fit * (0.8 + 0.4 * reliability / 100) * trait_mult, 0.2, 1.9), 2)
+
+
+def projection_at(hourly_wage, productivity, output_mult):
+    rev = round(hourly_wage * output_mult * productivity, 2)
+    return {"productivity": productivity, "wage_per_hour": round(hourly_wage, 2),
+            "rev_per_hour": rev, "net_per_hour": round(rev - hourly_wage, 2)}
+
+
+def player_perf(p):
+    """Condition + skill performance factor for a player (mirrors auto-work)."""
+    return round(shift_performance(p) * effectiveness(p), 2)
+
+
+def applicant_projection(p, cfg, roles, reliability=60):
+    """Per-role productivity map for a player applicant; frontend computes $ live with the wage."""
+    perf = player_perf(p)
+    by_role = {r: worker_productivity(perf, role_fit(p, r), reliability) for r in roles}
+    by_role["_default"] = worker_productivity(perf, role_fit(p, None), reliability)
+    return {"output_multiplier": cfg.get("employment", {}).get("player_output_multiplier", 1.8),
+            "hire_reliability": reliability, "perf": perf, "by_role": by_role}
+
+
+async def player_employee_projection(db, cfg, emp):
+    """$/h estimate for an active player employee at current condition + wage + role."""
+    p = await db.players.find_one({"id": emp["employee_player_id"]}, {"_id": 0})
+    if not p:
+        return None
+    prod = worker_productivity(player_perf(p), role_fit(p, emp.get("role")), emp.get("reliability", 60))
+    wph = emp.get("wage_per_hour") or round(emp.get("wage_per_shift", 60) / 4.0, 2)
+    out = projection_at(wph, prod, cfg.get("employment", {}).get("player_output_multiplier", 1.8))
+    out["estimated"] = True
+    return out
+
+
+def npc_employee_projection(emp, cfg, traits_map):
+    """Unified $/h estimate for an NPC employee (comparable to players, clearly an estimate)."""
+    skill = emp.get("skill", 3)
+    base = 0.5 + (skill - 1) / 9 * 0.6
+    cond = (emp.get("morale", 60) + emp.get("energy", 80) + emp.get("reliability", 60)) / 300.0
+    perf = round(clamp(base * (0.6 + 0.6 * cond), 0.3, 1.5), 2)
+    fit = round(clamp(0.55 + (skill - 1) / 9 * 0.75, 0.55, 1.3), 2)
+    tmult = 1.0
+    for t in emp.get("traits", []):
+        tmult *= (1 + traits_map.get(t, {}).get("effects", {}).get("revenue", 0))
+    tmult = max(0.7, min(1.4, tmult))
+    prod = worker_productivity(perf, fit, emp.get("reliability", 60), tmult)
+    equiv = cfg.get("employment", {}).get("npc_equiv_hours", 8)
+    hourly = round(emp.get("daily_wage", 90) / equiv, 2)
+    out = projection_at(hourly, prod, cfg.get("employment", {}).get("player_output_multiplier", 1.8))
+    out["estimated"] = True
+    out["equiv_hours"] = equiv
+    return out
+
+
 async def accrue_player_employment(db, p, cfg, gh, now):
     """Continuous, offline-safe auto-work for player employees on scheduled shifts.
 

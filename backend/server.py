@@ -1260,7 +1260,11 @@ async def business_detail(biz_id: str, user: dict = Depends(current_user)):
 async def biz_employees(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     b = await _get_owned_business(p, biz_id)
+    cfg = await get_config(db)
+    tmap = {t["id"]: t for t in await db.employee_traits.find({}, {"_id": 0}).to_list(100)}
     emps = await db.employees.find({"business_id": biz_id, "status": {"$in": ["active", "sick"]}}, {"_id": 0}).sort("hire_date", 1).to_list(200)
+    for e in emps:
+        e["projection"] = employment.npc_employee_projection(e, cfg, tmap)
     return {"employees": emps, "metrics": await employee_engine.business_metrics(db, b)}
 
 
@@ -1524,6 +1528,27 @@ class BackupBody(BaseModel):
     enabled: bool
 
 
+class RosterPlanItem(BaseModel):
+    role: str
+    recommended: int = 1
+    wage: Optional[float] = None
+    schedule: Optional[str] = None
+    open: bool = True
+
+
+class RosterPlanBody(BaseModel):
+    plan: list[RosterPlanItem]
+
+
+class TrainingOfferBody(BaseModel):
+    option_id: str
+    skill: Optional[str] = None
+
+
+class ProposeScheduleBody(BaseModel):
+    schedule: str
+
+
 class WageBody(BaseModel):
     wage_per_hour: float
 
@@ -1531,11 +1556,18 @@ class WageBody(BaseModel):
 async def _staffing_roles(b):
     reqs = await employee_engine.get_staffing(db, b)
     roles_doc = {r["id"]: r for r in await db.employee_roles.find({}, {"_id": 0}).to_list(100)}
+    plan_by_role = {x["role"]: x for x in (b.get("roster_plan") or [])}
     out = []
     for r in reqs:
         rd = roles_doc.get(r["role"], {})
+        pl = plan_by_role.get(r["role"], {})
+        sched_key = pl.get("schedule", "early")
+        sp = employment.SHIFT_PRESETS.get(sched_key, employment.SHIFT_PRESETS["early"])
         out.append({"role": r["role"], "label": rd.get("label", r["role"].replace("_", " ").title()),
-                    "desc": rd.get("desc", ""), "recommended": r.get("recommended", 1)})
+                    "desc": rd.get("desc", ""), "recommended": r.get("recommended", 1),
+                    "suggested_wage": pl.get("wage"), "schedule_preset": sched_key,
+                    "schedule_label": sp["label"], "schedule_start": sp["start"], "schedule_end": sp["end"],
+                    "open": pl.get("open", True) if b.get("roster_plan") else True})
     return out
 
 
@@ -1716,6 +1748,62 @@ async def clock_out_player_shift(emp_id: str, user: dict = Depends(current_user)
     return res
 
 
+@api.post("/jobs/employment/{emp_id}/training/{action}")
+async def respond_training(emp_id: str, action: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    emp = await db.player_employment.find_one({"id": emp_id, "employee_player_id": p["id"], "status": "active"}, {"_id": 0})
+    if not emp or not emp.get("training_offer"):
+        raise HTTPException(status_code=404, detail="No training offer pending")
+    offer = emp["training_offer"]
+    owner = await db.players.find_one({"id": emp["owner_id"]}, {"_id": 0})
+    if action == "accept":
+        cfg = await get_config(db)
+        add_skill_xp(p, offer["skill"], offer.get("skill_gain", 2) * 50, cfg)
+        await save_player(p)
+        await db.player_employment.update_one({"id": emp_id}, {"$set": {
+            "training_offer": None, "performance": clamp(emp.get("performance", 60) + 4),
+            "reliability": clamp(emp.get("reliability", 60) + 3)}})
+        await add_event(db, p["id"], f"You completed training paid by {emp['business_name']}: {offer['label']} (+{offer.get('skill_gain', 2)} {offer['skill']}).", "job", "success")
+        if owner:
+            await add_notification(db, owner["id"], "business", "Training completed",
+                                   f"{p['name']} completed {offer['label']} at {emp['business_name']}.", "success", f"/businesses/{emp['business_id']}")
+            await add_event(db, owner["id"], f"{p['name']} completed training: {offer['label']}.", "business", "success", emp["business_id"])
+        return {"ok": True}
+    else:
+        # refund the owner's escrowed cost
+        if owner:
+            add_money(owner, offer.get("cost", 0))
+            await db.players.update_one({"id": owner["id"]}, {"$set": {"cash": owner["cash"]}})
+            await add_notification(db, owner["id"], "business", "Training declined",
+                                   f"{p['name']} declined {offer['label']}; ${offer.get('cost', 0)} refunded.", "warning", f"/businesses/{emp['business_id']}")
+        await db.player_employment.update_one({"id": emp_id}, {"$set": {"training_offer": None}})
+        await add_event(db, p["id"], f"You declined the training offer from {emp['business_name']}.", "job", "info")
+        return {"ok": True}
+
+
+@api.post("/jobs/employment/{emp_id}/schedule/{action}")
+async def respond_schedule(emp_id: str, action: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    emp = await db.player_employment.find_one({"id": emp_id, "employee_player_id": p["id"], "status": "active"}, {"_id": 0})
+    if not emp or not emp.get("pending_schedule"):
+        raise HTTPException(status_code=404, detail="No schedule change pending")
+    ps = emp["pending_schedule"]
+    sched = {"preset": ps["preset"], "label": ps["label"], "start": ps["start"], "end": ps["end"]}
+    owner_id = emp["owner_id"]
+    if action == "accept":
+        await db.player_employment.update_one({"id": emp_id}, {"$set": {
+            "schedule": sched, "pending_schedule": None, "clocked_out_until": None}})
+        await add_event(db, p["id"], f"You accepted the new schedule at {emp['business_name']}: {sched['label']}.", "job", "success")
+        await add_notification(db, owner_id, "business", "Schedule change accepted",
+                               f"{p['name']} accepted the {sched['label']} schedule at {emp['business_name']}.", "success", f"/businesses/{emp['business_id']}")
+    else:
+        await db.player_employment.update_one({"id": emp_id}, {"$set": {"pending_schedule": None}})
+        await add_event(db, p["id"], f"You declined the proposed schedule change at {emp['business_name']}.", "job", "info")
+        await add_notification(db, owner_id, "business", "Schedule change declined",
+                               f"{p['name']} declined the {sched['label']} schedule at {emp['business_name']}.", "warning", f"/businesses/{emp['business_id']}")
+    return {"ok": True}
+
+
 @api.post("/jobs/employment/{emp_id}/quit")
 async def quit_player_job(emp_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
@@ -1734,8 +1822,17 @@ async def quit_player_job(emp_id: str, user: dict = Depends(current_user)):
 @api.get("/businesses/{biz_id}/player-applications")
 async def biz_player_applications(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
-    await _get_owned_business(p, biz_id)
-    return await db.business_applications.find({"business_id": biz_id, "status": {"$in": ["pending", "offered"]}}, {"_id": 0}).sort("submitted_at", -1).to_list(100)
+    b = await _get_owned_business(p, biz_id)
+    cfg = await get_config(db)
+    reqs = await employee_engine.get_staffing(db, b)
+    roles = [r["role"] for r in reqs]
+    apps = await db.business_applications.find({"business_id": biz_id, "status": {"$in": ["pending", "offered"]}}, {"_id": 0}).sort("submitted_at", -1).to_list(100)
+    for a in apps:
+        ap = await db.players.find_one({"id": a["applicant_id"]}, {"_id": 0})
+        if ap:
+            r2 = roles + ([a["role"]] if a.get("role") and a["role"] not in roles else [])
+            a["projection"] = employment.applicant_projection(ap, cfg, r2)
+    return apps
 
 
 @api.post("/businesses/{biz_id}/player-applications/{app_id}/offer")
@@ -1782,7 +1879,11 @@ async def biz_player_employees(biz_id: str, user: dict = Depends(current_user)):
     cfg = await get_config(db)
     g_now = game_now(cfg, now_utc())
     emps = await db.player_employment.find({"business_id": biz_id, "status": "active"}, {"_id": 0}).to_list(100)
-    return [decorate_employment_live(e, cfg, g_now) for e in emps]
+    out = []
+    for e in emps:
+        e["projection"] = await employment.player_employee_projection(db, cfg, e)
+        out.append(decorate_employment_live(e, cfg, g_now))
+    return out
 
 
 @api.post("/businesses/{biz_id}/player-employees/{emp_id}/fire")
@@ -1832,6 +1933,89 @@ async def toggle_backup(biz_id: str, body: BackupBody, user: dict = Depends(curr
         backup.pop(body.role, None)
     await db.businesses.update_one({"id": biz_id}, {"$set": {"backup_roles": backup}})
     return {"ok": True, "backup_roles": backup}
+
+
+# ---- Phase 2: Roster / job-listings editor ----
+@api.get("/businesses/{biz_id}/roster-plan")
+async def get_roster_plan(biz_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    roles_doc = {r["id"]: r for r in await db.employee_roles.find({}, {"_id": 0}).to_list(100)}
+    plan = b.get("roster_plan")
+    if not plan:
+        reqs = await employee_engine.get_staffing(db, b)
+        plan = [{"role": r["role"], "recommended": r.get("recommended", 1),
+                 "wage": round((roles_doc.get(r["role"], {}).get("wage_min", 80) + roles_doc.get(r["role"], {}).get("wage_max", 120)) / 2.0 / 8.0, 2),
+                 "schedule": "early", "open": True} for r in reqs]
+    available = [{"role": rid, "label": rd.get("label", rid.replace("_", " ").title()),
+                  "desc": rd.get("desc", "")} for rid, rd in roles_doc.items()]
+    return {"plan": plan, "available_roles": available}
+
+
+@api.put("/businesses/{biz_id}/roster-plan")
+async def set_roster_plan(biz_id: str, body: RosterPlanBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    valid = {r["id"] for r in await db.employee_roles.find({}, {"_id": 0, "id": 1}).to_list(100)}
+    plan = []
+    seen = set()
+    for it in body.plan:
+        if it.role not in valid or it.role in seen:
+            continue
+        seen.add(it.role)
+        plan.append({"role": it.role, "recommended": max(0, min(8, it.recommended)),
+                     "wage": round(max(1.0, it.wage), 2) if it.wage else None,
+                     "schedule": it.schedule if it.schedule in employment.SHIFT_PRESETS else "early",
+                     "open": bool(it.open)})
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"roster_plan": plan}})
+    return {"ok": True, "plan": plan}
+
+
+# ---- Phase 2: internal training for player employees (owner offers -> player accepts/declines) ----
+@api.post("/businesses/{biz_id}/player-employees/{emp_id}/offer-training")
+async def offer_player_training(biz_id: str, emp_id: str, body: TrainingOfferBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    emp = await db.player_employment.find_one({"id": emp_id, "business_id": biz_id, "status": "active"}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    if emp.get("training_offer"):
+        raise HTTPException(status_code=400, detail="A training offer is already pending for this employee")
+    opt = await db.training_options.find_one({"id": body.option_id}, {"_id": 0})
+    if not opt:
+        raise HTTPException(status_code=404, detail="Training option not found")
+    if p["cash"] + p["bank"] < opt["cost"]:
+        raise HTTPException(status_code=400, detail=f"You can't cover the ${opt['cost']} training cost")
+    charge(p, opt["cost"])  # escrow: owner pays now, refunded if declined/expired
+    await save_player(p)
+    skill = body.skill or employment.ROLE_SKILL.get(emp.get("role")) or "fitness"
+    offer = {"option_id": opt["id"], "label": opt["label"], "cost": opt["cost"],
+             "skill": skill, "skill_gain": opt["skill_gain"], "desc": opt.get("desc", ""),
+             "offered_at": now_utc().isoformat()}
+    await db.player_employment.update_one({"id": emp_id}, {"$set": {"training_offer": offer}})
+    await add_notification(db, emp["employee_player_id"], "job", "Training offer",
+                           f"{b['name']} offered you training: {opt['label']} (+{opt['skill_gain']} {skill}). Accept or decline in Player Jobs.",
+                           "info", "/job-market")
+    await add_event(db, p["id"], f"You offered {emp['employee_name']} training: {opt['label']} (${opt['cost']} reserved).", "business", "info", biz_id)
+    return {"ok": True}
+
+
+# ---- P2: propose a schedule change (player must accept) ----
+@api.post("/businesses/{biz_id}/player-employees/{emp_id}/propose-schedule")
+async def propose_schedule(biz_id: str, emp_id: str, body: ProposeScheduleBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    emp = await db.player_employment.find_one({"id": emp_id, "business_id": biz_id, "status": "active"}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    sched = employment.make_schedule(body.schedule)
+    if (emp.get("schedule") or {}).get("preset") == sched["preset"]:
+        raise HTTPException(status_code=400, detail="That's already their current schedule")
+    await db.player_employment.update_one({"id": emp_id}, {"$set": {"pending_schedule": {**sched, "proposed_at": now_utc().isoformat()}}})
+    await add_notification(db, emp["employee_player_id"], "job", "Schedule change proposed",
+                           f"{b['name']} proposed a new schedule: {sched['label']} {sched['start']:02d}:00–{sched['end']:02d}:00. Accept or decline in Player Jobs.",
+                           "info", "/job-market")
+    return {"ok": True}
 
 
 # ============================ NOTIFICATIONS & DAILY SUMMARY ============================
