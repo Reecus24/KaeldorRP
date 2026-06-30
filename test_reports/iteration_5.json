@@ -1,0 +1,44 @@
+{
+  "summary": "Phase B (Communication) end-to-end testing — backend pytest 12/12 PASS, frontend Playwright flows 100% PASS. Backend: created /app/backend/tests/test_phase_b_comms.py covering presence (online list + directory excludes self with online flag), world chat (shape, profanity masking, 429 cooldown), admin moderation (list, soft delete hidden from /chat/world, mute => sender 403, unmute restores), messaging device gates (kiri email=403, kiri sms=200), threads + unread + 'message' notifications, reading thread marks-read (unread drops), reply threading (sms uses deterministic sms:lo:hi id, email respects thread_id), and block toggle (block=>403, unblock=>200). Frontend: as mara (phone+laptop) — chat-widget-open => chat-widget renders, chat-messages shows history, chat-input + chat-send posts message that appears live; nav-messages routes to /messages, messages-tab-sms / messages-tab-email both render, NO device-gate-banner for mara, compose-button opens compose-modal with compose-recipient/compose-body, compose-send dispatches and closes modal, thread-{id} opens ThreadView with thread-messages + thread-reply-input + thread-send + block-button, reply appears in thread, notifications-button + nav-messages-badge (showed '2') both render correctly. As kiri (phone-only) — SMS tab: NO gate banner, compose enabled; EMAIL tab: device-gate-banner present with copy 'You need a Laptop to send Email.' and compose-button correctly disabled. World Chat widget on /messages also visible with '4 online' count. time_scale untouched (=1.0).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/messages/send (email)", "issue": "Default subject fallback is '(no subject)' — fine, but if client sends an empty string subject for email the same fallback applies (string is non-None). Consider also setting fallback for whitespace-only subjects."},
+      {"endpoint": "POST /api/messages/block", "issue": "Toggle endpoint with no separate /unblock — the return field is {status: 'blocked' | 'unblocked'} which is correct, but a stateless caller cannot guarantee a desired end-state without first reading current state. Consider accepting an optional 'action' override ('block'|'unblock'|'toggle')."},
+      {"endpoint": "GET /api/messages/threads", "issue": "channel=all returns mixed sms+email threads with no channel filter on the response shape itself (channel is per-thread). Works, but UI must group; consider letting client request 'sms' or 'email' (already supported via query) — documented behaviour."},
+      {"endpoint": "DELETE /api/admin/chat/{id}", "issue": "Returns 200 {ok:true} even when message_id does not exist (no matched_count check). Minor — consider 404 on unknown id for idempotency clarity."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Messages page (mara)", "issues": ["ChatWidget overlay on /messages partially covers the EMAIL Compose's right column / 'No Email yet' empty state when widget is open on smaller desktop widths; not blocking — widget has its own close button (chat-widget-close)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase_b_comms.py",
+    "/app/test_reports/pytest/phase_b_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~1663 lines (was ~1400 in iter_4). The split-into-routers recommendation is increasingly important — comms endpoints would map cleanly to /app/backend/routers/comms.py (chat, messaging) and /app/backend/routers/admin_chat.py.",
+    "comms.PROFANITY is hardcoded module-level and re-compiled per call (re.sub with re.escape). Pre-compile patterns at import time, or use a single alternation regex, to reduce CPU on hot chat path under load. Also the list is English-only and uses whole-word boundaries — substring/leetspeak (e.g. 'sh1t', 'f*ck') won't be masked. Acceptable for MVP; flag for future expansion.",
+    "POST /api/chat/world stores ts as ISO string but the cooldown comparison parses last_chat_at with parse_dt — fine, but every send does an O(N) update_one on players.id (no index hinted) AND inserts to world_chat. Index on world_chat.player_id + last_chat_at would help future moderation queries.",
+    "messages.deleted_by is an array — used for per-recipient soft-delete; no endpoint currently lets a user delete a message they received. Either remove the field or add a DELETE /messages/{id} that pushes player id onto deleted_by.",
+    "sms_thread_id uses 'sms:lo:hi' with lexicographic sort of UUIDs — deterministic and correct. However email thread_id is uuid4 on first send and the client must remember to pass thread_id on reply; if the client forgets, a NEW email thread is created. Frontend currently does this correctly in ThreadView, but the API contract should document the requirement (or accept (from,to,subject) for de-dup).",
+    "admin_chat_mute: minutes is max(1, body.minutes) — accepts huge values (e.g. minutes=999999999 → datetime overflow risk via timedelta). Add an upper bound (e.g. 60*24*365).",
+    "POST /api/messages/send notification body is truncated at text[:80] without an ellipsis and concatenates subject — at chat_max_length=2000 a notification body could still be 80+200 chars; minor formatting nit.",
+    "GET /api/messages/threads pulls up to 3000 messages and groups in Python — O(N) per-call cost grows with user history. Consider an aggregation pipeline with $group on thread_id and $sort once threads exceed a few thousand."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase_b_comms.py"
+  ],
+  "success_rate": {"backend": "100% (12/12 passed)", "frontend": "100% (chat-widget-open, chat-widget, chat-messages, chat-input, chat-send, nav-messages, nav-messages-badge, messages-tab-sms, messages-tab-email, device-gate-banner (kiri email only), compose-button, compose-modal, compose-recipient, compose-body, compose-send, thread-{id}, thread-messages, thread-reply-input, thread-send, block-button, notifications-button — all verified)"},
+  "test_credentials": "Admin: admin@kaeldor.com / admin123. Demo: mara@kaeldor.com / demo123 (phone+laptop), dovan@kaeldor.com / demo123 (phone+laptop), kiri@kaeldor.com / demo123 (phone only). All seeded on startup.",
+  "seed_data_creation": "Tests reuse the seeded demo players (mara/dovan/kiri). Side-effects of running test suite: a handful of TEST chat messages (one soft-deleted via admin) and ~6 SMS/email messages between mara<->dovan; dovan ends in UNBLOCKED state for mara at the end of TestBlock. Frontend test added a few additional SMS thread entries from mara to dovan ('UI test SMS from mara', 'UI test reply from mara'). No cleanup required.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase A clock tests at /app/backend/tests/test_phase_a_clock.py still pass (iter_4 100%). Phase B comms tests at /app/backend/tests/test_phase_b_comms.py — all 12 PASS. Run with: pytest /app/backend/tests/test_phase_b_comms.py -v -p no:xdist -o addopts=. Chat cooldown is 4s (server) — test waits 5s buffer. time_scale stayed at 1.0 throughout. Demo seed (seed_demo_players) runs idempotently on startup; identifiable via user.demo=true. mara/dovan/kiri have history from prior curl + this run — handle existing state gracefully (block flow does this via toggle detect). Phases C (job applications) and D (life inbox) are NOT built yet.",
+  "rca of the issue": "No bugs found. Independent confirmation of agent_to_agent items: (1) admin DELETE /admin/chat/{id} soft-deletes and message disappears from public GET /chat/world (verified), (2) admin mute => muted player's next chat POST returns 403 (verified), unmute restores 200 (verified), (3) block flow: dovan blocks mara => mara->dovan returns 403; toggle unblock restores 200 (verified), (4) reply threading: sms uses deterministic sms_thread_id (sorted lo:hi UUIDs) — same thread regardless of direction; email reply with explicit thread_id appends to same thread (both verified), (5) ALL frontend selectors found and functional. Profanity masking confirmed in UI (visible '****' tokens in chat-messages)."
+}

@@ -5,13 +5,14 @@ import { useGame } from "@/context/GameContext";
 import { Money, StatBar, Pill } from "@/components/game/primitives";
 import ActivityPanel from "@/components/game/ActivityPanel";
 import EventLog from "@/components/game/EventLog";
+import ChatWidget from "@/components/game/ChatWidget";
 import { NEED_META, statusLabel, statusColor, timeMode, computeGameTime, fmtGameClock } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import {
     LayoutDashboard, Home, Briefcase, BadgeCheck, GraduationCap, ShoppingCart,
     Landmark, Building2, Car, Store, Boxes, Sparkles, Skull, Stethoscope,
     Lock, Trophy, Settings, LogOut, Menu, X, Activity, Zap, Clock3, Users,
-    Bell, ScrollText, CalendarClock,
+    Bell, ScrollText, CalendarClock, MessageSquare,
 } from "lucide-react";
 
 const NAV = [
@@ -20,6 +21,7 @@ const NAV = [
     { to: "/home", label: "Home & Needs", icon: Home },
     { to: "/skills", label: "Skills", icon: Sparkles },
     { to: "/social", label: "Social", icon: Users },
+    { to: "/messages", label: "Messages", icon: MessageSquare },
     { to: "/daily-summary", label: "Daily Summary", icon: ScrollText },
     { section: "Work" },
     { to: "/jobs", label: "Job Center", icon: Briefcase },
@@ -42,6 +44,7 @@ const NAV = [
 ];
 
 function NavItems({ onNavigate, isAdmin }) {
+    const { msgUnread } = useGame();
     return (
         <nav className="px-3 py-2 space-y-0.5">
             {NAV.map((item, i) =>
@@ -66,7 +69,10 @@ function NavItems({ onNavigate, isAdmin }) {
                         }
                     >
                         <item.icon className="w-4 h-4 shrink-0" strokeWidth={1.7} />
-                        {item.label}
+                        <span className="flex-1">{item.label}</span>
+                        {item.to === "/messages" && msgUnread > 0 && (
+                            <span data-testid="nav-messages-badge" className="min-w-[18px] h-[18px] px-1 rounded-full bg-neon-red text-[10px] font-bold text-black flex items-center justify-center">{msgUnread > 9 ? "9+" : msgUnread}</span>
+                        )}
                     </NavLink>
                 ),
             )}
@@ -286,6 +292,7 @@ export default function Layout({ children }) {
                     <EventLog max={30} />
                 </aside>
             </div>
+            <ChatWidget />
         </div>
     );
 }

@@ -143,6 +143,12 @@ DEFAULT_CONFIG = {
     # World clock anchors (set at first seed). game_now = world_start_game + elapsed_real * time_scale.
     "world_start_real": None,
     "world_start_game": "2050-01-01T08:00:00+00:00",
+    "comms": {
+        "chat_cooldown_seconds": 4,     # anti-spam: min seconds between world-chat messages
+        "chat_max_length": 280,
+        "online_window_minutes": 3,     # a player is "online" if active within this window
+        "message_max_length": 2000,
+    },
 }
 
 

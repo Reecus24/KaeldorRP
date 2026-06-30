@@ -219,7 +219,9 @@ ITEMS = [
     {"id": "nice_clothes", "name": "Nice Outfit", "category": "wearable", "price": 120,
      "effects": {"mood": 8, "social_status": 6, "reputation": 4}, "desc": "Dress to impress."},
     {"id": "smartphone", "name": "Smartphone", "category": "gear", "price": 250,
-     "effects": {"mood": 6, "technology": 0}, "desc": "Stay connected."},
+     "effects": {"mood": 6, "technology": 0}, "desc": "Stay connected. Required to send SMS to other players."},
+    {"id": "laptop", "name": "Laptop", "category": "gear", "price": 600,
+     "effects": {"mood": 5, "technology": 0}, "desc": "Work, browse and write email. Required to send email to other players."},
     {"id": "gift", "name": "Gift Box", "category": "social", "price": 40,
      "effects": {"mood": 6}, "desc": "For friends and contacts."},
 ]

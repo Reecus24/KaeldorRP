@@ -13,6 +13,7 @@ export function GameProvider({ children }) {
     const [loading, setLoading] = useState(true);
     const [tick, setTick] = useState(0); // 1s ticker for smooth timers
     const [notifications, setNotifications] = useState({ items: [], unread_count: 0 });
+    const [msgUnread, setMsgUnread] = useState(0);
     const refreshing = useRef(false);
     const lastEndRef = useRef(null);
 
@@ -50,6 +51,15 @@ export function GameProvider({ children }) {
         }
     }, []);
 
+    const fetchMsgUnread = useCallback(async () => {
+        try {
+            const { data } = await api.get("/messages/unread");
+            setMsgUnread(data.count || 0);
+        } catch {
+            /* ignore */
+        }
+    }, []);
+
     const markNotificationsRead = useCallback(async (ids) => {
         try {
             await api.post("/notifications/read", { ids: ids || null });
@@ -60,8 +70,8 @@ export function GameProvider({ children }) {
     }, [fetchNotifications]);
 
     const refresh = useCallback(async () => {
-        await Promise.all([fetchState(), fetchEvents(), fetchNotifications()]);
-    }, [fetchState, fetchEvents, fetchNotifications]);
+        await Promise.all([fetchState(), fetchEvents(), fetchNotifications(), fetchMsgUnread()]);
+    }, [fetchState, fetchEvents, fetchNotifications, fetchMsgUnread]);
 
     // Initial + when user changes
     useEffect(() => {
@@ -154,6 +164,8 @@ export function GameProvider({ children }) {
                 notifications,
                 unreadCount: notifications.unread_count || 0,
                 markNotificationsRead,
+                msgUnread,
+                fetchMsgUnread,
             }}
         >
             {children}

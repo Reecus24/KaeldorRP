@@ -27,6 +27,7 @@ from game_engine import (
 from seed_data import seed_content, CONTENT_MAP
 import employee_engine
 import social_engine
+import comms
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -1344,7 +1345,7 @@ async def list_notifications(limit: int = 40, user: dict = Depends(current_user)
 async def mark_notifications_read(body: NotifReadBody, user: dict = Depends(current_user)):
     p = await fetch_raw_player(user["id"])
     q = {"player_id": p["id"], "read": False}
-    if body.ids:
+    if body.ids is not None:
         q["id"] = {"$in": body.ids}
     await db.notifications.update_many(q, {"$set": {"read": True}})
     return {"ok": True}
@@ -1355,6 +1356,214 @@ async def daily_summaries(limit: int = 30, user: dict = Depends(current_user)):
     p = await get_state(user)
     items = await db.daily_summaries.find({"player_id": p["id"]}, {"_id": 0}).sort("real_ts", -1).to_list(limit)
     return items
+
+
+# ============================ PRESENCE & WORLD CHAT ============================
+class ChatBody(BaseModel):
+    message: str
+
+
+class SendMessageBody(BaseModel):
+    channel: str
+    to_player_id: str
+    subject: Optional[str] = None
+    body: str
+    thread_id: Optional[str] = None
+
+
+class PlayerIdBody(BaseModel):
+    player_id: str
+
+
+@api.get("/players/online")
+async def players_online(user: dict = Depends(current_user)):
+    cfg = await get_config(db)
+    window = cfg.get("comms", {}).get("online_window_minutes", 3)
+    cutoff = (now_utc() - timedelta(minutes=window)).isoformat()
+    players = await db.players.find({"last_seen": {"$gte": cutoff}}, {"_id": 0, "id": 1, "name": 1, "last_seen": 1}).to_list(200)
+    return {"online": players, "count": len(players)}
+
+
+@api.get("/players/directory")
+async def players_directory(user: dict = Depends(current_user)):
+    me = await db.players.find_one({"user_id": user["id"]}, {"_id": 0, "id": 1})
+    cfg = await get_config(db)
+    players = await db.players.find({}, {"_id": 0, "id": 1, "name": 1, "last_seen": 1, "level": 1, "reputation": 1}).to_list(500)
+    out = [{"id": p["id"], "name": p["name"], "level": p.get("level", 1),
+            "online": comms.is_online(p, cfg)} for p in players if not me or p["id"] != me["id"]]
+    out.sort(key=lambda x: (not x["online"], x["name"].lower()))
+    return out
+
+
+@api.get("/chat/world")
+async def chat_world(limit: int = 60, user: dict = Depends(current_user)):
+    msgs = await db.world_chat.find({"deleted": {"$ne": True}}, {"_id": 0}).sort("ts", -1).to_list(limit)
+    msgs.reverse()
+    cfg = await get_config(db)
+    window = cfg.get("comms", {}).get("online_window_minutes", 3)
+    cutoff = (now_utc() - timedelta(minutes=window)).isoformat()
+    online = await db.players.count_documents({"last_seen": {"$gte": cutoff}})
+    return {"messages": msgs, "online_count": online}
+
+
+@api.post("/chat/world")
+async def chat_world_send(body: ChatBody, user: dict = Depends(current_user)):
+    p = await fetch_raw_player(user["id"])
+    cfg = await get_config(db)
+    ccfg = cfg.get("comms", {})
+    muted = parse_dt(p.get("chat_muted_until"))
+    if muted and muted > now_utc():
+        raise HTTPException(status_code=403, detail="You are muted in World Chat.")
+    text = (body.message or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Message is empty")
+    text = text[: ccfg.get("chat_max_length", 280)]
+    last = parse_dt(p.get("last_chat_at"))
+    cd = ccfg.get("chat_cooldown_seconds", 4)
+    if last and (now_utc() - last).total_seconds() < cd:
+        raise HTTPException(status_code=429, detail=f"Slow down — wait {cd}s between messages.")
+    doc = {"id": uuid.uuid4().hex, "player_id": p["id"], "name": p["name"],
+           "message": comms.clean_text(text), "ts": now_utc().isoformat(), "deleted": False}
+    await db.world_chat.insert_one({**doc})
+    await db.players.update_one({"id": p["id"]}, {"$set": {"last_chat_at": now_utc().isoformat()}})
+    doc.pop("_id", None)
+    return {"ok": True, "message": doc}
+
+
+# ============================ PLAYER MESSAGING ============================
+@api.get("/messages/threads")
+async def message_threads(channel: str = "all", user: dict = Depends(current_user)):
+    me = await fetch_raw_player(user["id"])
+    q = {"$or": [{"from_player_id": me["id"]}, {"to_player_id": me["id"]}], "deleted_by": {"$ne": me["id"]}}
+    msgs = await db.messages.find(q, {"_id": 0}).sort("ts", 1).to_list(3000)
+    threads = {}
+    for m in msgs:
+        if channel != "all" and m["channel"] != channel:
+            continue
+        tid = m["thread_id"]
+        from_me = m["from_player_id"] == me["id"]
+        t = threads.setdefault(tid, {"thread_id": tid, "channel": m["channel"],
+                                     "other_id": m["to_player_id"] if from_me else m["from_player_id"],
+                                     "other_name": m["to_name"] if from_me else m["from_name"],
+                                     "subject": m.get("subject"), "unread": 0})
+        t["last_body"] = m["body"]
+        t["last_ts"] = m["ts"]
+        t["last_from_me"] = from_me
+        if m.get("subject"):
+            t["subject"] = m["subject"]
+        if m["to_player_id"] == me["id"] and not m.get("read"):
+            t["unread"] += 1
+    return sorted(threads.values(), key=lambda x: x.get("last_ts", ""), reverse=True)
+
+
+@api.get("/messages/unread")
+async def messages_unread(user: dict = Depends(current_user)):
+    me = await fetch_raw_player(user["id"])
+    count = await db.messages.count_documents({"to_player_id": me["id"], "read": {"$ne": True}, "deleted_by": {"$ne": me["id"]}})
+    return {"count": count}
+
+
+@api.get("/messages/thread/{thread_id}")
+async def message_thread(thread_id: str, user: dict = Depends(current_user)):
+    me = await fetch_raw_player(user["id"])
+    msgs = await db.messages.find({"thread_id": thread_id,
+                                   "$or": [{"from_player_id": me["id"]}, {"to_player_id": me["id"]}],
+                                   "deleted_by": {"$ne": me["id"]}}, {"_id": 0}).sort("ts", 1).to_list(500)
+    await db.messages.update_many({"thread_id": thread_id, "to_player_id": me["id"], "read": {"$ne": True}}, {"$set": {"read": True}})
+    return {"messages": msgs}
+
+
+@api.post("/messages/send")
+async def send_message(body: SendMessageBody, user: dict = Depends(current_user)):
+    me = await fetch_raw_player(user["id"])
+    cfg = await get_config(db)
+    if body.channel not in ("sms", "email"):
+        raise HTTPException(status_code=400, detail="Invalid channel")
+    if not comms.has_device(me, body.channel):
+        need = "a Laptop" if body.channel == "email" else "a Smartphone"
+        raise HTTPException(status_code=403, detail=f"You need {need} to use this. Buy one in the Shop.")
+    text = (body.body or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Message is empty")
+    text = text[: cfg.get("comms", {}).get("message_max_length", 2000)]
+    recipient = await db.players.find_one({"id": body.to_player_id}, {"_id": 0})
+    if not recipient:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    if recipient["id"] == me["id"]:
+        raise HTTPException(status_code=400, detail="You can't message yourself")
+    if me["id"] in (recipient.get("msg_blocked") or []):
+        raise HTTPException(status_code=403, detail="This player has blocked your messages")
+    if body.channel == "sms":
+        tid = comms.sms_thread_id(me["id"], recipient["id"])
+        subject = None
+    else:
+        tid = body.thread_id or uuid.uuid4().hex
+        subject = (body.subject or "(no subject)").strip()[:120]
+    doc = {"id": uuid.uuid4().hex, "channel": body.channel, "thread_id": tid,
+           "from_player_id": me["id"], "from_name": me["name"],
+           "to_player_id": recipient["id"], "to_name": recipient["name"],
+           "subject": subject, "body": comms.clean_text(text),
+           "ts": now_utc().isoformat(), "read": False, "deleted_by": []}
+    await db.messages.insert_one({**doc})
+    label = "email" if body.channel == "email" else "SMS"
+    await add_notification(db, recipient["id"], "message", f"New {label} from {me['name']}",
+                           (subject + " — " if subject else "") + text[:80], "info", "/messages")
+    doc.pop("_id", None)
+    return {"ok": True, "thread_id": tid, "message": doc}
+
+
+@api.post("/messages/block")
+async def block_player(body: PlayerIdBody, user: dict = Depends(current_user)):
+    me = await fetch_raw_player(user["id"])
+    blocked = set(me.get("msg_blocked") or [])
+    if body.player_id in blocked:
+        blocked.discard(body.player_id)
+        verb = "unblocked"
+    else:
+        blocked.add(body.player_id)
+        verb = "blocked"
+    await db.players.update_one({"id": me["id"]}, {"$set": {"msg_blocked": list(blocked)}})
+    return {"ok": True, "status": verb}
+
+
+@api.post("/messages/{message_id}/report")
+async def report_message(message_id: str, user: dict = Depends(current_user)):
+    me = await fetch_raw_player(user["id"])
+    await db.message_reports.insert_one({"id": uuid.uuid4().hex, "message_id": message_id,
+                                         "reporter_id": me["id"], "ts": now_utc().isoformat()})
+    return {"ok": True}
+
+
+# ============================ ADMIN: CHAT MODERATION ============================
+class MuteBody(BaseModel):
+    player_id: str
+    minutes: int = 60
+
+
+@api.get("/admin/chat")
+async def admin_chat(limit: int = 100, admin: dict = Depends(admin_user)):
+    return await db.world_chat.find({}, {"_id": 0}).sort("ts", -1).to_list(limit)
+
+
+@api.delete("/admin/chat/{message_id}")
+async def admin_delete_chat(message_id: str, admin: dict = Depends(admin_user)):
+    await db.world_chat.update_one({"id": message_id}, {"$set": {"deleted": True}})
+    return {"ok": True}
+
+
+@api.post("/admin/chat/mute")
+async def admin_mute(body: MuteBody, admin: dict = Depends(admin_user)):
+    until = (now_utc() + timedelta(minutes=max(1, body.minutes))).isoformat()
+    res = await db.players.update_one({"id": body.player_id}, {"$set": {"chat_muted_until": until}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return {"ok": True, "muted_until": until}
+
+
+@api.post("/admin/chat/unmute")
+async def admin_unmute(body: PlayerIdBody, admin: dict = Depends(admin_user)):
+    await db.players.update_one({"id": body.player_id}, {"$set": {"chat_muted_until": None}})
+    return {"ok": True}
 
 
 # ============================ STARTUP ============================
@@ -1369,6 +1578,58 @@ app.add_middleware(
 )
 
 
+async def seed_demo_players():
+    """Idempotently create ~3 identifiable demo players for multiplayer testing."""
+    demos = [
+        {"email": "mara@kaeldor.com", "name": "Mara Vance", "bg": "worker",
+         "cash": 800, "bank": 1500, "devices": ["smartphone", "laptop"], "rep": 60, "job": "cashier"},
+        {"email": "dovan@kaeldor.com", "name": "Dovan Reyes", "bg": "hustler",
+         "cash": 1200, "bank": 4000, "devices": ["smartphone", "laptop"], "rep": 55, "business": "kiosk"},
+        {"email": "kiri@kaeldor.com", "name": "Kiri Sol", "bg": "graduate",
+         "cash": 500, "bank": 900, "devices": ["smartphone"], "rep": 75, "job": "sales_assistant"},
+    ]
+    for d in demos:
+        user = await db.users.find_one({"email": d["email"]})
+        if user:
+            uid = str(user["_id"])
+        else:
+            res = await db.users.insert_one({"email": d["email"], "password_hash": hash_password("demo123"),
+                                             "name": d["name"], "role": "player", "demo": True,
+                                             "created_at": now_utc().isoformat()})
+            uid = str(res.inserted_id)
+        if await db.players.find_one({"user_id": uid}):
+            continue
+        p = new_player(uid, d["name"], d["bg"])
+        p["cash"] = d["cash"]
+        p["bank"] = d["bank"]
+        p["reputation"] = d["rep"]
+        p["last_seen"] = now_utc().isoformat()
+        p["inventory"] = {dev: 1 for dev in d["devices"]}
+        if d.get("job"):
+            j = await db.jobs.find_one({"id": d["job"]}, {"_id": 0})
+            if j:
+                p["job"] = {"job_id": j["id"], "title": j["title"], "shifts_worked": 12,
+                            "reliability": 70, "hired_at": now_utc().isoformat()}
+        await db.players.insert_one({**p})
+        if d.get("business"):
+            t = await db.business_types.find_one({"id": d["business"]}, {"_id": 0})
+            if t:
+                biz = {
+                    "id": uuid.uuid4().hex, "player_id": p["id"], "type_id": t["id"], "name": f"{d['name'].split()[0]}'s {t['name']}",
+                    "category": t.get("category", ""), "purchase_price": t["purchase_price"],
+                    "rent_per_day": t.get("rent_per_day", 0), "base_revenue_per_day": t.get("base_revenue_per_day", 0),
+                    "base_expenses_per_day": t.get("base_expenses_per_day", 0), "max_level": t.get("max_level", 5),
+                    "level": 1, "marketing_level": 0, "security_level": 0, "reputation": 55.0,
+                    "cash": 200.0, "debt": 0.0, "revenue_total": 0.0, "last_net_day": 0.0,
+                    "bankrupt": False, "history": [], "created_at": now_utc().isoformat(),
+                    "satisfaction": 62.0, "last_applicant_at": now_utc().isoformat(),
+                    "rev_day": 0.0, "exp_day": 0.0, "wages_day": 0.0, "coverage": 0.35, "morale_avg": 0,
+                    "hiring_open": True,
+                }
+                await db.businesses.insert_one({**biz})
+    logger.info("Demo players seeded (mara/dovan/kiri @kaeldor.com / demo123)")
+
+
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
@@ -1376,6 +1637,11 @@ async def startup():
     await db.players.create_index("id", unique=True)
     await db.events.create_index([("player_id", 1), ("ts", -1)])
     await db.businesses.create_index("player_id")
+    await db.notifications.create_index([("player_id", 1), ("ts", -1)])
+    await db.world_chat.create_index([("ts", -1)])
+    await db.messages.create_index([("thread_id", 1), ("ts", 1)])
+    await db.messages.create_index([("to_player_id", 1), ("read", 1)])
+    await db.players.create_index("last_seen")
     await seed_content(db)
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@kaeldor.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
@@ -1387,6 +1653,7 @@ async def startup():
         await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
     elif existing.get("role") != "admin":
         await db.users.update_one({"email": admin_email}, {"$set": {"role": "admin"}})
+    await seed_demo_players()
     logger.info("Kaeldor RPG started. Admin: %s", admin_email)
 
 
