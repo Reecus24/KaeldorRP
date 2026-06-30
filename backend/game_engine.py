@@ -387,7 +387,7 @@ async def resolve_player(db, p):
         if p["health"] <= 0 and p.get("status") not in ("jail", "hospital"):
             p["health"] = 1
             p["current_activity"] = None
-            p["hospital_until"] = (now + timedelta(seconds=real_seconds(720, ts))).isoformat()
+            p["hospital_until"] = (now + timedelta(seconds=real_seconds(360, ts))).isoformat()
             p["status"] = "hospital"
             await add_event(db, p["id"], "You collapsed from poor health and were rushed to hospital.", "health", "danger")
 

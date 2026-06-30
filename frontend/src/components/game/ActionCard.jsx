@@ -1,6 +1,7 @@
 import { KButton } from "@/components/game/controls";
 import { Panel, Pill, RiskBadge, Money } from "@/components/game/primitives";
-import { gameDuration, fmtDuration } from "@/lib/helpers";
+import { realDurationLabel, fmtDuration } from "@/lib/helpers";
+import { useGame } from "@/context/GameContext";
 import { Clock, Coins, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +27,8 @@ function effectChips(effects) {
 }
 
 export default function ActionCard({ action, onStart, blocked, loading, ctaLabel = "Start", variant = "primary" }) {
+    const { state } = useGame();
+    const ts = state?.time_scale || 1;
     const available = action.available !== false;
     const onCd = (action.cooldown_remaining || 0) > 0;
     const disabled = blocked || !available || loading;
@@ -41,7 +44,7 @@ export default function ActionCard({ action, onStart, blocked, loading, ctaLabel
             <div className="flex flex-wrap gap-1 mb-3">{effectChips(action.effects || action.skill_xp_display)}</div>
 
             <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-mono mb-3">
-                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {gameDuration(action.duration_minutes)}</span>
+                <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {realDurationLabel(action.duration_minutes, ts)}</span>
                 {action.money_cost > 0 && <span className="flex items-center gap-1 text-neon-red"><Coins className="w-3 h-3" /> ${action.money_cost}</span>}
                 {action.money_reward > 0 && <span className="flex items-center gap-1 text-neon-green"><Coins className="w-3 h-3" /> +${action.money_reward}</span>}
             </div>

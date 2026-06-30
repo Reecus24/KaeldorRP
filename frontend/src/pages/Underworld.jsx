@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { gameDuration } from "@/lib/helpers";
+import { gameDuration, realDurationLabel } from "@/lib/helpers";
 import { Skull, AlertTriangle, Clock, Lock } from "lucide-react";
 
 const HERO = "https://images.unsplash.com/photo-1688377051459-aebb99b42bff?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwzfHxjeWJlcnB1bmslMjBuZW9uJTIwZGFzaGJvYXJkJTIwZWxlbWVudHN8ZW58MHx8fHwxNzgyNzg4NTY4fDA&ixlib=rb-4.1.0&q=85";
@@ -60,11 +60,11 @@ export default function Underworld() {
                             <span className="text-neon-green">Reward ${a.reward_min}–${a.reward_max}</span>
                             <span className="text-neon-yellow">+{a.suspicion_gain} suspicion</span>
                             <span className="text-neon-red">Fine ${a.fine_amount}</span>
-                            <span className="text-neon-red">Jail {gameDuration(a.jail_minutes)}</span>
+                            <span className="text-neon-red">Jail {realDurationLabel(a.jail_minutes, state?.time_scale || 1)}</span>
                         </div>
 
                         <div className="flex items-center gap-1 text-[11px] text-muted-foreground font-mono mb-3">
-                            <Clock className="w-3 h-3" /> {gameDuration(a.duration_minutes)} · {Math.round(a.failure_chance * 100)}% fail chance
+                            <Clock className="w-3 h-3" /> {realDurationLabel(a.duration_minutes, state?.time_scale || 1)} · {Math.round(a.failure_chance * 100)}% fail chance
                         </div>
 
                         {!a.available ? (

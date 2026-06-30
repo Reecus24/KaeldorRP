@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { SKILL_LABELS, gameDuration } from "@/lib/helpers";
+import { SKILL_LABELS, realDurationLabel } from "@/lib/helpers";
 import { GraduationCap, Lock, CheckCircle2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +48,7 @@ export default function Education() {
                         <div className="text-[11px] text-neon-cyan/80 font-mono mb-3">Unlocks: {c.unlocks}</div>
 
                         <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground mb-3">
-                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {gameDuration(c.duration_minutes)}</span>
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {realDurationLabel(c.duration_minutes, state?.time_scale || 1)}</span>
                             <span className="text-neon-red">Tuition ${c.cost}</span>
                         </div>
 

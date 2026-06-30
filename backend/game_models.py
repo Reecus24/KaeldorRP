@@ -98,9 +98,9 @@ def new_player(user_id, name, background):
 DEFAULT_CONFIG = {
     "id": "global",
     # time_scale = game minutes that pass per 1 real minute.
-    # 12 => 1 game hour (60 min) passes every 5 real minutes (v1 default).
-    # Set to 1 for true real-time (1 game hour = 1 real hour).
-    "time_scale": 12.0,
+    # 1  => TRUE REAL-TIME (1 game hour = 1 real hour). This is the default.
+    # 12 => accelerated test mode (1 game hour = 5 real minutes) for balancing.
+    "time_scale": 1.0,
     "decay": {
         "hunger": 3.2,        # hunger rises per game hour
         "hygiene": 1.8,       # hygiene falls per game hour

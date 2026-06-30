@@ -26,6 +26,22 @@ export function gameDuration(gameMinutes) {
     return `${m} game min`;
 }
 
+// Real-world wait time for an activity, given the current time_scale.
+// real_minutes = game_minutes / time_scale (time_scale = game min per real min).
+export function realDurationLabel(gameMinutes, timeScale = 1) {
+    const realMin = gameMinutes / (timeScale || 1);
+    if (realMin >= 1440) return `${(realMin / 1440).toFixed(realMin % 1440 ? 1 : 0)}d`;
+    if (realMin >= 60) return `${(realMin / 60).toFixed(realMin % 60 ? 1 : 0)}h`;
+    if (realMin >= 1) return `${Math.round(realMin)} min`;
+    return `${Math.round(realMin * 60)} sec`;
+}
+
+// Describes whether the world clock runs in true real-time or accelerated test mode.
+export function timeMode(timeScale = 1) {
+    if (timeScale <= 1.0001) return { realtime: true, label: "REAL-TIME", tone: "green" };
+    return { realtime: false, label: `FAST ×${Math.round(timeScale)}`, tone: "yellow" };
+}
+
 // risk level -> color classes
 export const RISK_COLORS = {
     none: "text-neon-green border-neon-green/40",

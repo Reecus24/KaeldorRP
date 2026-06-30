@@ -5,12 +5,12 @@ import { useGame } from "@/context/GameContext";
 import { Money, StatBar, Pill } from "@/components/game/primitives";
 import ActivityPanel from "@/components/game/ActivityPanel";
 import EventLog from "@/components/game/EventLog";
-import { NEED_META, statusLabel, statusColor } from "@/lib/helpers";
+import { NEED_META, statusLabel, statusColor, timeMode } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import {
     LayoutDashboard, Home, Briefcase, BadgeCheck, GraduationCap, ShoppingCart,
     Landmark, Building2, Car, Store, Boxes, Sparkles, Skull, Stethoscope,
-    Lock, Trophy, Settings, LogOut, Menu, X, Activity, Zap,
+    Lock, Trophy, Settings, LogOut, Menu, X, Activity, Zap, Clock3,
 } from "lucide-react";
 
 const NAV = [
@@ -102,6 +102,7 @@ export default function Layout({ children }) {
 
     const isAdmin = user?.role === "admin";
     const status = player?.status || "free";
+    const mode = timeMode(state?.time_scale || 1);
 
     const doLogout = async () => {
         await logout();
@@ -132,6 +133,9 @@ export default function Layout({ children }) {
                                 <span className="text-muted-foreground">DEBT <span className="text-neon-red tnum">${Math.round(player.debt).toLocaleString()}</span></span>
                                 <span className="text-muted-foreground">NET <Money value={state?.net_worth} testid="topbar-networth" /></span>
                             </div>
+                            <Pill tone={mode.tone} className="hidden sm:inline-flex" >
+                                <Clock3 className="w-3 h-3 mr-1" /> {mode.label}
+                            </Pill>
                             <Pill tone={status === "free" ? "green" : status === "jail" || status === "hospital" ? "red" : "cyan"}>
                                 <span className={cn("w-1.5 h-1.5 rounded-full mr-1", status === "free" ? "bg-neon-green" : "bg-neon-cyan animate-pulse-dot")} />
                                 {statusLabel(status)}

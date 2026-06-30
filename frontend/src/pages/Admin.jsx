@@ -112,9 +112,23 @@ function ConfigEditor() {
     };
     if (!cfg) return <Spinner />;
     const realMinPerGameHour = (60 / cfg.time_scale).toFixed(1);
+    const isRealtime = cfg.time_scale <= 1.0001;
 
     return (
         <div className="space-y-4">
+            <Panel className={cn("p-4 flex items-center gap-3", isRealtime ? "border-neon-green/40" : "border-neon-yellow/40")} data-testid="realtime-indicator">
+                <span className={cn("w-2.5 h-2.5 rounded-full", isRealtime ? "bg-neon-green" : "bg-neon-yellow animate-pulse-dot")} />
+                <div className="flex-1">
+                    <div className={cn("font-display font-bold", isRealtime ? "text-neon-green" : "text-neon-yellow")}>
+                        {isRealtime ? "TRUE REAL-TIME MODE" : `ACCELERATED TEST MODE — ×${Math.round(cfg.time_scale)} faster`}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                        {isRealtime
+                            ? "1 game hour = 1 real hour. Jobs, study, businesses, rent and sentences run over real-life time."
+                            : `1 game hour = ${realMinPerGameHour} real minutes. Set time scale to 1 for true real-time.`}
+                    </div>
+                </div>
+            </Panel>
             <Panel className="p-5">
                 <div className="font-display font-bold text-white mb-1">Time Scale</div>
                 <p className="text-[11px] text-muted-foreground mb-3">Game minutes that pass per 1 real minute. Currently <b className="text-neon-cyan">1 game hour = {realMinPerGameHour} real minutes</b>. Set to 1 for true real-time.</p>
