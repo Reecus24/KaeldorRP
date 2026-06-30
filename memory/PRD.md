@@ -30,13 +30,17 @@ Stats (cash/bank/debt/net worth, energy/fatigue/hunger/hygiene/mood/stress/healt
 - JWT auth (register/login/logout/me) + seeded admin; character creation w/ 5 backgrounds.
 - Full player state + real-time resolver with offline progress, needs decay, recurring bills, loan interest, effectiveness model.
 - Actions (16 seeded), Jobs (13 + apply/work-shift/quit/promote + random work events), Education (9 courses), Shop (7 items), Bank (deposit/withdraw/loan/repay), Real Estate (6 homes, rent/buy), Vehicles (7, buy/sell, daily costs + condition), Businesses (10 types, buy/collect/upgrade/marketing/inject/sell + passive P&L + bankruptcy + random events), Underworld (8 illegal actions w/ catch/fail/jail/fine), Police Record, Jail (bail), Hospital (treat), Leaderboard.
-- Admin dashboard: stats, content CRUD (jobs/actions/courses/items/housing/vehicles/business_types/illegal_actions/random_events) via JSON editor, config editor (time_scale + full JSON), players table.
-- Dark neo-noir UI: Unbounded/Manrope/JetBrains Mono, neon accents, control-room grid, live countdowns, terminal event log, full data-testid coverage.
-- **Verified:** 26/27 backend tests pass (1 expected skip); frontend core flows confirmed by testing agent. No critical bugs.
+- Admin dashboard: stats, content CRUD via JSON editor, config editor (time_scale + full JSON), players table.
+- Dark neo-noir UI w/ live countdowns, terminal event log, full data-testid coverage.
 
-## Backlog / Next Tasks
-- **P1 Business depth:** NPC employees + wages, hire/fire, inventory, set prices, business loans, multi-location expansion, profit/loss charts.
-- **P1 Social system:** NPC contacts (friend/coworker/landlord/boss/partner/business/shady), relationship decay, gifts, effects on opportunities.
+## Updated — Real-Time Default (2026-06)
+- Default `time_scale = 1` (TRUE REAL-TIME: 1 game hour = 1 real hour). Durations re-tuned (small actions 8–35m, shifts 2–8h, sleep 8h, courses 12h–10 days, jail 6h–1.5d). Admin can still set 12× test mode. Real-time mode indicator in top bar + Admin config; cards show real wait times.
+
+## Added — NPC Employee + Hiring System (2026-06)
+- `employee_engine.py` resolves staffing fully offline: applicant generation over real time, hire/reject/recruit, morale/energy/experience drift, skill-ups, sick days, quitting, theft, training completion, wage payment (unpaid wages drop morale + cause quits), manager bonuses, random staff events, staffing-driven revenue/satisfaction/reputation, bankruptcy.
+- Seeded: 14 roles, 12 traits, per-type staffing requirements (10), 4 training options, 8 staff-event templates — all admin-editable (5 new Admin tabs).
+- New endpoints: business detail/employees/applicants/events, hire/reject/recruit/fire/raise/train, training-options. Owned list returns staffing `metrics`.
+- New `BusinessManage` page (/businesses/:id) with Overview/Finances/Employees/Applicants/Training/Events tabs. Verified by testing agent (backend 17/20, 3 skipped for funds; frontend 100%). No blocking bugs.
 - **P2 Travel/City map** with travel-time blocking activities; richer random-event chains.
 - **P2 Multiplayer:** chat, player marketplace, player-owned companies hiring players, factions/gangs, contracts.
 - **P2 Polish:** brute-force login lockout + password reset (auth playbook), split `server.py` into routers, persist player only on mutation, add favicon (clears cosmetic 404), differentiate "Busy" vs disabled button styling, tighten CORS origins for production.
