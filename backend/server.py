@@ -1238,9 +1238,6 @@ async def social_interact(cid: str, body: InteractBody, user: dict = Depends(cur
     ok, reason = social_engine.validate_action(p, c, a)
     if not ok:
         raise HTTPException(status_code=400, detail=reason)
-    cd = c.get("cooldowns", {}).get(a["id"])
-    if cd and parse_dt(cd) > now_utc():
-        raise HTTPException(status_code=409, detail="That interaction is on cooldown")
     gift = None
     if a.get("kind") == "give_gift":
         if not body.gift_id:
@@ -1248,6 +1245,10 @@ async def social_interact(cid: str, body: InteractBody, user: dict = Depends(cur
         gift = await db.gift_types.find_one({"id": body.gift_id}, {"_id": 0})
         if not gift:
             raise HTTPException(status_code=404, detail="Gift not found")
+    cd = c.get("cooldowns", {}).get(a["id"])
+    if cd and parse_dt(cd) > now_utc():
+        raise HTTPException(status_code=409, detail="That interaction is on cooldown")
+    if gift is not None:
         if p["cash"] + p["bank"] < gift["cost"]:
             raise HTTPException(status_code=400, detail="You can't afford that gift")
         charge(p, gift["cost"])

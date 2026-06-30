@@ -41,6 +41,20 @@ Stats (cash/bank/debt/net worth, energy/fatigue/hunger/hygiene/mood/stress/healt
 - Seeded: 14 roles, 12 traits, per-type staffing requirements (10), 4 training options, 8 staff-event templates — all admin-editable (5 new Admin tabs).
 - New endpoints: business detail/employees/applicants/events, hire/reject/recruit/fire/raise/train, training-options. Owned list returns staffing `metrics`.
 - New `BusinessManage` page (/businesses/:id) with Overview/Finances/Employees/Applicants/Training/Events tabs. Verified by testing agent (backend 17/20, 3 skipped for funds; frontend 100%). No blocking bugs.
+
+## Added — Social Contacts & Relationships System (2026-06, P1 done)
+- New `social_engine.py`: per-player NPC `contacts` collection. Each contact has relationship_score (-100..100), trust, respect, attraction (romance), mood, personality traits, status (active/distant/angry/close/romantic/ex_partner/blocked), decay_rate, last_interaction_at, known_since, and a history log.
+- Offline resolution in `resolve_social()` (hooked into `resolve_player`): relationship decay over real time (close bonds slower, angry bonds worsen), mood/status drift, aggregate mood/stress effect on player, partner expenses, weighted random social events, angry-boss firing risk, angry-landlord eviction warnings. Lazy-seeds a social circle on first state read.
+- 12 seeded NPC archetypes, 14 personality traits, 13 relationship actions, 6 gift types, 13 social-event templates — all admin-editable (5 new Admin tabs: NPC Archetypes, Personality, Rel. Actions, Gifts, Social Events).
+- Interactions: instant (small_talk, call_text, give_gift, apologize, ask_favor, ask_reference, ask_loan — per-contact real-time cooldowns, don't block) + activity (hang_out, help_problem, invite_date, meet_shady) + discovery (network_business, meet_new_people — grow the circle). No action points; balanced by cooldowns/money/risk.
+- Integrations: job apply/promote → boss + coworker contacts (angry boss can fire you); rent → landlord (angry landlord eviction warnings); buy business → business contact (networking boosts biz reputation); shady contact `meet_shady` → temporary crime police-risk reduction buff applied in `_resolve_illegal`; ask_reference → reputation + job reliability; ask_loan → cash.
+- New endpoints: GET /api/social/contacts, /social/contacts/{cid}, /social/gifts, /social/discover-actions; POST /social/contacts/{cid}/interact, /social/discover/{action_id}, /social/contacts/{cid}/block.
+- Frontend: `Social.jsx` (/social) with tabs All/Friends/Work/Romance/Business/Housing/Underworld/Family/Meet People/Event Log + `ContactDetail.jsx` (/social/:cid). Nav entry added.
+- Verified by testing agent iteration_3 (backend 19 passed / 5 skipped for live-state, 0 failed; frontend 100% selectors). Minor validation-order fix applied (gift selection validated before cooldown). No blocking bugs.
+
+### Backlog (P1/P2)
+- **P1 Player housing market / real-estate upgrades** (furniture, perks).
+- **P2 Vehicle mechanics** (fuel, insurance, repairs, accidents).
 - **P2 Travel/City map** with travel-time blocking activities; richer random-event chains.
 - **P2 Multiplayer:** chat, player marketplace, player-owned companies hiring players, factions/gangs, contracts.
 - **P2 Polish:** brute-force login lockout + password reset (auth playbook), split `server.py` into routers, persist player only on mutation, add favicon (clears cosmetic 404), differentiate "Busy" vs disabled button styling, tighten CORS origins for production.
