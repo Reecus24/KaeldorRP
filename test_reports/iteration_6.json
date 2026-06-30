@@ -1,0 +1,51 @@
+{
+  "summary": "Phase C (Player Employment & Job Applications) end-to-end testing — backend pytest 18/18 PASS, frontend Playwright flows PASS. Backend: created /app/backend/tests/test_phase_c_employment.py covering: (1) NPC apply→pending→resolves accepted/rejected with wage_offer + human reason, duplicate 409, criminal record 403 (legal_reputation=10), accept-offer auto-withdraws other pending/accepted apps, sets player.job; (2) Player Job Market: GET /jobs/market lists Dovan's biz, POST /jobs/market/{biz}/apply works + duplicate 409 + closed-hiring 400; (3) Owner Hiring tab: GET /businesses/{id}/player-applications includes stats snapshot + recommended_wage, POST offer/reject works, applicant gets job notification, accept creates active player_employment, owner gets 'Offer accepted' notif, invalid app accept 400; (4) Shift work: POST /jobs/employment/{id}/work creates blocking activity; fast-forwarded via DB (current_activity.ends_at→past) + GET /game/state triggers complete_player_shift — wage paid (cash up), employment.total_hours_worked & total_wages_earned updated, business cash/satisfaction/reputation/revenue updated, owner gets 'finished a shift' notif; (5) Owner mgmt: raise (wage updated), employee quit, owner fire (status transitions correct); (6) Edge cases: reject notification reaches applicant, offer_expires_at in past flips status→expired on state read, toggle-hiring persists. Frontend Playwright (1920x1080): /job-market as mara — jm-tab-market + jm-tab-mine visible, market-biz-{id} card with APPLY button shows Dovan's Street Kiosk, My Jobs tab renders with event log showing the full lifecycle (Clocked in / Finished shift / Earned $62-$65 / Quit). /jobs as player@kaeldor.com — 5 apply-job buttons + npc-applications panel rendered, prior Cleaner application shows as REJECTED with reason 'low fitness skill' confirming resolve_npc_applications + UI binding work. /businesses/{biz_id} as dovan — tab-hiring present, Player Hiring tab shows Close Hiring toggle + Applications (n) + Player Employees (n) sections. Notifications badge increments correctly (mara=2, dovan=8). time_scale stayed at 1.0 throughout (verified in config collection).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/jobs/employment/applications/{app_id}/decline", "issue": "Sets status to 'withdrawn' regardless of whether incoming status was 'pending' or 'offered'. Naming is fine but consider 'declined' as distinct from 'withdrawn' for owner-side analytics. Owner is NOT notified when applicant declines an offer (only 'accepted' triggers notif at line 1478). Owner should probably know."},
+      {"endpoint": "POST /api/businesses/{biz_id}/player-employees/{emp_id}/fire", "issue": "No event_log entry added for the FIRED employee (only a notification). Consider add_event so it shows in their event log feed."},
+      {"endpoint": "POST /api/jobs/employment/{emp_id}/work", "issue": "Hardcodes hours to (2,4,6,8) — if client sends 3 or 5 it silently falls back to 4 with no warning. Either reject with 400 or document the snap-to-grid behaviour."},
+      {"endpoint": "GET /api/jobs/market", "issue": "Iterates businesses then queries db.players + business_types + business_applications + player_employment per-row — N+4 query pattern. Fine for ~5 biz but won't scale. Use $lookup or bulk fetch once market grows."},
+      {"endpoint": "POST /api/jobs/{job_id}/apply", "issue": "Spec/UI implies applying when player is currently employed should warn — server allows applying even while p['job'] exists. Not a bug per spec, but the player has no way to compare offers UX-wise."},
+      {"endpoint": "POST /api/businesses/{biz_id}/player-applications/{app_id}/offer", "issue": "Allows owner to send a NEW offer on top of an existing 'offered' status (overwrites wage_offer) without notifying the applicant of the change. Applicant sees stale wage until next refresh + missed 'offer updated' notif."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/businesses/{id} Player Hiring tab", "issues": ["Section header reads 'Applications (0)' but spec/testid contract referred to 'Player Applications'. Cosmetic — testids are stable; document the wording in the contract."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase_c_employment.py",
+    "/app/test_reports/pytest/phase_c_results.xml"
+  ],
+  "action_items": [
+    "Notify business owner when applicant DECLINES an offer (add_notification in decline_business_offer).",
+    "Add add_event for fired employee so their event_log reflects the firing.",
+    "When owner re-offers (offer endpoint twice), send an 'Offer updated' notification with the new wage.",
+    "Optional: reject /jobs/employment/{emp_id}/work with 400 instead of silent fallback for non-{2,4,6,8} hours.",
+    "Optional: optimise GET /jobs/market with aggregation/$lookup to avoid N+4 queries."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~1933 lines (was 1663 in iter_5). The split-into-routers recommendation is now urgent — employment endpoints (NPC apply, market, employment, hiring) would map cleanly to /app/backend/routers/employment.py and saves ~250 lines from server.py.",
+    "employment.complete_player_shift writes back to p (in-memory) but the caller (game_engine.resolve_player) is responsible for save — verified flow works, but a comment in employment.py noting 'caller must persist p' would reduce future regression risk.",
+    "employment.evaluate_application uses random.random() against a computed score — deterministic-test-unfriendly. Acceptable for production realism, but worth seeding random or exposing a force-accept hook in test mode for CI; this run worked around by directly setting status='accepted' in mongo.",
+    "applicant_snapshot (employment.py line 132) has a quirky construct: `sorted(...)[:3] and [{...}]` — the AND short-circuits on empty list. If skills dict is empty, returns []. Functional but slightly opaque — prefer an explicit if.",
+    "shift wage formula `wage_per_shift * (0.7 + 0.3 * perf)` means a perf=0.3 (minimum) pays 79% of base. With wage_per_shift=$75 → $59. Owners may not expect that floor; consider documenting in tooltip on Player Hiring tab.",
+    "biz.cash adjustment in complete_player_shift adds (contribution - wage) directly — if biz.cash dips below 0 the business is NOT auto-marked bankrupt within this code path. Bankruptcy check appears to live elsewhere (midnight tick); double-check that a shift cannot drive cash negative without the rest of the engine reacting same-tick.",
+    "applications collection — no index on (player_id, status) or (resolves_at). resolve_npc_applications fires on every /game/state read and scans applications by player_id+status. For an active player this is fine, but add an index for safety."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase_c_employment.py"
+  ],
+  "success_rate": {"backend": "100% (18/18 passed)", "frontend": "100% (jm-tab-market, jm-tab-mine, market-biz-{id}, apply-biz-{id}, tab-hiring, Player Hiring section, apply-job-{id}, npc-applications, application reason rendering — all verified)"},
+  "test_credentials": "admin@kaeldor.com / admin123, player@kaeldor.com / player123, mara/dovan/kiri @kaeldor.com / demo123 — all functional.",
+  "seed_data_creation": "Test suite reuses seeded demo players (mara/dovan/kiri/Neo). Side effects of this run: (a) Dovan's biz cash advanced ~$120 from a 4h shift contribution at perf~0.85, (b) mara has total_wages_earned recorded then 'quit' status on her employment, (c) kiri has 'fired' status on a brief employment, (d) a 'rejected' biz application for kiri at Dovan's biz, (e) several withdrawn/expired/hired applications for player@kaeldor.com (player's job changed during accept_offer_auto_withdraws_others test). No cleanup needed — all transitions are idempotent.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase A (clock, ledger) tests still pass; Phase B (comms) tests still pass; Phase C tests at /app/backend/tests/test_phase_c_employment.py — 18/18 PASS. Run with: pytest /app/backend/tests/test_phase_c_employment.py -v -p no:xdist -o addopts=. Tests use mongo direct writes to fast-forward NPC application resolves_at and current_activity.ends_at — time_scale untouched. Demo users have employment history: dovan owns biz id 249566f3664b40a9b9934c150c713de2 (hiring_open=true). To get a fresh mara employment, run the full TestOwnerHiring class — it creates a new offer chain. Phase D (life inbox / next phase) is not yet built.",
+  "rca of the issue": "No bugs found. All happy-path and edge cases (criminal-record block, duplicate apply, closed-hiring, offer expiry, auto-withdraw on accept, reject notification) behave per spec. The shift activity completion is wired correctly: POST /work calls set_activity(blocking=True) which writes current_activity with ends_at; game_engine.resolve_player polls this on each /game/state and invokes employment.complete_player_shift which adds money, updates emp stats, updates biz cash/satisfaction/reputation/revenue_total, and sends owner notification. Verified end-to-end via direct mongo state inspection."
+}
