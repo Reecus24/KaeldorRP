@@ -40,6 +40,127 @@ function TraitPills({ traits }) {
     return <div className="flex flex-wrap gap-1">{traits.map((t) => <Pill key={t} tone="purple" className="!text-[9px]">{t.replace(/_/g, " ")}</Pill>)}</div>;
 }
 
+function WageInput({ value, onChange, testid }) {
+    return (
+        <input type="number" value={value} onChange={(e) => onChange(e.target.value)} data-testid={testid}
+            className="w-20 bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-sm text-white font-mono focus:outline-none focus:border-neon-cyan/50" />
+    );
+}
+
+function PlayerHiring({ bizId, hiringOpen, onReloadDetail }) {
+    const [apps, setApps] = useState(null);
+    const [emps, setEmps] = useState([]);
+    const [wages, setWages] = useState({});
+    const [busy, setBusy] = useState(null);
+    const load = useCallback(async () => {
+        const [a, e] = await Promise.all([
+            api.get(`/businesses/${bizId}/player-applications`),
+            api.get(`/businesses/${bizId}/player-employees`),
+        ]);
+        setApps(a.data); setEmps(e.data);
+    }, [bizId]);
+    useEffect(() => { load(); }, [load]);
+
+    const setW = (k, v) => setWages((w) => ({ ...w, [k]: v }));
+    const toggle = async () => {
+        setBusy("toggle");
+        try { const { data } = await api.post(`/businesses/${bizId}/toggle-hiring`); toast.success(data.hiring_open ? "Hiring is now OPEN" : "Hiring closed"); await onReloadDetail(); }
+        catch (e) { toast.error(errMessage(e)); }
+        setBusy(null);
+    };
+    const offer = async (a) => {
+        const w = parseFloat(wages[a.id] ?? a.recommended_wage);
+        setBusy(a.id);
+        try { await api.post(`/businesses/${bizId}/player-applications/${a.id}/offer`, { wage_per_shift: w, role: a.role }); toast.success(`Offer sent to ${a.applicant_name}`); await load(); }
+        catch (e) { toast.error(errMessage(e)); }
+        setBusy(null);
+    };
+    const reject = async (a) => { setBusy(a.id + "r"); try { await api.post(`/businesses/${bizId}/player-applications/${a.id}/reject`); await load(); } catch (e) { toast.error(errMessage(e)); } setBusy(null); };
+    const raise = async (emp) => {
+        const w = parseFloat(wages["e" + emp.id] ?? (emp.wage_per_shift + 10));
+        setBusy(emp.id);
+        try { await api.post(`/businesses/${bizId}/player-employees/${emp.id}/raise`, { wage_per_shift: w }); toast.success("Raise given"); await load(); }
+        catch (e) { toast.error(errMessage(e)); }
+        setBusy(null);
+    };
+    const fire = async (emp) => { setBusy(emp.id + "f"); try { await api.post(`/businesses/${bizId}/player-employees/${emp.id}/fire`); toast.success(`${emp.employee_name} let go`); await load(); } catch (e) { toast.error(errMessage(e)); } setBusy(null); };
+
+    if (!apps) return <Spinner />;
+    return (
+        <div className="space-y-4">
+            <Panel className="p-4 flex items-center justify-between" data-testid="hiring-status">
+                <div>
+                    <div className="font-display font-bold text-white">Player Hiring</div>
+                    <div className="text-[11px] text-muted-foreground">{hiringOpen ? "Listed on the public Player Job Market." : "Not currently accepting player applications."}</div>
+                </div>
+                <KButton variant={hiringOpen ? "ghost" : "green"} loading={busy === "toggle"} onClick={toggle} data-testid="hiring-toggle">
+                    {hiringOpen ? "Close Hiring" : "Open Hiring"}
+                </KButton>
+            </Panel>
+
+            <div>
+                <div className="font-display font-bold text-white mb-2">Applications ({apps.length})</div>
+                {apps.length === 0 ? (
+                    <EmptyState icon={UserPlus} title="No applications yet" sub={hiringOpen ? "Players can find you on the Job Market." : "Open hiring to receive applications."} />
+                ) : (
+                    <div className="space-y-2">
+                        {apps.map((a) => (
+                            <Panel key={a.id} className="p-3" data-testid={`player-app-${a.id}`}>
+                                <div className="flex items-start justify-between gap-2">
+                                    <div className="min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-display font-bold text-white text-sm">{a.applicant_name}</span>
+                                            <Pill tone="cyan">Lv {a.stats?.level}</Pill>
+                                            <Pill tone="green">Rep {a.stats?.reputation}</Pill>
+                                            {a.stats?.criminal_warning && <Pill tone="red">⚠ Record</Pill>}
+                                            {a.status === "offered" && <Pill tone="yellow">Offered ${a.wage_offer}</Pill>}
+                                        </div>
+                                        <div className="text-[11px] text-muted-foreground mt-1">Role: {a.role} · {a.stats?.education_count} course(s) · {(a.stats?.top_skills || []).map((s) => `${s.skill} ${s.level}`).join(", ")}</div>
+                                        {a.message && <div className="text-[11px] text-foreground/80 mt-1 italic">“{a.message}”</div>}
+                                        <div className="text-[11px] text-neon-green mt-1">Recommended: ${a.recommended_wage}/shift</div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                    <span className="text-[11px] text-muted-foreground">$/shift</span>
+                                    <WageInput value={wages[a.id] ?? a.recommended_wage} onChange={(v) => setW(a.id, v)} testid={`offer-wage-${a.id}`} />
+                                    <KButton variant="green" loading={busy === a.id} onClick={() => offer(a)} data-testid={`offer-send-${a.id}`}>{a.status === "offered" ? "Update Offer" : "Send Offer"}</KButton>
+                                    <KButton variant="ghost" loading={busy === a.id + "r"} onClick={() => reject(a)} data-testid={`offer-reject-${a.id}`}>Reject</KButton>
+                                </div>
+                            </Panel>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            <div>
+                <div className="font-display font-bold text-white mb-2">Player Employees ({emps.length})</div>
+                {emps.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">No player employees yet.</div>
+                ) : (
+                    <div className="space-y-2">
+                        {emps.map((e) => (
+                            <Panel key={e.id} className="p-3" data-testid={`player-emp-${e.id}`}>
+                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                    <div>
+                                        <span className="font-display font-bold text-white text-sm">{e.employee_name}</span>
+                                        <span className="text-[11px] text-muted-foreground ml-2">{e.role} · ${e.wage_per_shift}/shift</span>
+                                        <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)} · {e.total_hours_worked}h · earned ${Math.round(e.total_wages_earned)}</div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <WageInput value={wages["e" + e.id] ?? (e.wage_per_shift + 10)} onChange={(v) => setW("e" + e.id, v)} testid={`raise-wage-${e.id}`} />
+                                        <KButton variant="primary" loading={busy === e.id} onClick={() => raise(e)} data-testid={`raise-send-${e.id}`}>Raise</KButton>
+                                        <KButton variant="danger" loading={busy === e.id + "f"} onClick={() => fire(e)} data-testid={`fire-emp-${e.id}`}>Fire</KButton>
+                                    </div>
+                                </div>
+                            </Panel>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
 export default function BusinessManage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -114,6 +235,7 @@ export default function BusinessManage() {
                 <Tab active={tab === "finances"} onClick={() => setTab("finances")} icon={LineChart} testid="tab-finances">Finances</Tab>
                 <Tab active={tab === "employees"} onClick={() => setTab("employees")} icon={Users} testid="tab-employees">Employees ({m.employee_count})</Tab>
                 <Tab active={tab === "applicants"} onClick={() => setTab("applicants")} icon={UserPlus} testid="tab-applicants">Applicants ({m.applicant_count})</Tab>
+                <Tab active={tab === "hiring"} onClick={() => setTab("hiring")} icon={Users} testid="tab-hiring">Player Hiring</Tab>
                 <Tab active={tab === "training"} onClick={() => setTab("training")} icon={GraduationCap} testid="tab-training">Training</Tab>
                 <Tab active={tab === "events"} onClick={() => setTab("events")} icon={ScrollText} testid="tab-events">Events</Tab>
             </div>
@@ -306,6 +428,9 @@ export default function BusinessManage() {
                     </div>
                 </div>
             )}
+
+            {/* PLAYER HIRING */}
+            {tab === "hiring" && <PlayerHiring bizId={id} hiringOpen={b.hiring_open} onReloadDetail={loadAll} />}
 
             {/* EVENTS */}
             {tab === "events" && (

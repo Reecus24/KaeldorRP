@@ -316,6 +316,10 @@ async def complete_activity(db, p, cfg):
         import social_engine
         await social_engine.complete_social_activity(db, p, cfg, payload, eff)
 
+    elif kind == "player_shift":
+        import employment
+        await employment.complete_player_shift(db, p, cfg, payload, eff)
+
     p["current_activity"] = None
     p["status"] = "jail" if parse_dt(p.get("jail_until")) and parse_dt(p["jail_until"]) > now_utc() else \
         ("hospital" if parse_dt(p.get("hospital_until")) and parse_dt(p["hospital_until"]) > now_utc() else "free")
@@ -466,6 +470,9 @@ async def resolve_player(db, p):
 
     import social_engine
     await social_engine.resolve_social(db, p, cfg, gh, now)
+
+    import employment
+    await employment.resolve_npc_applications(db, p, cfg, now)
 
     # daily summary at each in-game midnight boundary (report only, no double billing)
     if cfg.get("world_start_real"):

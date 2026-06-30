@@ -149,6 +149,15 @@ DEFAULT_CONFIG = {
         "online_window_minutes": 3,     # a player is "online" if active within this window
         "message_max_length": 2000,
     },
+    "employment": {
+        "npc_app_base_minutes": 10,     # base real-time delay before an NPC application resolves
+        "npc_app_tier_minutes": 12,     # extra delay per job tier
+        "offer_expiry_hours": 24,       # how long an accepted NPC offer stays open
+        "player_base_shift_wage": 60,   # baseline per-shift wage for player-owned business jobs
+        "player_shift_contribution": 90,  # base business value a player shift produces (x performance)
+        "wage_min_mult": 0.7,
+        "wage_max_mult": 1.85,
+    },
 }
 
 

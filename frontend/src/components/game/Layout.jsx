@@ -26,6 +26,7 @@ const NAV = [
     { section: "Work" },
     { to: "/jobs", label: "Job Center", icon: Briefcase },
     { to: "/current-job", label: "Current Job", icon: BadgeCheck },
+    { to: "/job-market", label: "Player Jobs", icon: Store },
     { to: "/education", label: "Education", icon: GraduationCap },
     { section: "Economy" },
     { to: "/shop", label: "Shop", icon: ShoppingCart },

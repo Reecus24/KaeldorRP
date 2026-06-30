@@ -9,15 +9,15 @@ from game_models import now_utc
 
 # Lightweight profanity filter placeholder (admin can extend). Masks whole words.
 PROFANITY = ["fuck", "shit", "bitch", "asshole", "bastard", "cunt", "dick", "slut"]
+_PROFANITY_RE = re.compile(r"(?i)\b(" + "|".join(re.escape(w) for w in PROFANITY) + r")\b")
 
 DEVICE_FOR = {"sms": "smartphone", "email": "laptop"}
 
 
 def clean_text(text):
-    out = text or ""
-    for w in PROFANITY:
-        out = re.sub(rf"(?i)\b{re.escape(w)}\b", "*" * len(w), out)
-    return out
+    if not text:
+        return ""
+    return _PROFANITY_RE.sub(lambda m: "*" * len(m.group(0)), text)
 
 
 def has_device(p, channel):

@@ -28,6 +28,7 @@ import Social from "@/pages/Social";
 import ContactDetail from "@/pages/ContactDetail";
 import DailySummary from "@/pages/DailySummary";
 import Messages from "@/pages/Messages";
+import JobMarket from "@/pages/JobMarket";
 import Hospital from "@/pages/Hospital";
 import Jail from "@/pages/Jail";
 import Leaderboard from "@/pages/Leaderboard";
@@ -101,6 +102,7 @@ function AppRoutes() {
                 <Route path="/social/:cid" element={<ContactDetail />} />
                 <Route path="/daily-summary" element={<DailySummary />} />
                 <Route path="/messages" element={<Messages />} />
+                <Route path="/job-market" element={<JobMarket />} />
                 <Route path="/underworld" element={<Underworld />} />
                 <Route path="/legal" element={<Legal />} />
                 <Route path="/hospital" element={<Hospital />} />

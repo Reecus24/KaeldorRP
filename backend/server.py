@@ -28,6 +28,7 @@ from seed_data import seed_content, CONTENT_MAP
 import employee_engine
 import social_engine
 import comms
+import employment
 
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
@@ -395,8 +396,12 @@ async def current_job(user: dict = Depends(current_user)):
     return {"job": p["job"], "details": jd, "promotion": promo}
 
 
+class ApplyBody(BaseModel):
+    message: Optional[str] = None
+
+
 @api.post("/jobs/{job_id}/apply")
-async def apply_job(job_id: str, user: dict = Depends(current_user)):
+async def apply_job(job_id: str, body: ApplyBody = ApplyBody(), user: dict = Depends(current_user)):
     p = await get_state(user)
     j = await db.jobs.find_one({"id": job_id}, {"_id": 0})
     if not j:
@@ -406,12 +411,19 @@ async def apply_job(job_id: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail=reason)
     if p["legal_reputation"] < 25:
         raise HTTPException(status_code=403, detail="Your criminal record blocks this application.")
-    p["job"] = {"job_id": job_id, "title": j["title"], "shifts_worked": 0, "reliability": 50,
-                "hired_at": now_utc().isoformat()}
-    await add_event(db, p["id"], f"You were hired as a {j['title']}!", "job", "success")
-    await save_player(p)
-    await social_engine.ensure_job_contacts(db, p, j)
-    return {"ok": True}
+    existing = await db.applications.find_one({"player_id": p["id"], "job_id": job_id, "status": {"$in": ["pending", "accepted"]}}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=409, detail="You already have an active application for this job.")
+    cfg = await get_config(db)
+    delay = employment.application_delay_minutes(j, cfg)
+    now = now_utc()
+    app = {"id": uuid.uuid4().hex, "player_id": p["id"], "job_id": job_id, "title": j["title"],
+           "status": "pending", "submitted_at": now.isoformat(),
+           "resolves_at": (now + timedelta(seconds=real_seconds(delay, cfg["time_scale"]))).isoformat(),
+           "message": body.message, "wage_offer": None, "reason": None, "resolved": False}
+    await db.applications.insert_one({**app})
+    await add_event(db, p["id"], f"You applied for {j['title']}. A decision is expected in about {delay} minutes.", "job", "info")
+    return {"ok": True, "resolves_in_minutes": delay}
 
 
 @api.post("/jobs/quit")
@@ -446,7 +458,7 @@ async def work_shift(body: ShiftBody, user: dict = Depends(current_user)):
     cfg = await get_config(db)
     payload = {
         "job_id": j["id"], "title": j["title"], "hours": body.hours,
-        "hourly_wage": j["hourly_wage"], "fatigue_ph": j["fatigue_per_hour"],
+        "hourly_wage": p["job"].get("hourly_wage", j["hourly_wage"]), "fatigue_ph": j["fatigue_per_hour"],
         "stress_ph": j["stress_per_hour"], "energy_ph": j["energy_per_hour"],
         "skill_xp": j.get("skill_xp", {}),
     }
@@ -1328,6 +1340,264 @@ async def social_block(cid: str, user: dict = Depends(current_user)):
     return {"ok": True, "status": new_status}
 
 
+# ============================ EMPLOYMENT: APPLICATIONS & PLAYER HIRING ============================
+class MarketApplyBody(BaseModel):
+    role: Optional[str] = "Staff"
+    message: Optional[str] = None
+
+
+class OfferBody(BaseModel):
+    wage_per_shift: float
+    role: Optional[str] = "Staff"
+
+
+class WageBody(BaseModel):
+    wage_per_shift: float
+
+
+class WorkBody(BaseModel):
+    hours: int = 4
+
+
+# --- NPC applications (applicant) ---
+@api.get("/jobs/applications")
+async def my_applications(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    apps = await db.applications.find({"player_id": p["id"]}, {"_id": 0}).sort("submitted_at", -1).to_list(60)
+    for a in apps:
+        if a["status"] == "pending":
+            ra = parse_dt(a.get("resolves_at"))
+            a["resolves_in"] = max(0, round((ra - now_utc()).total_seconds())) if ra else 0
+    return apps
+
+
+@api.post("/jobs/applications/{app_id}/accept")
+async def accept_offer(app_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    a = await db.applications.find_one({"id": app_id, "player_id": p["id"]}, {"_id": 0})
+    if not a or a["status"] != "accepted":
+        raise HTTPException(status_code=400, detail="No active offer to accept")
+    j = await db.jobs.find_one({"id": a["job_id"]}, {"_id": 0})
+    if not j:
+        raise HTTPException(status_code=404, detail="Job no longer exists")
+    p["job"] = {"job_id": a["job_id"], "title": j["title"], "shifts_worked": 0, "reliability": 55,
+                "hired_at": now_utc().isoformat(), "hourly_wage": a.get("wage_offer") or j["hourly_wage"]}
+    await db.applications.update_one({"id": app_id}, {"$set": {"status": "hired"}})
+    await db.applications.update_many({"player_id": p["id"], "status": {"$in": ["pending", "accepted"]}, "id": {"$ne": app_id}},
+                                      {"$set": {"status": "withdrawn"}})
+    await add_event(db, p["id"], f"You accepted the offer — now a {j['title']} at ${p['job']['hourly_wage']}/h.", "job", "success")
+    await save_player(p)
+    await social_engine.ensure_job_contacts(db, p, j)
+    return {"ok": True}
+
+
+@api.post("/jobs/applications/{app_id}/withdraw")
+async def withdraw_application(app_id: str, user: dict = Depends(current_user)):
+    p = await fetch_raw_player(user["id"])
+    a = await db.applications.find_one({"id": app_id, "player_id": p["id"]}, {"_id": 0})
+    if not a:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if a["status"] not in ("pending", "accepted"):
+        raise HTTPException(status_code=400, detail="This application can't be withdrawn")
+    await db.applications.update_one({"id": app_id}, {"$set": {"status": "withdrawn"}})
+    return {"ok": True}
+
+
+# --- Player job market (applicant) ---
+@api.get("/jobs/market")
+async def job_market(user: dict = Depends(current_user)):
+    me = await db.players.find_one({"user_id": user["id"]}, {"_id": 0, "id": 1})
+    cfg = await get_config(db)
+    base = cfg.get("employment", {}).get("player_base_shift_wage", 60)
+    bizs = await db.businesses.find({"hiring_open": True, "bankrupt": {"$ne": True}}, {"_id": 0}).to_list(200)
+    out = []
+    for b in bizs:
+        if me and b["player_id"] == me["id"]:
+            continue
+        owner = await db.players.find_one({"id": b["player_id"]}, {"_id": 0, "name": 1})
+        t = await db.business_types.find_one({"id": b["type_id"]}, {"_id": 0, "name": 1, "category": 1})
+        app = await db.business_applications.find_one(
+            {"business_id": b["id"], "applicant_id": me["id"], "status": {"$in": ["pending", "offered"]}}, {"_id": 0}) if me else None
+        emp = await db.player_employment.find_one(
+            {"business_id": b["id"], "employee_player_id": me["id"], "status": "active"}, {"_id": 0}) if me else None
+        out.append({"business_id": b["id"], "name": b["name"], "owner_name": owner["name"] if owner else "?",
+                    "type": t["name"] if t else "", "category": t["category"] if t else "",
+                    "reputation": round(b.get("reputation", 50)), "base_shift_wage": base,
+                    "my_status": "employed" if emp else (app["status"] if app else None)})
+    return out
+
+
+@api.post("/jobs/market/{business_id}/apply")
+async def apply_to_business(business_id: str, body: MarketApplyBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await db.businesses.find_one({"id": business_id}, {"_id": 0})
+    if not b or b.get("bankrupt") or not b.get("hiring_open"):
+        raise HTTPException(status_code=400, detail="This business isn't hiring")
+    if b["player_id"] == p["id"]:
+        raise HTTPException(status_code=400, detail="You can't apply to your own business")
+    if await db.business_applications.find_one({"business_id": business_id, "applicant_id": p["id"], "status": {"$in": ["pending", "offered"]}}, {"_id": 0}):
+        raise HTTPException(status_code=409, detail="You already have an active application here")
+    if await db.player_employment.find_one({"business_id": business_id, "employee_player_id": p["id"], "status": "active"}, {"_id": 0}):
+        raise HTTPException(status_code=409, detail="You already work here")
+    cfg = await get_config(db)
+    snap = employment.applicant_snapshot(p, cfg)
+    app = {"id": uuid.uuid4().hex, "business_id": business_id, "business_name": b["name"], "owner_id": b["player_id"],
+           "applicant_id": p["id"], "applicant_name": p["name"], "role": body.role or "Staff",
+           "message": body.message, "status": "pending", "submitted_at": now_utc().isoformat(),
+           "stats": snap, "recommended_wage": snap["recommended_wage"], "wage_offer": None}
+    await db.business_applications.insert_one({**app})
+    await add_notification(db, b["player_id"], "business", "New job applicant", f"{p['name']} applied to {b['name']}.", "info", f"/businesses/{business_id}")
+    await add_event(db, p["id"], f"You applied to work at {b['name']}.", "job", "info")
+    return {"ok": True}
+
+
+@api.get("/jobs/employment")
+async def my_employment(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    emps = await db.player_employment.find({"employee_player_id": p["id"], "status": "active"}, {"_id": 0}).to_list(50)
+    apps = await db.business_applications.find({"applicant_id": p["id"], "status": {"$in": ["pending", "offered", "rejected"]}}, {"_id": 0}).sort("submitted_at", -1).to_list(50)
+    return {"employments": emps, "applications": apps}
+
+
+@api.post("/jobs/employment/applications/{app_id}/accept")
+async def accept_business_offer(app_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    a = await db.business_applications.find_one({"id": app_id, "applicant_id": p["id"]}, {"_id": 0})
+    if not a or a["status"] != "offered":
+        raise HTTPException(status_code=400, detail="No offer to accept")
+    b = await db.businesses.find_one({"id": a["business_id"]}, {"_id": 0})
+    if not b or b.get("bankrupt"):
+        raise HTTPException(status_code=400, detail="That business is unavailable")
+    emp = {"id": uuid.uuid4().hex, "business_id": a["business_id"], "business_name": a["business_name"],
+           "owner_id": a["owner_id"], "employee_player_id": p["id"], "employee_name": p["name"],
+           "role": a.get("role", "Staff"), "wage_per_shift": a["wage_offer"], "status": "active",
+           "hired_at": now_utc().isoformat(), "reliability": 60, "performance": 60,
+           "total_hours_worked": 0, "total_wages_earned": 0.0, "last_paid_at": None}
+    await db.player_employment.insert_one({**emp})
+    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "accepted"}})
+    await add_notification(db, a["owner_id"], "business", "Offer accepted", f"{p['name']} accepted your offer at {a['business_name']}.", "success", f"/businesses/{a['business_id']}")
+    await add_event(db, p["id"], f"You're now working at {a['business_name']} as {a.get('role', 'Staff')} (${a['wage_offer']}/shift).", "job", "success")
+    return {"ok": True}
+
+
+@api.post("/jobs/employment/applications/{app_id}/decline")
+async def decline_business_offer(app_id: str, user: dict = Depends(current_user)):
+    me = await db.players.find_one({"user_id": user["id"]}, {"_id": 0, "id": 1})
+    a = await db.business_applications.find_one({"id": app_id, "applicant_id": me["id"]}, {"_id": 0})
+    if not a or a["status"] not in ("offered", "pending"):
+        raise HTTPException(status_code=400, detail="Nothing to decline")
+    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "withdrawn"}})
+    return {"ok": True}
+
+
+@api.post("/jobs/employment/{emp_id}/work")
+async def work_player_shift(emp_id: str, body: WorkBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    ensure_free(p)
+    emp = await db.player_employment.find_one({"id": emp_id, "employee_player_id": p["id"], "status": "active"}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="You don't work there")
+    if p["energy"] < 10:
+        raise HTTPException(status_code=400, detail="Too exhausted to work. Rest first.")
+    hours = body.hours if body.hours in (2, 4, 6, 8) else 4
+    cfg = await get_config(db)
+    payload = {"employment_id": emp_id, "business_id": emp["business_id"], "hours": hours,
+               "fatigue": 5, "energy": 4, "skills": ["fitness"]}
+    set_activity(p, "player_shift", f"Shift @ {emp['business_name']} ({hours}h)", hours * 60, cfg, payload, blocking=True)
+    p["status"] = "working"
+    await add_event(db, p["id"], f"Clocked in for a {hours}h shift at {emp['business_name']}.", "job", "info")
+    await save_player(p)
+    return {"ok": True, "activity": serialize_activity(p)}
+
+
+@api.post("/jobs/employment/{emp_id}/quit")
+async def quit_player_job(emp_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    emp = await db.player_employment.find_one({"id": emp_id, "employee_player_id": p["id"], "status": "active"}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employment not found")
+    await db.player_employment.update_one({"id": emp_id}, {"$set": {"status": "quit"}})
+    p["reputation"] = clamp(p["reputation"] - 2)
+    await add_notification(db, emp["owner_id"], "business", "Employee quit", f"{p['name']} quit at {emp['business_name']}.", "warning", f"/businesses/{emp['business_id']}")
+    await add_event(db, p["id"], f"You quit your job at {emp['business_name']}.", "job", "warning")
+    await save_player(p)
+    return {"ok": True}
+
+
+# --- Player hiring (business owner) ---
+@api.get("/businesses/{biz_id}/player-applications")
+async def biz_player_applications(biz_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    await _get_owned_business(p, biz_id)
+    return await db.business_applications.find({"business_id": biz_id, "status": {"$in": ["pending", "offered"]}}, {"_id": 0}).sort("submitted_at", -1).to_list(100)
+
+
+@api.post("/businesses/{biz_id}/player-applications/{app_id}/offer")
+async def offer_player(biz_id: str, app_id: str, body: OfferBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    a = await db.business_applications.find_one({"id": app_id, "business_id": biz_id}, {"_id": 0})
+    if not a or a["status"] not in ("pending", "offered"):
+        raise HTTPException(status_code=400, detail="Application not open")
+    wage = round(max(1.0, body.wage_per_shift), 2)
+    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "offered", "wage_offer": wage, "role": body.role or a.get("role", "Staff")}})
+    await add_notification(db, a["applicant_id"], "job", "Job offer!", f"{b['name']} offered you ${wage}/shift as {body.role or 'Staff'}.", "success", "/job-market")
+    return {"ok": True}
+
+
+@api.post("/businesses/{biz_id}/player-applications/{app_id}/reject")
+async def reject_player(biz_id: str, app_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    a = await db.business_applications.find_one({"id": app_id, "business_id": biz_id}, {"_id": 0})
+    if not a:
+        raise HTTPException(status_code=404, detail="Application not found")
+    await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "rejected"}})
+    await add_notification(db, a["applicant_id"], "job", "Application declined", f"{b['name']} declined your application.", "warning", "/job-market")
+    return {"ok": True}
+
+
+@api.get("/businesses/{biz_id}/player-employees")
+async def biz_player_employees(biz_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    await _get_owned_business(p, biz_id)
+    return await db.player_employment.find({"business_id": biz_id, "status": "active"}, {"_id": 0}).to_list(100)
+
+
+@api.post("/businesses/{biz_id}/player-employees/{emp_id}/fire")
+async def fire_player(biz_id: str, emp_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    emp = await db.player_employment.find_one({"id": emp_id, "business_id": biz_id, "status": "active"}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    await db.player_employment.update_one({"id": emp_id}, {"$set": {"status": "fired"}})
+    await add_notification(db, emp["employee_player_id"], "job", "You were let go", f"{b['name']} ended your employment.", "danger", "/job-market")
+    return {"ok": True}
+
+
+@api.post("/businesses/{biz_id}/player-employees/{emp_id}/raise")
+async def raise_player(biz_id: str, emp_id: str, body: WageBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    emp = await db.player_employment.find_one({"id": emp_id, "business_id": biz_id, "status": "active"}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    wage = round(max(1.0, body.wage_per_shift), 2)
+    await db.player_employment.update_one({"id": emp_id}, {"$set": {"wage_per_shift": wage, "reliability": clamp(emp.get("reliability", 60) + 5)}})
+    await add_notification(db, emp["employee_player_id"], "job", "Pay rise!", f"{b['name']} raised your wage to ${wage}/shift.", "success", "/job-market")
+    return {"ok": True}
+
+
+@api.post("/businesses/{biz_id}/toggle-hiring")
+async def toggle_hiring(biz_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    newv = not b.get("hiring_open", False)
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"hiring_open": newv}})
+    return {"ok": True, "hiring_open": newv}
+
+
 # ============================ NOTIFICATIONS & DAILY SUMMARY ============================
 class NotifReadBody(BaseModel):
     ids: Optional[list] = None
@@ -1553,7 +1823,7 @@ async def admin_delete_chat(message_id: str, admin: dict = Depends(admin_user)):
 
 @api.post("/admin/chat/mute")
 async def admin_mute(body: MuteBody, admin: dict = Depends(admin_user)):
-    until = (now_utc() + timedelta(minutes=max(1, body.minutes))).isoformat()
+    until = (now_utc() + timedelta(minutes=min(max(1, body.minutes), 525600))).isoformat()
     res = await db.players.update_one({"id": body.player_id}, {"$set": {"chat_muted_until": until}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Player not found")
