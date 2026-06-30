@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar, EmptyState } from "@/components/game/primitives";
@@ -13,8 +14,15 @@ export default function VehicleDealer() {
     const load = () => api.get("/vehicles").then(({ data }) => setData(data)).catch(() => {});
     useEffect(() => { load(); }, []);
 
+    const sellEstimate = (v) => Math.round((v.spec?.price || 0) * (v.spec?.resale ?? 0.5) * ((v.condition ?? 100) / 100));
     const buy = async (v) => { setBusyId(v.id); await act(() => api.post(`/vehicles/${v.id}/buy`), `Bought a ${v.name}`); await load(); setBusyId(null); };
-    const sell = async (v) => { setBusyId(v.instance_id); await act(() => api.post(`/vehicles/${v.instance_id}/sell`), "Vehicle sold"); await load(); setBusyId(null); };
+    const sell = async (v) => {
+        setBusyId(v.instance_id);
+        const r = await act(() => api.post(`/vehicles/${v.instance_id}/sell`), null);
+        if (r?.ok) toast.success(`Sold ${v.name} for $${(r.res.data.value ?? 0).toLocaleString()}`);
+        await load();
+        setBusyId(null);
+    };
 
     if (!data) return <Spinner />;
 
@@ -36,7 +44,11 @@ export default function VehicleDealer() {
                                     <Pill tone="green">Owned</Pill>
                                 </div>
                                 <StatBar label="Condition" value={v.condition} color="#00FF66" />
-                                <KButton variant="ghost" className="w-full mt-3" loading={busyId === v.instance_id} onClick={() => sell(v)} data-testid={`sell-vehicle-${v.instance_id}`}>Sell</KButton>
+                                <div className="text-[11px] text-muted-foreground mt-2 flex items-center justify-between">
+                                    <span>Resale value</span>
+                                    <span className="font-mono text-neon-green tnum" data-testid={`resale-${v.instance_id}`}>~${sellEstimate(v).toLocaleString()}</span>
+                                </div>
+                                <KButton variant="ghost" className="w-full mt-3" loading={busyId === v.instance_id} onClick={() => sell(v)} data-testid={`sell-vehicle-${v.instance_id}`}>Sell · ~${sellEstimate(v).toLocaleString()}</KButton>
                             </Panel>
                         ))}
                     </div>

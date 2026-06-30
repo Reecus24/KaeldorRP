@@ -209,6 +209,13 @@ export default function BusinessManage() {
         await loadAll();
         setBusy(null);
     };
+    const sellBiz = async () => {
+        setBusy("sell");
+        const r = await act(() => api.post(`/businesses/${id}/sell`), null);
+        if (r?.ok) toast.success(`Sold for $${(r.res.data.value ?? 0).toLocaleString()}`);
+        await loadAll();
+        setBusy(null);
+    };
 
     const doTrain = async (emp, opt) => {
         setBusy("train");
@@ -282,7 +289,7 @@ export default function BusinessManage() {
                             <KButton variant="green" disabled={b.cash <= 0} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(b.cash)}</KButton>
                             <KButton variant="primary" disabled={b.level >= b.max_level} loading={busy === "upgrade"} onClick={() => run(() => api.post(`/businesses/${id}/upgrade`), "Upgraded", "upgrade")} data-testid="ov-upgrade"><ArrowUpCircle className="w-3.5 h-3.5" /> Upgrade</KButton>
                             <KButton className="border border-neon-purple text-neon-purple hover:bg-neon-purple hover:text-white" loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign run", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> Market</KButton>
-                            <KButton variant="ghost" loading={busy === "sell"} onClick={() => run(() => api.post(`/businesses/${id}/sell`), "Business sold", "sell")} data-testid="ov-sell">Sell</KButton>
+                            <KButton variant="ghost" loading={busy === "sell"} onClick={sellBiz} data-testid="ov-sell">Sell</KButton>
                         </div>
                     ) : (
                         <Panel className="p-4 border-neon-red/40 flex items-center gap-2 text-neon-red text-sm">

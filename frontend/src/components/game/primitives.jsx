@@ -52,7 +52,7 @@ export function StatBar({ label, value, max = 100, color = "#00F3FF", invert = f
     );
 }
 
-export function Pill({ children, className, tone = "default" }) {
+export function Pill({ children, className, tone = "default", "data-testid": testid }) {
     const tones = {
         default: "border-white/15 text-muted-foreground",
         cyan: "border-neon-cyan/40 text-neon-cyan",
@@ -63,6 +63,7 @@ export function Pill({ children, className, tone = "default" }) {
     };
     return (
         <span
+            data-testid={testid}
             className={cn(
                 "inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider border rounded-sm",
                 tones[tone],
