@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 8 — Validated the hours-based promotion + raise eligibility balancing change. Created /app/backend/tests/test_phase_c_hours_promotion.py (6 focused tests: migration, /jobs/current shape for Mara, /jobs/promote blocked-reason logic, shift adds real hours to p.job.hours_worked + stats_meta.total_hours_worked + shifts_worked, player-employee raise_due/hours_to_next_raise + raise notification with previous wage, and 'Offer updated' notification with both new+previous wage in 'increased to' and 'lowered to' directions). All 6 PASS. Also re-ran prior Phase C regression (test_phase_c_employment.py 18/18 + test_phase_c_fixes.py 13/13) — all 31 PASS, no regressions. Frontend: verified /current-job UI for mara@kaeldor.com — Tier 1 pill, 'Hours worked 76h' (data-testid=hours-worked), promotion-panel with 'Sales Assistant' target, promo-hours='76 / 40h', requirements pills (40h worked / Sales lv 4 / Reliability 64), and promotion-blocked panel containing exact phrase 'You have enough hours, but you still need:' followed by '• Requires sales level 4'. All testids resolve correctly on /current-job. Also visually verified /job-market 'My Jobs' tab for Kiri (after seeding emp with total_hours_worked=50, hours_at_last_raise=0): the 'RAISE DUE' pill IS rendered next to role, with the HOURS=50h column visible alongside PERF/RELIAB/EARNED — integration works end-to-end.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Pill (primitives.jsx L55)", "issue": "Pill component does not forward data-testid prop (signature is `({children, className, tone})`). The 'Raise due' pill renders visually on /job-market My-Jobs cards and on /businesses/{id} Player Hiring rows, but the data-testid=`raise-due-{id}` and `emp-raise-due-{id}` attributes are NOT actually placed on the DOM element — querying `[data-testid^=\"raise-due-\"]` returns 0. UI works for humans; selector-based automated tests will fail.", "selector": "[data-testid^=raise-due-], [data-testid^=emp-raise-due-]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase_c_hours_promotion.py",
+    "/app/test_reports/pytest/phase_c_hours_results.xml"
+  ],
+  "action_items": [
+    "Frontend (minor): update /app/frontend/src/components/game/primitives.jsx Pill component to accept and forward `data-testid` (e.g. `export function Pill({children, className, tone='default', 'data-testid': testid}) { return <span data-testid={testid} ... /> }`) so the raise-due-{id} and emp-raise-due-{id} testids actually land on the DOM. The PILL ITSELF DOES RENDER — only the testid is dropped.",
+    "(Optional cleanup) considerations from iter_7 still apply: server.py is ~2012 lines; employment endpoints could move to a router module before Phase D."
+  ],
+  "critical_code_review_comments": [
+    "evaluate_promotion (server.py L176-206): clean separation of hours-met vs other blockers; reasons list preserves order so the blocked-reason joined string in /jobs/promote 400 names the missing skill/edu/rep first when hours are sufficient. Verified end-to-end with Mara (60+h, sales lv missing → 'Requires sales level 4' returned without 'more hours' phrasing).",
+    "required_promo_hours (server.py L167): includes backwards-compat shifts→hours mapping (×5) even though migration already converted all jobs — defensive, fine to keep.",
+    "decorate_employment (server.py L209-215): correct hours-based raise_due. RAISE_INTERVAL_HOURS=40 constant matches spec.",
+    "offer_player (server.py L1593-1597): 'Offer updated' body contains both 'increased to/lowered to $X/shift' and 'previously $Y/shift' — verified in both directions. Only fires update path when prior wage_offer exists.",
+    "game_engine.py L281-287: p.job.hours_worked, stats_meta.total_hours_worked, and reliability delta all driven by shift hours and eff. Verified Mara: 4h shift → +4 to both counters, shifts_worked still increments.",
+    "migrate_hours_based_promotions ran at startup (verified live: 0 legacy promotion_req.shifts jobs, 9 hour-based jobs, 0 players with job missing hours_worked).",
+    "Frontend Pill testid drop is the only blocking issue for selector-based automated tests on the raise-due flow (UI itself is correct)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase_c_hours_promotion.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 new + 31/31 regression = 37/37)",
+    "frontend": "/current-job 100% selector-verified; /job-market My-Jobs raise-due pill renders visually but its data-testid is dropped by Pill component"
+  },
+  "test_credentials": "mara@kaeldor.com / demo123 (Cashier, hours_worked progressed from 60→76 during testing), dovan@kaeldor.com / demo123 (owner of biz 249566f3664b40a9b9934c150c713de2), kiri@kaeldor.com / demo123 (test applicant/employee).",
+  "seed_data_creation": "Test suite reused seeded demo players. Side effects: (a) Mara now has hours_worked≈76 (was 60) from one cashier 4h shift completing via fast-forward; shifts_worked incremented accordingly. (b) Kiri has an active player_employment under Dovan's biz with wage_per_shift=40, total_hours_worked=50, hours_at_last_raise=50 (raise applied during test). (c) Several new notifications on dovan/kiri (Job offer!, Offer updated x2, Pay rise!). All transitions idempotent via tests resetting hours via mongo at start.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase C balancing change (hours-based promotion + raise eligibility) is fully verified backend-side. The only outstanding nit is that the shared Pill component (frontend/src/components/game/primitives.jsx L55) doesn't forward data-testid — fix is one-line. Run all 37 backend tests with: pytest /app/backend/tests/test_phase_c_employment.py /app/backend/tests/test_phase_c_fixes.py /app/backend/tests/test_phase_c_hours_promotion.py -p no:xdist -o addopts=. time_scale verified 1.0.",
+  "rca of the issue": "Pill component (primitives.jsx) destructures only {children, className, tone} — any extra prop including data-testid is silently dropped. JSX call sites in JobMarket.jsx L135 and BusinessManage.jsx L147 correctly pass data-testid={`raise-due-${e.id}`} / `emp-raise-due-${e.id}`, but the prop never reaches the DOM. Fix: accept `...rest` or explicit `'data-testid'` in Pill and spread it on the underlying span."
+}

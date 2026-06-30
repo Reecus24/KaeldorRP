@@ -130,10 +130,14 @@ function MyJobsTab() {
                                     <span className="font-display font-bold text-white">{e.business_name}</span>
                                     <Pill tone="green">${e.wage_per_shift}/shift</Pill>
                                 </div>
-                                <div className="text-[11px] text-muted-foreground mb-2">{e.role}</div>
-                                <div className="grid grid-cols-3 gap-2 text-center text-[10px] mb-3">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className="text-[11px] text-muted-foreground">{e.role}</span>
+                                    {e.raise_due && <Pill tone="yellow" data-testid={`raise-due-${e.id}`}>Raise due</Pill>}
+                                </div>
+                                <div className="grid grid-cols-4 gap-2 text-center text-[10px] mb-3">
                                     <div><div className="text-muted-foreground uppercase">Perf</div><div className="font-mono text-neon-cyan">{Math.round(e.performance)}</div></div>
                                     <div><div className="text-muted-foreground uppercase">Reliab</div><div className="font-mono text-neon-green">{Math.round(e.reliability)}</div></div>
+                                    <div><div className="text-muted-foreground uppercase">Hours</div><div className="font-mono text-neon-purple">{Math.round(e.total_hours_worked || 0)}h</div></div>
                                     <div><div className="text-muted-foreground uppercase">Earned</div><div className="font-mono text-white">${Math.round(e.total_wages_earned)}</div></div>
                                 </div>
                                 <div className="flex flex-wrap gap-1.5 mb-2">

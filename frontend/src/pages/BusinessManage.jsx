@@ -144,7 +144,8 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail }) {
                                     <div>
                                         <span className="font-display font-bold text-white text-sm">{e.employee_name}</span>
                                         <span className="text-[11px] text-muted-foreground ml-2">{e.role} · ${e.wage_per_shift}/shift</span>
-                                        <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)} · {e.total_hours_worked}h · earned ${Math.round(e.total_wages_earned)}</div>
+                                        {e.raise_due && <Pill tone="yellow" className="ml-2" data-testid={`emp-raise-due-${e.id}`}>Raise due</Pill>}
+                                        <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)} · {Math.round(e.total_hours_worked || 0)}h worked · earned ${Math.round(e.total_wages_earned)}</div>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <WageInput value={wages["e" + e.id] ?? (e.wage_per_shift + 10)} onChange={(v) => setW("e" + e.id, v)} testid={`raise-wage-${e.id}`} />

@@ -62,11 +62,18 @@ export default function CurrentJob() {
             <div className="grid md:grid-cols-2 gap-3">
                 <Panel className="p-5">
                     <div className="flex items-center justify-between mb-4">
-                        <span className="font-display font-bold text-white">Your Position</span>
+                        <div className="flex items-center gap-2">
+                            <span className="font-display font-bold text-white">Your Position</span>
+                            <Pill tone="purple">Tier {j.tier || 1}</Pill>
+                        </div>
                         <span className="font-mono text-neon-green text-lg tnum">${j.hourly_wage}/h</span>
                     </div>
                     <div className="space-y-3">
                         <StatBar label="Reliability" value={job.reliability || 50} color="#00F3FF" />
+                        <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Hours worked</span>
+                            <span className="font-mono text-white tnum" data-testid="hours-worked">{Math.round(job.hours_worked || 0)}h</span>
+                        </div>
                         <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">Shifts worked</span>
                             <span className="font-mono text-white tnum">{job.shifts_worked || 0}</span>
@@ -105,16 +112,40 @@ export default function CurrentJob() {
             </div>
 
             {promo && promo.target && (
-                <Panel className="p-5 border-neon-purple/30">
-                    <div className="flex items-center gap-2 mb-3">
+                <Panel className="p-5 border-neon-purple/30" data-testid="promotion-panel">
+                    <div className="flex items-center gap-2 mb-3 flex-wrap">
                         <TrendingUp className="w-4 h-4 text-neon-purple" />
                         <span className="font-display font-bold text-white">Promotion: {promo.target.title}</span>
+                        <Pill tone="cyan">Tier {promo.target.tier}</Pill>
                         <span className="font-mono text-neon-green ml-auto">${promo.target.hourly_wage}/h</span>
                     </div>
+
+                    <div className="mb-3">
+                        <div className="flex justify-between items-center text-[11px] font-mono mb-1.5">
+                            <span className="uppercase tracking-wider text-muted-foreground">Hours worked toward promotion</span>
+                            <span className="text-white tnum" data-testid="promo-hours">{Math.round(promo.have_hours)} / {promo.need_hours}h</span>
+                        </div>
+                        <div className="h-2.5 w-full bg-white/5 border border-white/10 overflow-hidden rounded-sm">
+                            <div className="h-full transition-all duration-500 rounded-sm"
+                                style={{ width: `${Math.min(100, (promo.have_hours / (promo.need_hours || 1)) * 100)}%`, backgroundColor: "#B026FF", boxShadow: "0 0 10px #B026FF88" }} />
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 mb-3">
+                        <Pill tone={promo.hours_met ? "green" : "yellow"}>{promo.need_hours}h worked</Pill>
+                        {Object.entries(promo.requirements?.skills || {}).map(([s, l]) => <Pill key={s} tone="cyan">{SKILL_LABELS[s] || s} Lv {l}</Pill>)}
+                        {(promo.requirements?.education || []).map((e) => <Pill key={e}>{e.replace(/_/g, " ")}</Pill>)}
+                        {promo.requirements?.reputation && <Pill>Rep {promo.requirements.reputation}</Pill>}
+                        <Pill tone={promo.reliability >= (promo.requirements?.min_reliability || 55) ? "green" : "yellow"}>Reliability {promo.reliability}</Pill>
+                    </div>
+
                     {promo.eligible ? (
                         <KButton variant="primary" onClick={promote} loading={busy} data-testid="promote-button">Accept Promotion</KButton>
                     ) : (
-                        <div className="text-[11px] text-neon-yellow font-mono">Requirements: {promo.reasons.join(" · ")}</div>
+                        <div className="space-y-1" data-testid="promotion-blocked">
+                            {promo.hours_met && <div className="text-[11px] text-neon-cyan font-mono">You have enough hours, but you still need:</div>}
+                            {promo.reasons.map((r, i) => <div key={i} className="text-[11px] text-neon-yellow font-mono">• {r}</div>)}
+                        </div>
                     )}
                 </Panel>
             )}

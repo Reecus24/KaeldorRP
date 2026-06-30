@@ -161,6 +161,60 @@ def meets_requirements(p, req):
     return True, ""
 
 
+RAISE_INTERVAL_HOURS = 40
+
+
+def required_promo_hours(req):
+    req = req or {}
+    if req.get("hours") is not None:
+        return req["hours"]
+    if req.get("shifts"):
+        return req["shifts"] * 5  # backwards-compat: ~5h average shift
+    return 0
+
+
+async def evaluate_promotion(p, jd):
+    """Hours-based promotion eligibility: worked hours + skills/education/reputation/reliability/record/boss."""
+    req = (jd or {}).get("promotion_req", {}) or {}
+    need_h = required_promo_hours(req)
+    have_h = round((p.get("job") or {}).get("hours_worked", 0), 1)
+    rel = round((p.get("job") or {}).get("reliability", 50))
+    reasons = []
+    eligible = True
+    if have_h < need_h:
+        eligible = False
+        reasons.append(f"Work {round(need_h - have_h)} more hours ({round(have_h)}/{need_h}h)")
+    mok, mreason = meets_requirements(p, {"skills": req.get("skills"), "education": req.get("education"),
+                                          "min_reputation": req.get("reputation")})
+    if not mok:
+        eligible = False
+        reasons.append(mreason)
+    min_rel = req.get("min_reliability", 55)
+    if rel < min_rel:
+        eligible = False
+        reasons.append(f"Raise reliability to {min_rel} (currently {rel}) — perform well and work consistently")
+    if p.get("legal_reputation", 100) < req.get("min_legal_reputation", 35):
+        eligible = False
+        reasons.append("Your criminal record is blocking advancement")
+    boss = await db.contacts.find_one({"player_id": p["id"], "key": "boss"}, {"_id": 0})
+    boss_rel = round(boss.get("relationship_score", 0)) if boss else 0
+    if boss_rel < req.get("min_boss_rel", -40):
+        eligible = False
+        reasons.append("Your manager won't endorse you — improve your relationship first")
+    return {"need_hours": need_h, "have_hours": have_h, "hours_met": have_h >= need_h,
+            "eligible": eligible, "reasons": reasons, "requirements": req,
+            "reliability": rel, "boss_rel": boss_rel}
+
+
+def decorate_employment(e):
+    """Add hours-based raise eligibility to a player_employment doc."""
+    worked = e.get("total_hours_worked", 0)
+    last = e.get("hours_at_last_raise", 0)
+    e["raise_due"] = (worked - last) >= RAISE_INTERVAL_HOURS
+    e["hours_to_next_raise"] = max(0, round(RAISE_INTERVAL_HOURS - (worked - last), 1))
+    return e
+
+
 def ensure_free(p):
     if p.get("status") == "jail":
         raise HTTPException(status_code=409, detail="You are in jail. Wait it out or post bail.")
@@ -381,18 +435,8 @@ async def current_job(user: dict = Depends(current_user)):
     promo = None
     if jd and jd.get("promotion_to"):
         target = await db.jobs.find_one({"id": jd["promotion_to"]}, {"_id": 0})
-        req = jd.get("promotion_req", {})
-        ok = True
-        reasons = []
-        if p["job"].get("shifts_worked", 0) < req.get("shifts", 0):
-            ok = False
-            reasons.append(f"{req.get('shifts')} shifts (you have {p['job'].get('shifts_worked',0)})")
-        mok, mreason = meets_requirements(p, {"skills": req.get("skills"), "education": req.get("education"),
-                                              "min_reputation": req.get("reputation")})
-        if not mok:
-            ok = False
-            reasons.append(mreason)
-        promo = {"target": target, "eligible": ok, "requirements": req, "reasons": reasons}
+        ev = await evaluate_promotion(p, jd)
+        promo = {"target": target, **ev}
     return {"job": p["job"], "details": jd, "promotion": promo}
 
 
@@ -477,15 +521,11 @@ async def promote(user: dict = Depends(current_user)):
     jd = await db.jobs.find_one({"id": p["job"]["job_id"]}, {"_id": 0})
     if not jd or not jd.get("promotion_to"):
         raise HTTPException(status_code=400, detail="No promotion available")
-    req = jd.get("promotion_req", {})
-    if p["job"].get("shifts_worked", 0) < req.get("shifts", 0):
-        raise HTTPException(status_code=400, detail="Not enough shifts worked")
-    mok, mreason = meets_requirements(p, {"skills": req.get("skills"), "education": req.get("education"),
-                                          "min_reputation": req.get("reputation")})
-    if not mok:
-        raise HTTPException(status_code=400, detail=mreason)
+    ev = await evaluate_promotion(p, jd)
+    if not ev["eligible"]:
+        raise HTTPException(status_code=400, detail="; ".join(ev["reasons"]) or "Not eligible for promotion yet")
     target = await db.jobs.find_one({"id": jd["promotion_to"]}, {"_id": 0})
-    p["job"] = {"job_id": target["id"], "title": target["title"], "shifts_worked": 0,
+    p["job"] = {"job_id": target["id"], "title": target["title"], "shifts_worked": 0, "hours_worked": 0,
                 "reliability": 60, "hired_at": now_utc().isoformat()}
     p["reputation"] = clamp(p["reputation"] + 6)
     p["social_status"] = clamp(p["social_status"] + 5)
@@ -1380,7 +1420,7 @@ async def accept_offer(app_id: str, user: dict = Depends(current_user)):
     j = await db.jobs.find_one({"id": a["job_id"]}, {"_id": 0})
     if not j:
         raise HTTPException(status_code=404, detail="Job no longer exists")
-    p["job"] = {"job_id": a["job_id"], "title": j["title"], "shifts_worked": 0, "reliability": 55,
+    p["job"] = {"job_id": a["job_id"], "title": j["title"], "shifts_worked": 0, "hours_worked": 0, "reliability": 55,
                 "hired_at": now_utc().isoformat(), "hourly_wage": a.get("wage_offer") or j["hourly_wage"]}
     await db.applications.update_one({"id": app_id}, {"$set": {"status": "hired"}})
     await db.applications.update_many({"player_id": p["id"], "status": {"$in": ["pending", "accepted"]}, "id": {"$ne": app_id}},
@@ -1456,7 +1496,7 @@ async def my_employment(user: dict = Depends(current_user)):
     p = await get_state(user)
     emps = await db.player_employment.find({"employee_player_id": p["id"], "status": "active"}, {"_id": 0}).to_list(50)
     apps = await db.business_applications.find({"applicant_id": p["id"], "status": {"$in": ["pending", "offered", "rejected"]}}, {"_id": 0}).sort("submitted_at", -1).to_list(50)
-    return {"employments": emps, "applications": apps}
+    return {"employments": [decorate_employment(e) for e in emps], "applications": apps}
 
 
 @api.post("/jobs/employment/applications/{app_id}/accept")
@@ -1472,7 +1512,7 @@ async def accept_business_offer(app_id: str, user: dict = Depends(current_user))
            "owner_id": a["owner_id"], "employee_player_id": p["id"], "employee_name": p["name"],
            "role": a.get("role", "Staff"), "wage_per_shift": a["wage_offer"], "status": "active",
            "hired_at": now_utc().isoformat(), "reliability": 60, "performance": 60,
-           "total_hours_worked": 0, "total_wages_earned": 0.0, "last_paid_at": None}
+           "total_hours_worked": 0, "total_wages_earned": 0.0, "hours_at_last_raise": 0, "last_paid_at": None}
     await db.player_employment.insert_one({**emp})
     await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "accepted"}})
     await add_notification(db, a["owner_id"], "business", "Offer accepted", f"{p['name']} accepted your offer at {a['business_name']}.", "success", f"/businesses/{a['business_id']}")
@@ -1546,11 +1586,13 @@ async def offer_player(biz_id: str, app_id: str, body: OfferBody, user: dict = D
     if not a or a["status"] not in ("pending", "offered"):
         raise HTTPException(status_code=400, detail="Application not open")
     wage = round(max(1.0, body.wage_per_shift), 2)
+    prev = a.get("wage_offer")
     was_offered = a["status"] == "offered"
     role = body.role or a.get("role", "Staff")
     await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "offered", "wage_offer": wage, "role": role}})
-    if was_offered:
-        await add_notification(db, a["applicant_id"], "job", "Offer updated", f"{b['name']} updated your offer to ${wage}/shift as {role}.", "info", "/job-market")
+    if was_offered and prev:
+        direction = "increased to" if wage >= prev else "lowered to"
+        await add_notification(db, a["applicant_id"], "job", "Offer updated", f"{b['name']}: wage {direction} ${wage}/shift, previously ${prev}/shift (as {role}).", "info", "/job-market")
     else:
         await add_notification(db, a["applicant_id"], "job", "Job offer!", f"{b['name']} offered you ${wage}/shift as {role}.", "success", "/job-market")
     return {"ok": True}
@@ -1572,7 +1614,8 @@ async def reject_player(biz_id: str, app_id: str, user: dict = Depends(current_u
 async def biz_player_employees(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     await _get_owned_business(p, biz_id)
-    return await db.player_employment.find({"business_id": biz_id, "status": "active"}, {"_id": 0}).to_list(100)
+    emps = await db.player_employment.find({"business_id": biz_id, "status": "active"}, {"_id": 0}).to_list(100)
+    return [decorate_employment(e) for e in emps]
 
 
 @api.post("/businesses/{biz_id}/player-employees/{emp_id}/fire")
@@ -1596,8 +1639,9 @@ async def raise_player(biz_id: str, emp_id: str, body: WageBody, user: dict = De
     if not emp:
         raise HTTPException(status_code=404, detail="Employee not found")
     wage = round(max(1.0, body.wage_per_shift), 2)
-    await db.player_employment.update_one({"id": emp_id}, {"$set": {"wage_per_shift": wage, "reliability": clamp(emp.get("reliability", 60) + 5)}})
-    await add_notification(db, emp["employee_player_id"], "job", "Pay rise!", f"{b['name']} raised your wage to ${wage}/shift.", "success", "/job-market")
+    prev = emp.get("wage_per_shift")
+    await db.player_employment.update_one({"id": emp_id}, {"$set": {"wage_per_shift": wage, "hours_at_last_raise": emp.get("total_hours_worked", 0), "reliability": clamp(emp.get("reliability", 60) + 5)}})
+    await add_notification(db, emp["employee_player_id"], "job", "Pay rise!", f"{b['name']} raised your wage to ${wage}/shift, previously ${prev}/shift.", "success", "/job-market")
     return {"ok": True}
 
 
@@ -1890,7 +1934,7 @@ async def seed_demo_players():
         if d.get("job"):
             j = await db.jobs.find_one({"id": d["job"]}, {"_id": 0})
             if j:
-                p["job"] = {"job_id": j["id"], "title": j["title"], "shifts_worked": 12,
+                p["job"] = {"job_id": j["id"], "title": j["title"], "shifts_worked": 12, "hours_worked": 60,
                             "reliability": 70, "hired_at": now_utc().isoformat()}
         await db.players.insert_one({**p})
         if d.get("business"):
@@ -1912,6 +1956,25 @@ async def seed_demo_players():
     logger.info("Demo players seeded (mara/dovan/kiri @kaeldor.com / demo123)")
 
 
+async def migrate_hours_based_promotions():
+    """Convert legacy shift-count promotion requirements + player job progress to hour-based."""
+    seed_jobs = {x["id"]: x for x in CONTENT_MAP["jobs"][1]}
+    async for j in db.jobs.find({"promotion_req.shifts": {"$exists": True}}, {"_id": 0, "id": 1, "promotion_req": 1}):
+        sj = seed_jobs.get(j["id"])
+        if sj:
+            new_req = sj.get("promotion_req", {})
+        else:
+            old = j.get("promotion_req") or {}
+            new_req = {k: v for k, v in old.items() if k != "shifts"}
+            new_req["hours"] = old.get("shifts", 0) * 5
+        await db.jobs.update_one({"id": j["id"]}, {"$set": {"promotion_req": new_req}})
+    async for pl in db.players.find({"job": {"$ne": None}, "job.hours_worked": {"$exists": False}}, {"_id": 0, "id": 1, "job": 1}):
+        job = pl.get("job") or {}
+        if job:
+            await db.players.update_one({"id": pl["id"]}, {"$set": {"job.hours_worked": round(job.get("shifts_worked", 0) * 5, 1)}})
+    await db.player_employment.update_many({"hours_at_last_raise": {"$exists": False}}, {"$set": {"hours_at_last_raise": 0}})
+
+
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
@@ -1924,7 +1987,11 @@ async def startup():
     await db.messages.create_index([("thread_id", 1), ("ts", 1)])
     await db.messages.create_index([("to_player_id", 1), ("read", 1)])
     await db.players.create_index("last_seen")
+    await db.applications.create_index([("player_id", 1), ("status", 1)])
+    await db.business_applications.create_index([("business_id", 1), ("status", 1)])
+    await db.player_employment.create_index([("employee_player_id", 1), ("status", 1)])
     await seed_content(db)
+    await migrate_hours_based_promotions()
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@kaeldor.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

@@ -280,8 +280,11 @@ async def complete_activity(db, p, cfg):
         p["reputation"] = clamp(p["reputation"] + 0.5)
         if p.get("job"):
             p["job"]["shifts_worked"] = p["job"].get("shifts_worked", 0) + 1
-            p["job"]["reliability"] = clamp(p["job"].get("reliability", 50) + 2)
+            p["job"]["hours_worked"] = round(p["job"].get("hours_worked", 0) + hours, 1)
+            rel_delta = 2 if eff >= 0.7 else (-3 if eff < 0.5 else 0)
+            p["job"]["reliability"] = clamp(p["job"].get("reliability", 50) + rel_delta)
         p["stats_meta"]["shifts_worked"] = p["stats_meta"].get("shifts_worked", 0) + 1
+        p["stats_meta"]["total_hours_worked"] = round(p["stats_meta"].get("total_hours_worked", 0) + hours, 1)
         await add_event(db, pid, f"Finished {hours}h shift as {payload.get('title')} (+${pay}).", "job", "success")
         # random work event
         if eff < 0.55 and random.random() < 0.3:
