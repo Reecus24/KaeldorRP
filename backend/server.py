@@ -263,6 +263,84 @@ async def compute_net_worth(p):
     return round(nw, 2)
 
 
+async def estimate_income_per_day(p):
+    """Rough steady daily income from a job + profitable businesses (used for creditworthiness)."""
+    income = 0.0
+    job = p.get("job")
+    if job:
+        wage = job.get("hourly_wage")
+        if wage is None:
+            jd = await db.jobs.find_one({"id": job.get("job_id")}, {"_id": 0, "hourly_wage": 1})
+            wage = (jd or {}).get("hourly_wage", 0)
+        income += (wage or 0) * 6  # ~6 productive hours/day
+    bizs = await db.businesses.find({"player_id": p["id"], "bankrupt": {"$ne": True}}, {"_id": 0, "last_net_day": 1}).to_list(100)
+    for b in bizs:
+        income += max(0, b.get("last_net_day", 0))
+    return round(income, 2)
+
+
+async def credit_profile(p, cfg=None):
+    """Compute a player's TOTAL credit limit, used credit (debt) and AVAILABLE new credit.
+
+    The limit is derived from net worth, income, finance skill, job stability, reputation and
+    record. Because net worth already subtracts debt, taking a loan (bank +amt, debt +amt)
+    leaves net worth unchanged -> the limit does NOT grow when borrowing, so loans cannot be
+    stacked to exceed the cap.
+    """
+    cfg = cfg or await get_config(db)
+    econ = cfg.get("economy", {})
+    interest = econ.get("loan_interest_daily", 0.015)
+    nw = await compute_net_worth(p)
+    income = await estimate_income_per_day(p)
+    fin = p["skills"].get("finance", {}).get("level", 1)
+    debt = round(p.get("debt", 0), 2)
+    missed = int(p.get("credit_missed", 0))
+
+    base = 500.0
+    skill_c = fin * 250.0
+    asset_c = max(0.0, nw) * 0.6
+    income_c = income * 30 * 0.8
+    job = p.get("job")
+    job_c = (job.get("reliability", 50) / 100.0) * 500.0 if job else 0.0
+    raw = base + skill_c + asset_c + income_c + job_c
+
+    reasons = []
+    rep_factor = clamp(0.6 + (p.get("reputation", 50) - 50) / 150.0 + (p.get("legal_reputation", 100) - 50) / 200.0, 0.3, 1.4)
+    raw *= rep_factor
+    if p.get("reputation", 50) < 45:
+        reasons.append("low reputation")
+    if not job and income <= 0:
+        raw *= 0.6
+        reasons.append("no steady income")
+
+    blocked = False
+    legal = p.get("legal_reputation", 100)
+    if legal < 40:
+        raw *= 0.5
+        reasons.append("criminal record")
+    if legal < 25:
+        blocked = True
+        reasons.append("serious criminal record — credit frozen")
+    if missed > 0:
+        raw *= max(0.3, 1 - 0.12 * missed)
+        reasons.append(f"{missed} missed payment(s)")
+
+    limit = round(max(0.0, raw))
+    if blocked:
+        limit = min(limit, int(debt))
+    available = round(max(0.0, limit - debt), 2)
+    return {
+        "cash": round(p["cash"], 2), "bank": round(p["bank"], 2), "debt": debt,
+        "interest_daily": interest,
+        "credit_limit": limit, "credit_used": debt, "credit_available": available,
+        "blocked": blocked, "reasons": reasons,
+        "net_worth": nw, "income_per_day": income,
+        "daily_interest_cost": round(debt * interest, 2),
+        "factors": {"base": round(base), "finance_skill": round(skill_c), "assets": round(asset_c),
+                    "income": round(income_c), "job_stability": round(job_c), "reputation_factor": round(rep_factor, 2)},
+    }
+
+
 async def get_state(user):
     p = await fetch_raw_player(user["id"])
     await resolve_player(db, p)
@@ -617,10 +695,9 @@ class AmountBody(BaseModel):
 async def bank_info(user: dict = Depends(current_user)):
     p = await get_state(user)
     cfg = await get_config(db)
-    fin = p["skills"].get("finance", {}).get("level", 1)
-    max_loan = round(max(500, (p["bank"] + p["cash"]) * cfg["economy"]["max_loan_multiplier"] + fin * 500))
-    return {"cash": p["cash"], "bank": p["bank"], "debt": p["debt"],
-            "max_loan": max_loan, "interest_daily": cfg["economy"]["loan_interest_daily"]}
+    prof = await credit_profile(p, cfg)
+    prof["max_loan"] = prof["credit_limit"]  # backwards-compat alias
+    return prof
 
 
 @api.post("/bank/deposit")
@@ -651,18 +728,26 @@ async def withdraw(body: AmountBody, user: dict = Depends(current_user)):
 async def take_loan(body: AmountBody, user: dict = Depends(current_user)):
     p = await get_state(user)
     cfg = await get_config(db)
-    fin = p["skills"].get("finance", {}).get("level", 1)
-    max_loan = max(500, (p["bank"] + p["cash"]) * cfg["economy"]["max_loan_multiplier"] + fin * 500)
+    prof = await credit_profile(p, cfg)
     amt = round(body.amount, 2)
     if amt <= 0:
         raise HTTPException(status_code=400, detail="Invalid amount")
-    if p["debt"] + amt > max_loan:
-        raise HTTPException(status_code=400, detail=f"Loan exceeds your limit of ${round(max_loan)}")
-    p["bank"] += amt
-    p["debt"] += amt
-    await add_event(db, p["id"], f"Took a loan of ${amt}. The bank expects it back with interest.", "finance", "warning")
+    if prof["blocked"]:
+        raise HTTPException(status_code=403, detail=f"Credit denied: {', '.join(prof['reasons']) or 'you are not eligible right now'}.")
+    if amt > prof["credit_available"]:
+        raise HTTPException(status_code=400,
+                            detail=f"You can borrow up to ${round(prof['credit_available'])} more "
+                                   f"(total limit ${prof['credit_limit']}, already used ${round(prof['debt'])}).")
+    p["bank"] = round(p["bank"] + amt, 2)
+    p["debt"] = round(p["debt"] + amt, 2)
+    rate_pct = round(prof["interest_daily"] * 100, 2)
+    await add_event(db, p["id"], f"Took a ${round(amt)} loan. Total debt now ${round(p['debt'])} at {rate_pct}%/day interest.", "finance", "warning")
+    await add_notification(db, p["id"], "finance", "Loan approved",
+                           f"${round(amt)} added to your bank. Total debt ${round(p['debt'])} ({rate_pct}%/day).", "info", "/bank")
     await save_player(p)
-    return {"ok": True}
+    new_prof = await credit_profile(p, cfg)
+    return {"ok": True, "debt": p["debt"], "credit_limit": new_prof["credit_limit"],
+            "credit_available": new_prof["credit_available"]}
 
 
 @api.post("/bank/repay")
@@ -672,13 +757,19 @@ async def repay(body: AmountBody, user: dict = Depends(current_user)):
     if amt <= 0:
         raise HTTPException(status_code=400, detail="Invalid amount")
     amt = min(amt, p["debt"])
+    if amt <= 0:
+        raise HTTPException(status_code=400, detail="You have no debt to repay")
     if p["cash"] + p["bank"] < amt:
         raise HTTPException(status_code=400, detail="Not enough money")
     charge(p, amt)
     p["debt"] = round(p["debt"] - amt, 2)
-    await add_event(db, p["id"], f"Repaid ${amt} of debt.", "finance", "success")
+    if p["debt"] <= 0:
+        p["debt"] = 0.0
+        p["credit_missed"] = 0  # cleared the slate — restore creditworthiness
+    await add_event(db, p["id"], f"Repaid ${round(amt)} of debt. Remaining debt ${round(p['debt'])}.", "finance", "success")
+    await add_notification(db, p["id"], "finance", "Debt repaid", f"Repaid ${round(amt)}. Remaining debt ${round(p['debt'])}.", "success", "/bank")
     await save_player(p)
-    return {"ok": True}
+    return {"ok": True, "debt": p["debt"]}
 
 
 # ============================ REAL ESTATE ============================

@@ -114,6 +114,11 @@ async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
         "cash": round(p["cash"], 2), "bank": round(p["bank"], 2), "debt": round(p["debt"], 2),
     }
     await db.daily_summaries.insert_one({**doc})
+    if p.get("credit_missed_flag"):
+        p["credit_missed"] = min(10, int(p.get("credit_missed", 0)) + 1)
+        p["credit_missed_flag"] = False
+    elif int(p.get("credit_missed", 0)) > 0:
+        p["credit_missed"] = max(0, int(p["credit_missed"]) - 1)  # rebuild creditworthiness on a clean day
     p["day_ledger"] = empty_ledger()
     sign = "+" if net >= 0 else ""
     await add_notification(db, p["id"], "daily_summary", "Daily summary ready",
@@ -406,6 +411,7 @@ async def accrue_recurring(db, p, cfg, gh, housing_doc):
         ledger_add(p, "bills", -round(bills, 2))
         ledger_add(p, "vehicle_costs", -round(veh, 2))
         if p["debt"] > before_debt + 1:
+            p["credit_missed_flag"] = True
             ledger_warn(p, "Couldn't fully cover living costs — slipping into debt.")
             if random.random() < 0.3:
                 await add_event(db, p["id"], "You couldn't cover your bills and slid deeper into debt.", "finance", "warning")

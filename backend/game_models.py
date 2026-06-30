@@ -85,6 +85,7 @@ def new_player(user_id, name, background):
         "jail_until": None,
         "hospital_until": None,
         "cooldowns": {},
+        "credit_missed": 0,
         "criminal_record": [],
         "stats_meta": {
             "shifts_worked": 0, "actions_done": 0, "crimes_committed": 0,
