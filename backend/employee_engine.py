@@ -17,6 +17,7 @@ import random
 from datetime import timedelta
 
 from game_models import clamp, now_utc
+import game_models
 from game_engine import (add_event, parse_dt, real_seconds, add_notification, game_now,
                          get_config, effectiveness)
 import employment
@@ -81,6 +82,9 @@ def _recipe(b):
 
 
 def material_cost_per_unit(b):
+    override = b.get("material_cost_override")
+    if override is not None:
+        return round(float(override), 4)
     return round(sum(r.get("qty", 1) * r.get("cost", 0) for r in _recipe(b)), 4)
 
 
@@ -100,13 +104,17 @@ def marketing_price_mult(b):
 
 
 def reputation_mult(b):
-    """REPUTATION = market reach. Scales customer DEMAND from 0.5x (unknown) to 1.0x (famous)."""
-    return round(0.5 + 0.5 * (b.get("reputation", 50) / 100.0), 4)
+    """REPUTATION = market reach. Scales customer DEMAND (min..max, admin-tunable)."""
+    lo = game_models.TUNE.get("reputation_mult_min", 0.5)
+    hi = game_models.TUNE.get("reputation_mult_max", 1.0)
+    return round(lo + (hi - lo) * (b.get("reputation", 50) / 100.0), 4)
 
 
 def satisfaction_mult(b):
-    """SATISFACTION = team morale/efficiency. Scales PRODUCTION output from 0.85x to 1.0x."""
-    return round(0.85 + 0.15 * (b.get("satisfaction", 80) / 100.0), 4)
+    """SATISFACTION = team morale/efficiency. Scales PRODUCTION output (min..max, admin-tunable)."""
+    lo = game_models.TUNE.get("satisfaction_mult_min", 0.85)
+    hi = game_models.TUNE.get("satisfaction_mult_max", 1.0)
+    return round(lo + (hi - lo) * (b.get("satisfaction", 80) / 100.0), 4)
 
 
 # ===================== CANONICAL ECONOMY FORMULAS =====================
@@ -188,7 +196,7 @@ async def gather_workers(db, b, cfg, traits_map=None):
     workers = []
     npcs = await db.employees.find({"business_id": b["id"], "status": "active"}, {"_id": 0}).to_list(300)
     for e in npcs:
-        cond = clamp(0.85 + 0.15 * ((e.get("morale", 60) + e.get("energy", 80)) / 200.0), 0.85, 1.05)
+        cond = clamp(game_models.TUNE.get("worker_cond_min", 0.85) + (game_models.TUNE.get("worker_cond_max", 1.05) - game_models.TUNE.get("worker_cond_min", 0.85)) * ((e.get("morale", 60) + e.get("energy", 80)) / 200.0), 0.6, 1.2)
         prod = worker_productivity(e.get("skill", 3), e.get("reliability", 60), cond)
         for t in e.get("traits", []):
             prod *= (1 + traits_map.get(t, {}).get("effects", {}).get("revenue", 0))
@@ -205,7 +213,7 @@ async def gather_workers(db, b, cfg, traits_map=None):
             continue
         sk = employment.ROLE_SKILL.get(e.get("role"))
         skill_level = pl["skills"].get(sk, {}).get("level", 1) if sk else employment._avg(employment._top_skills(pl))
-        cond = clamp(0.85 + 0.15 * effectiveness(pl), 0.85, 1.05)
+        cond = clamp(game_models.TUNE.get("worker_cond_min", 0.85) + (game_models.TUNE.get("worker_cond_max", 1.05) - game_models.TUNE.get("worker_cond_min", 0.85)) * effectiveness(pl), 0.6, 1.2)
         prod = worker_productivity(skill_level, e.get("reliability", 60), cond)
         workers.append({
             "kind": "player", "id": e["id"], "name": e.get("employee_name") or pl["name"], "role": e.get("role"),
@@ -484,7 +492,8 @@ async def _roll_event(db, b, active, has_manager, traits_map, changed, g_now=Non
             return
         e = random.choice(active)
         base = parse_dt(e.get("last_raise_request")) or parse_dt(e.get("hire_date"))
-        if g_now and base and (g_now - base) < timedelta(days=7):
+        cooldown_days = game_models.TUNE.get("raise_cooldown_days", 7)
+        if g_now and base and (g_now - base) < timedelta(days=cooldown_days):
             return  # still on cooldown — no event, no spam
         e["wants_raise"] = True
         e["last_raise_request"] = (g_now or now_utc()).isoformat()

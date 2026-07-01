@@ -347,13 +347,15 @@ def evaluate_application(p, job, cfg, boss_rel=0, mentor_rel=0):
     rel_bonus = (reliability - 50) / 400.0
     ref_bonus = max(0.0, max(boss_rel, mentor_rel) / 100.0) * 0.15
     crime_pen = (50 - p["legal_reputation"]) / 200.0 if p["legal_reputation"] < 50 else 0.0
+    susp_pen = p.get("criminal_suspicion", 0) / 400.0  # employers run background checks
+    status_bonus = max(0.0, (p.get("social_status", 10) - 10) / 300.0)  # connections open doors
     health_pen = (50 - p["health"]) / 300.0 if p["health"] < 50 else 0.0
 
-    mult = clamp(1 + skill_bonus + edu_bonus + rep_bonus + rel_bonus + ref_bonus - crime_pen - health_pen,
+    mult = clamp(1 + skill_bonus + edu_bonus + rep_bonus + rel_bonus + ref_bonus + status_bonus - crime_pen - health_pen,
                  e.get("wage_min_mult", 0.7), e.get("wage_max_mult", 1.85))
     wage = round(base * mult, 2)
 
-    score = max(0.03, min(0.97, 0.5 + skill_bonus + edu_bonus + rep_bonus * 1.5 + rel_bonus * 2 + ref_bonus * 2 - crime_pen * 2 - health_pen))
+    score = max(0.03, min(0.97, 0.5 + skill_bonus + edu_bonus + rep_bonus * 1.5 + rel_bonus * 2 + ref_bonus * 2 + status_bonus - crime_pen * 2 - susp_pen * 2 - health_pen))
     accepted = random.random() < score
 
     reason = None
@@ -361,6 +363,8 @@ def evaluate_application(p, job, cfg, boss_rel=0, mentor_rel=0):
         factors = []
         if crime_pen > 0.05:
             factors.append(("your criminal record", crime_pen * 2))
+        if susp_pen > 0.05:
+            factors.append(("you're under police attention", susp_pen * 2))
         if skill_lvl < 3:
             factors.append((f"low {skills[0]} skill", 0.35))
         if p["reputation"] < 45:

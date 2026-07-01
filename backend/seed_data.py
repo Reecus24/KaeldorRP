@@ -68,26 +68,26 @@ JOBS = [
      "promotion_to": None, "promotion_req": {}},
     {"id": "office_assistant", "title": "Office Assistant", "category": "office", "tier": 3,
      "description": "Manage schedules and paperwork for the firm.",
-     "hourly_wage": 22, "requirements": {"education": ["business_basic"]}, "shift_options": [6, 8],
+     "hourly_wage": 22, "requirements": {"education": ["business_basic"], "min_legal_reputation": 50}, "shift_options": [6, 8],
      "fatigue_per_hour": 2, "stress_per_hour": 4, "energy_per_hour": 2,
      "skill_xp": {"management": 8, "finance": 4}, "vehicle_required": None,
      "promotion_to": "store_manager",
      "promotion_req": {"hours": 240, "skills": {"management": 6}, "education": ["management_course"]}},
     {"id": "store_manager", "title": "Store Manager", "category": "management", "tier": 4,
      "description": "Run the floor, the staff and the numbers.",
-     "hourly_wage": 32, "requirements": {"skills": {"management": 5}, "education": ["management_course"]},
+     "hourly_wage": 32, "requirements": {"skills": {"management": 5}, "education": ["management_course"], "min_legal_reputation": 60, "min_social_status": 20},
      "shift_options": [6, 8], "fatigue_per_hour": 3, "stress_per_hour": 6, "energy_per_hour": 3,
      "skill_xp": {"management": 12, "finance": 6, "sales": 4}, "vehicle_required": None,
      "promotion_to": None, "promotion_req": {}},
     {"id": "restaurant_manager", "title": "Restaurant Manager", "category": "management", "tier": 4,
      "description": "Command the kitchen and front of house.",
-     "hourly_wage": 34, "requirements": {"skills": {"cooking": 6, "management": 5}},
+     "hourly_wage": 34, "requirements": {"skills": {"cooking": 6, "management": 5}, "min_legal_reputation": 55, "min_social_status": 20},
      "shift_options": [6, 8], "fatigue_per_hour": 4, "stress_per_hour": 7, "energy_per_hour": 4,
      "skill_xp": {"management": 12, "cooking": 6}, "vehicle_required": None,
      "promotion_to": None, "promotion_req": {}},
     {"id": "logistics_manager", "title": "Logistics Manager", "category": "management", "tier": 4,
      "description": "Optimize routes and run the whole depot.",
-     "hourly_wage": 36, "requirements": {"skills": {"management": 5, "driving": 5}, "education": ["business_basic"]},
+     "hourly_wage": 36, "requirements": {"skills": {"management": 5, "driving": 5}, "education": ["business_basic"], "min_legal_reputation": 60, "min_social_status": 25},
      "shift_options": [6, 8], "fatigue_per_hour": 3, "stress_per_hour": 6, "energy_per_hour": 3,
      "skill_xp": {"management": 12, "driving": 6, "finance": 5}, "vehicle_required": None,
      "promotion_to": None, "promotion_req": {}},
@@ -698,6 +698,8 @@ async def seed_content(db):
         patch = {}
         if "social" not in cfg:
             patch["social"] = DEFAULT_CONFIG["social"]
+        if "tuning" not in cfg:
+            patch["tuning"] = DEFAULT_CONFIG["tuning"]
         if not cfg.get("world_start_real"):
             patch["world_start_real"] = datetime.now(timezone.utc).isoformat()
             patch["world_start_game"] = cfg.get("world_start_game") or DEFAULT_CONFIG["world_start_game"]

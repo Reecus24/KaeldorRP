@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 19 — ADMIN SANDBOX, player-stat linking, income tax + tips, and social overhaul are all working end-to-end. Backend: 11/11 pytest cases pass (test_iteration19_features.py). Frontend: all 8 required admin testids (admin-tab-economy sandbox, admin-tab-tuning, admin-tab-players, econ-price-kiosk, econ-save-kiosk, apply-existing-toggle, tune-upgrade_days, tax-rate-2, save-tuning, edit-player-{id}, edit-cash, save-player) render and function on /admin as admin@kaeldor.com. Job Center /jobs shows 13 'Requires:' chip rows via requirements-{jobId} testids for player@kaeldor.com. Zero German UI strings detected on /admin or /jobs. Economy regression /app/tests/verify_economy.py still passes 8/8, and /api/businesses/market kiosk L1 profit_day=$219.83 (within ±0.1% of the $220 spec target). The ask_loan social overhaul is verified live: the player's Event Log shows 'Ravi Sato spotted you some cash. (+$214 borrowed — added to your debt to repay)' after the interaction, and the backend test asserts cash_delta == debt_delta (within $1 rounding) — a personal loan is a real debt, not free money. Verified admin PUT /api/admin/business-economy/kiosk with {production_per_worker_hour:8, price:13, apply_existing:true} returns {ok:true, applied_to_existing:true}; GET reflects new values; revert to pph 5.5 / price 12 persists. Admin PUT /api/admin/config with {tuning:{upgrade_days:5,...}} persists across GETs. Admin PUT /api/admin/players/{id} with {cash:5000, social_status:40} updates Neo's row (verified via subsequent GET). Fresh drifter registered via /api/auth/register + /api/character/create sees all 4 high-tier jobs (store_manager, restaurant_manager, logistics_manager, office_assistant) with qualified=false and English gating reasons starting with 'Requires ...', and /api/jobs/store_manager/apply rejects with 4xx + English detail.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration19_features.py",
+    "/app/test_reports/pytest/iteration19.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:148 meets_requirements checks skills → education → reputation → legal_reputation → social_status → suspicion → vehicle in that order. For a fresh drifter, the FIRST failing requirement wins the reason string, so for office_assistant the reason returned is 'Requires course: business basic' (education) rather than 'Requires a clean record (Legal Standing 50+)'. The English gating reasons for min_legal_reputation/min_social_status ARE correctly implemented at lines 158-163, they only surface once earlier requirement layers pass. This matches the spec — just documenting the surfacing order for the frontend.",
+    "server.py:1489 admin_update_business_economy correctly writes both business_types (template) and businesses (existing instances) atomically when apply_existing=true; returns applied_to_existing flag accurately.",
+    "server.py:1431 admin_update_config uses upsert but overwrites the whole doc with the request body (after stripping _id and setting id=global). Callers must send the complete tuning object; sending a partial {tuning:{upgrade_days:5}} works because tuning is treated as opaque nested doc, but a caller sending {tuning:{upgrade_days:5}} alone (without other tuning keys) would clobber the other tuning values. The test correctly merges by fetching current tuning first, mutating one key, and PUTting the full merged dict. Frontend TuningPanel does the same (loads then edits). No action needed but the endpoint could be made a $set-per-key merge for safety.",
+    "social_engine.py:354 ask_loan correctly adds cash AND increments p['debt'] by the same amount; the event message '(+$X borrowed — added to your debt to repay)' is clear English (verified live in Neo's event log).",
+    "game_engine.py:296-319 job-completion path applies progressive income tax via _tax_rate_for, adds a reputation/social tip for customer-facing categories (retail/food/logistics/office/management/trade), and posts an event 'Finished Xh shift as {title} (+$net after $tax tax[, incl. $tip tips]).' — matches the spec exactly. Ledger tracks 'taxes' and 'savings_interest' as new signed buckets in LEDGER_KEYS.",
+    "game_models.py:184 apply_tuning defensively re-hydrates the shared TUNE cache from every get_config call; game_engine._tax_rate_for reads game_models.TUNE.get('tax_brackets') — live-tunable through admin."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration19_features.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 pytest — admin economy 3/3, admin config 2/2, admin players 2/2, job requirements 2/2, social overhaul 1/1, market regression 1/1)",
+    "frontend": "100% (all admin sandbox testids render + functional, requirements chip row shows on jobs page, zero German strings, ask_loan effect visible live in event log)"
+  },
+  "test_credentials": "admin@kaeldor.com/admin123, player@kaeldor.com/player123 (used); plus a throwaway TEST_it19_*@kaeldor.com created per test run for job-requirement gating test.",
+  "seed_data_creation": "TestJobRequirements creates one fresh player per run via /api/auth/register + /api/character/create with background='drifter' (email prefix TEST_it19_). TestAdminEconomy temporarily mutates kiosk (price 12→13 pph 5.5→8) and reverts. TestAdminConfig mutates tuning.upgrade_days (7→5) and restores. TestAdminPlayers mutates Neo (cash+social_status) and restores. No permanent state changes.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: `cd /app/backend && MONGO_URL=mongodb://localhost:27017 DB_NAME=test_database python -m pytest tests/test_iteration19_features.py -v --tb=short -o addopts='' -p no:cacheprovider --junitxml=/app/test_reports/pytest/iteration19.xml`. Key API gotchas: (1) /api/social/contacts returns a dict envelope {contacts:[...], summary:{...}} — not a raw list; (2) POST /api/social/contacts/{cid}/interact requires body {action_id: <id>} where the id comes from GET /api/social/contacts/{cid}.actions[].id (with action.kind == 'ask_loan' for a loan) — NOT {kind:'ask_loan'}; (3) meets_requirements returns the FIRST failing reason (skills → education → reputation → legal → social → suspicion → vehicle) so to isolate the legal/social English message you must satisfy skills+education first; (4) frontend admin tab testid uses the lowercase label WITH spaces preserved, so the Economy Sandbox tab is `admin-tab-economy sandbox` (single space); (5) admin PUT /api/admin/config takes {tuning: <full-dict>} — the endpoint replaces the config doc, so always merge with the existing tuning before PUTting; (6) admin PUT /api/admin/business-economy/{type_id} returns {ok:true, applied_to_existing:<bool>} — the flag reflects whether existing business instances (not just the template) were updated. Job requirement gating keys (min_legal_reputation / min_social_status) are present on store_manager (60/20), restaurant_manager (55/20), logistics_manager (60/25), office_assistant (50/-). Live market kiosk L1 profit_day = $219.83/day (target $220, 0.08% off).",
+  "rca of the issue": "No unresolved issues. Two initial test failures were due to test-side bugs (my test called /api/social/contacts expecting a list but it returns an envelope; and used {kind:'ask_loan'} instead of {action_id:...}; and asserted an English reason that couldn't surface because earlier requirement layers were failing first). Both were fixed in the test file, not in product code. Product behavior fully matches the review-request spec."
+}

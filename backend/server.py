@@ -24,7 +24,7 @@ from game_engine import (
     charge, add_money, effectiveness, apply_effects, add_skill_xp,
     add_notification, ledger_add, game_now, game_day_index,
 )
-from seed_data import seed_content, CONTENT_MAP
+from seed_data import seed_content, CONTENT_MAP, JOBS
 import employee_engine
 import social_engine
 import comms
@@ -149,12 +149,18 @@ def meets_requirements(p, req):
     req = req or {}
     for sk, lvl in (req.get("skills") or {}).items():
         if p["skills"].get(sk, {}).get("level", 1) < lvl:
-            return False, f"Requires {sk} level {lvl}"
+            return False, f"Requires {sk.replace('_', ' ')} level {lvl}"
     for edu in (req.get("education") or []):
         if edu not in p["education"]:
-            return False, f"Requires course: {edu}"
+            return False, f"Requires course: {edu.replace('_', ' ')}"
     if req.get("min_reputation") and p["reputation"] < req["min_reputation"]:
-        return False, f"Requires reputation {req['min_reputation']}"
+        return False, f"Requires reputation {req['min_reputation']}+"
+    if req.get("min_legal_reputation") and p.get("legal_reputation", 100) < req["min_legal_reputation"]:
+        return False, f"Requires a clean record (Legal Standing {req['min_legal_reputation']}+)"
+    if req.get("min_social_status") and p.get("social_status", 0) < req["min_social_status"]:
+        return False, f"Requires social standing {req['min_social_status']}+ — build status via housing, education & connections"
+    if req.get("max_suspicion") is not None and p.get("criminal_suspicion", 0) > req["max_suspicion"]:
+        return False, f"Lay low — you're under too much police attention (Suspicion must be ≤ {req['max_suspicion']})"
     if req.get("vehicle"):
         if not p.get("vehicles"):
             return False, "Requires a vehicle"
@@ -615,7 +621,7 @@ async def work_shift(body: ShiftBody, user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail="Too exhausted to work. Rest first.")
     cfg = await get_config(db)
     payload = {
-        "job_id": j["id"], "title": j["title"], "hours": body.hours,
+        "job_id": j["id"], "title": j["title"], "hours": body.hours, "category": j.get("category"),
         "hourly_wage": p["job"].get("hourly_wage", j["hourly_wage"]), "fatigue_ph": j["fatigue_per_hour"],
         "stress_ph": j["stress_per_hour"], "energy_ph": j["energy_per_hour"],
         "skill_xp": j.get("skill_xp", {}),
@@ -1093,7 +1099,7 @@ async def upgrade_business(biz_id: str, user: dict = Depends(current_user)):
     charge(p, cost)
     cfg = await get_config(db)
     now = now_utc()
-    dur_days = 7
+    dur_days = int((cfg.get("tuning") or {}).get("upgrade_days", 7))
     ends = now + timedelta(seconds=real_seconds(dur_days * 1440, cfg["time_scale"]))
     activity = {"type": "upgrade", "started_at": now.isoformat(), "ends_at": ends.isoformat(),
                 "duration_days": dur_days, "completed": False}
@@ -1117,7 +1123,7 @@ async def marketing_business(biz_id: str, user: dict = Depends(current_user)):
     charge(p, cost)
     cfg = await get_config(db)
     now = now_utc()
-    dur_days = 3
+    dur_days = int((cfg.get("tuning") or {}).get("marketing_days", 3))
     ends = now + timedelta(seconds=real_seconds(dur_days * 1440, cfg["time_scale"]))
     activity = {"type": "marketing", "started_at": now.isoformat(), "ends_at": ends.isoformat(),
                 "duration_days": dur_days, "completed": False}
@@ -1434,6 +1440,8 @@ async def admin_update_config(body: dict, admin: dict = Depends(admin_user)):
 async def admin_players(admin: dict = Depends(admin_user)):
     players = await db.players.find({}, {"_id": 0, "name": 1, "level": 1, "cash": 1, "bank": 1,
                                          "debt": 1, "net_worth": 1, "status": 1, "reputation": 1,
+                                         "legal_reputation": 1, "criminal_suspicion": 1, "social_status": 1,
+                                         "health": 1, "energy": 1, "skills": 1,
                                          "id": 1, "created_at": 1}).to_list(500)
     return players
 
@@ -1448,6 +1456,112 @@ async def admin_stats(admin: dict = Depends(admin_user)):
         "actions": await db.actions.count_documents({}),
         "courses": await db.courses.count_documents({}),
     }
+
+
+# ---------------- ADMIN SANDBOX: business economy tuning ----------------
+class BizEconomyBody(BaseModel):
+    price: float | None = None
+    material_cost: float | None = None
+    daily_demand: float | None = None
+    production_per_worker_hour: float | None = None
+    base_hourly_wage: float | None = None
+    opening_open: str | None = None
+    opening_close: str | None = None
+    apply_existing: bool = True
+
+
+@api.get("/admin/business-economy")
+async def admin_business_economy(admin: dict = Depends(admin_user)):
+    out = []
+    for t in await db.business_types.find({}, {"_id": 0}).to_list(100):
+        out.append({
+            "id": t["id"], "name": t.get("name"),
+            "price": (t.get("product") or {}).get("price", 0),
+            "material_cost": t.get("material_cost_override", round(sum(r.get("qty", 1) * r.get("cost", 0) for r in (t.get("recipe") or [])), 2)),
+            "daily_demand": t.get("daily_demand", 0),
+            "production_per_worker_hour": t.get("production_per_worker_hour", 0),
+            "base_hourly_wage": t.get("base_hourly_wage"),
+            "opening_hours": t.get("opening_hours") or {"open": "08:00", "close": "20:00"},
+        })
+    return out
+
+
+@api.put("/admin/business-economy/{type_id}")
+async def admin_update_business_economy(type_id: str, body: BizEconomyBody, admin: dict = Depends(admin_user)):
+    t = await db.business_types.find_one({"id": type_id}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Unknown business type")
+    tset, bset = {}, {}
+    if body.price is not None:
+        prod = t.get("product") or {}
+        prod["price"] = round(body.price, 2)
+        tset["product"] = prod
+        bset["product"] = prod
+    if body.material_cost is not None:
+        tset["material_cost_override"] = round(body.material_cost, 2)
+        bset["material_cost_override"] = round(body.material_cost, 2)
+    if body.daily_demand is not None:
+        tset["daily_demand"] = round(body.daily_demand, 2)
+        bset["daily_demand"] = round(body.daily_demand, 2)
+    if body.production_per_worker_hour is not None:
+        tset["production_per_worker_hour"] = round(body.production_per_worker_hour, 3)
+        bset["production_per_worker_hour"] = round(body.production_per_worker_hour, 3)
+    if body.base_hourly_wage is not None:
+        tset["base_hourly_wage"] = round(body.base_hourly_wage, 2)
+        bset["base_hourly_wage"] = round(body.base_hourly_wage, 2)
+    if body.opening_open and body.opening_close:
+        o = employment.hhmm_to_float(body.opening_open)
+        c = 24.0 if body.opening_close == "24:00" else employment.hhmm_to_float(body.opening_close)
+        if not (0 <= o < c <= 24):
+            raise HTTPException(status_code=400, detail="Opening must be before closing (00:00–24:00).")
+        oh = {"open": employment.float_to_hhmm(o), "close": ("24:00" if c >= 24 else employment.float_to_hhmm(c))}
+        tset["opening_hours"] = oh
+        bset["opening_hours"] = oh
+    if tset:
+        await db.business_types.update_one({"id": type_id}, {"$set": tset})
+    if bset and body.apply_existing:
+        await db.businesses.update_many({"type_id": type_id}, {"$set": bset})
+    return {"ok": True, "applied_to_existing": bool(bset and body.apply_existing)}
+
+
+# ---------------- ADMIN SANDBOX: player management ----------------
+class AdminPlayerBody(BaseModel):
+    cash: float | None = None
+    bank: float | None = None
+    debt: float | None = None
+    reputation: float | None = None
+    legal_reputation: float | None = None
+    criminal_suspicion: float | None = None
+    social_status: float | None = None
+    health: float | None = None
+    energy: float | None = None
+    skills: dict | None = None  # {skill_id: level}
+
+
+@api.put("/admin/players/{player_id}")
+async def admin_update_player(player_id: str, body: AdminPlayerBody, admin: dict = Depends(admin_user)):
+    p = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Player not found")
+    upd = {}
+    for f in ["cash", "bank", "debt"]:
+        v = getattr(body, f)
+        if v is not None:
+            upd[f] = round(float(v), 2)
+    for f in ["reputation", "legal_reputation", "criminal_suspicion", "social_status", "health", "energy"]:
+        v = getattr(body, f)
+        if v is not None:
+            upd[f] = clamp(float(v))
+    if body.skills:
+        skills = p.get("skills") or {}
+        for sid, lvl in body.skills.items():
+            if sid in skills:
+                skills[sid]["level"] = max(1, int(lvl))
+                skills[sid]["xp"] = 0
+        upd["skills"] = skills
+    if upd:
+        await db.players.update_one({"id": player_id}, {"$set": upd})
+    return {"ok": True, "updated": list(upd.keys())}
 
 
 # ============================ EMPLOYEES ============================
@@ -1600,7 +1714,7 @@ async def hire_applicant(biz_id: str, emp_id: str, user: dict = Depends(current_
     if m["staff_count"] >= m["max_hire_slots"]:
         raise HTTPException(status_code=400, detail=f"Staff limit reached ({m['staff_count']}/{m['max_hire_slots']}). You can hire up to {m['max_hire_slots']} workers to cover shifts.")
     sched_key = (emp.get("schedule") or {}).get("preset") or "early"
-    wph = emp.get("wage_per_hour") or round(emp.get("daily_wage", 90) / 8.0, 2)
+    wph = b.get("base_hourly_wage") or emp.get("wage_per_hour") or round(emp.get("daily_wage", 90) / 8.0, 2)
     # default shift: cover the largest currently-uncovered slice of opening hours
     existing = await db.employees.find({"business_id": biz_id, "status": "active"}, {"_id": 0, "schedule": 1}).to_list(300)
     pe_existing = await db.player_employment.find({"business_id": biz_id, "status": "active"}, {"_id": 0, "schedule": 1}).to_list(100)
@@ -2685,6 +2799,9 @@ async def migrate_business_supply_chain():
                 e2 = c_h if i == n - 1 else o_h + (i + 1) * block
                 await db.employees.update_one({"id": e["id"]}, {"$set": {"schedule": employment.make_shift(s, e2)}})
         await db.businesses.update_one({"id": b["id"]}, {"$set": {"opening_shift_migrated": True}})
+    # Sync job requirements from seed (so Legal Standing / Social Status gates apply to existing DBs)
+    for jd in JOBS:
+        await db.jobs.update_one({"id": jd["id"]}, {"$set": {"requirements": jd.get("requirements", {})}})
 
 
 @app.on_event("startup")

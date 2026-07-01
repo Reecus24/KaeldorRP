@@ -3,7 +3,7 @@ import { api, errMessage } from "@/lib/api";
 import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/primitives";
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
-import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal } from "lucide-react";
+import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -167,26 +167,173 @@ function ConfigJson({ cfg, onSave }) {
     );
 }
 
+function EconomyTuner() {
+    const [rows, setRows] = useState(null);
+    const [applyExisting, setApplyExisting] = useState(true);
+    const load = () => api.get("/admin/business-economy").then(({ data }) => setRows(data));
+    useEffect(() => { load(); }, []);
+    const setField = (id, k, v) => setRows((rs) => rs.map((r) => r.id === id ? { ...r, [k]: v } : r));
+    const save = async (r) => {
+        try {
+            await api.put(`/admin/business-economy/${r.id}`, {
+                price: Number(r.price), material_cost: Number(r.material_cost),
+                daily_demand: Number(r.daily_demand), production_per_worker_hour: Number(r.production_per_worker_hour),
+                base_hourly_wage: r.base_hourly_wage === "" || r.base_hourly_wage == null ? null : Number(r.base_hourly_wage),
+                opening_open: r.opening_hours.open, opening_close: r.opening_hours.close,
+                apply_existing: applyExisting,
+            });
+            toast.success(`${r.name} updated${applyExisting ? " (applied to existing)" : ""}`);
+            load();
+        } catch (e) { toast.error(errMessage(e)); }
+    };
+    if (!rows) return <Spinner />;
+    return (
+        <div className="space-y-3">
+            <Panel className="p-4 flex items-center justify-between flex-wrap gap-2">
+                <div className="text-[11px] text-muted-foreground">Edit price, material cost, demand, PPH, base wage and opening hours per business type. Changes hit the live simulation on the next tick.</div>
+                <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
+                    <input type="checkbox" checked={applyExisting} onChange={(e) => setApplyExisting(e.target.checked)} data-testid="apply-existing-toggle" />
+                    Apply to existing businesses (not just new)
+                </label>
+            </Panel>
+            <Panel className="p-0 overflow-x-auto">
+                <div className="min-w-[900px]">
+                    <div className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-white/8 bg-[#050505] font-mono text-[10px] uppercase text-muted-foreground">
+                        <div className="col-span-2">Business</div><div className="col-span-1">Price</div><div className="col-span-2">Material $</div>
+                        <div className="col-span-1">Demand</div><div className="col-span-1">PPH</div><div className="col-span-2">Base $/hr</div>
+                        <div className="col-span-2">Open–Close</div><div className="col-span-1"></div>
+                    </div>
+                    {rows.map((r) => (
+                        <div key={r.id} className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-white/5 items-center" data-testid={`econ-row-${r.id}`}>
+                            <div className="col-span-2 text-white text-xs truncate">{r.name}</div>
+                            <input className="col-span-1 econ-inp" value={r.price} onChange={(e) => setField(r.id, "price", e.target.value)} data-testid={`econ-price-${r.id}`} />
+                            <input className="col-span-2 econ-inp" value={r.material_cost} onChange={(e) => setField(r.id, "material_cost", e.target.value)} data-testid={`econ-mat-${r.id}`} />
+                            <input className="col-span-1 econ-inp" value={r.daily_demand} onChange={(e) => setField(r.id, "daily_demand", e.target.value)} data-testid={`econ-demand-${r.id}`} />
+                            <input className="col-span-1 econ-inp" value={r.production_per_worker_hour} onChange={(e) => setField(r.id, "production_per_worker_hour", e.target.value)} data-testid={`econ-pph-${r.id}`} />
+                            <input className="col-span-2 econ-inp" placeholder="auto" value={r.base_hourly_wage ?? ""} onChange={(e) => setField(r.id, "base_hourly_wage", e.target.value)} data-testid={`econ-wage-${r.id}`} />
+                            <div className="col-span-2 flex gap-1">
+                                <input className="econ-inp w-full" value={r.opening_hours.open} onChange={(e) => setField(r.id, "opening_hours", { ...r.opening_hours, open: e.target.value })} data-testid={`econ-open-${r.id}`} />
+                                <input className="econ-inp w-full" value={r.opening_hours.close} onChange={(e) => setField(r.id, "opening_hours", { ...r.opening_hours, close: e.target.value })} data-testid={`econ-close-${r.id}`} />
+                            </div>
+                            <div className="col-span-1"><KButton variant="green" className="!px-2 !py-1 !text-[10px]" onClick={() => save(r)} data-testid={`econ-save-${r.id}`}>Save</KButton></div>
+                        </div>
+                    ))}
+                </div>
+            </Panel>
+            <style>{`.econ-inp{background:#050505;border:1px solid rgba(255,255,255,.12);border-radius:3px;padding:4px 6px;font-family:monospace;font-size:12px;color:#7CFFCB;outline:none}.econ-inp:focus{border-color:rgba(0,243,255,.6)}`}</style>
+        </div>
+    );
+}
+
+const TUNE_FIELDS = [
+    { section: "Timers (in-game days)", keys: [["upgrade_days", "Upgrade duration"], ["marketing_days", "Marketing duration"], ["raise_cooldown_days", "Wage-raise cooldown"]] },
+    { section: "Multiplier ranges", keys: [["satisfaction_mult_min", "Satisfaction→Production min"], ["satisfaction_mult_max", "Satisfaction→Production max"], ["reputation_mult_min", "Reputation→Demand min"], ["reputation_mult_max", "Reputation→Demand max"], ["worker_cond_min", "Worker condition min"], ["worker_cond_max", "Worker condition max"]] },
+    { section: "Effectiveness → Accidents", keys: [["accident_eff_threshold", "Injury effectiveness threshold"], ["accident_chance", "Injury chance below threshold"]] },
+];
+
+function TuningPanel() {
+    const [cfg, setCfg] = useState(null);
+    const [t, setT] = useState(null);
+    const load = () => api.get("/admin/config").then(({ data }) => { setCfg(data); setT(data.tuning || {}); });
+    useEffect(() => { load(); }, []);
+    const setK = (k, v) => setT((o) => ({ ...o, [k]: v }));
+    const setBracket = (i, field, v) => setT((o) => {
+        const b = (o.tax_brackets || []).map((x) => [...x]);
+        b[i][field] = field === 0 ? (v === "" ? null : Number(v)) : Number(v);
+        return { ...o, tax_brackets: b };
+    });
+    const save = async () => {
+        const clean = {};
+        Object.entries(t).forEach(([k, v]) => { clean[k] = k === "tax_brackets" ? v.map((x) => [x[0] === null || x[0] === "" ? null : Number(x[0]), Number(x[1])]) : Number(v); });
+        try { await api.put("/admin/config", { tuning: clean }); toast.success("Tuning saved — live on next tick"); load(); }
+        catch (e) { toast.error(errMessage(e)); }
+    };
+    if (!t) return <Spinner />;
+    return (
+        <div className="space-y-4">
+            {TUNE_FIELDS.map((grp) => (
+                <Panel key={grp.section} className="p-5">
+                    <div className="font-display font-bold text-white mb-3">{grp.section}</div>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {grp.keys.map(([k, label]) => (
+                            <label key={k} className="text-[11px] text-muted-foreground flex flex-col gap-1">{label}
+                                <KInput type="number" step="0.01" value={t[k] ?? ""} onChange={(e) => setK(k, e.target.value)} testid={`tune-${k}`} />
+                            </label>
+                        ))}
+                    </div>
+                </Panel>
+            ))}
+            <Panel className="p-5">
+                <div className="font-display font-bold text-white mb-1">Income Tax Brackets</div>
+                <p className="text-[11px] text-muted-foreground mb-3">Progressive rate applied to each job shift's gross pay. "Up to" empty = top bracket.</p>
+                <div className="space-y-2">
+                    {(t.tax_brackets || []).map((b, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs" data-testid={`tax-bracket-${i}`}>
+                            <span className="text-muted-foreground w-14">Up to $</span>
+                            <KInput type="number" value={b[0] ?? ""} placeholder="∞ (top)" onChange={(e) => setBracket(i, 0, e.target.value)} testid={`tax-upto-${i}`} />
+                            <span className="text-muted-foreground">rate</span>
+                            <KInput type="number" step="0.01" value={b[1]} onChange={(e) => setBracket(i, 1, e.target.value)} testid={`tax-rate-${i}`} />
+                            <span className="text-muted-foreground">= {Math.round((b[1] || 0) * 100)}%</span>
+                        </div>
+                    ))}
+                </div>
+            </Panel>
+            <KButton variant="green" onClick={save} data-testid="save-tuning">Save Tuning</KButton>
+        </div>
+    );
+}
+
 function PlayersTable() {
     const [players, setPlayers] = useState(null);
-    useEffect(() => { api.get("/admin/players").then(({ data }) => setPlayers(data)); }, []);
+    const [edit, setEdit] = useState(null);
+    const load = () => api.get("/admin/players").then(({ data }) => setPlayers(data));
+    useEffect(() => { load(); }, []);
+    const save = async () => {
+        try {
+            await api.put(`/admin/players/${edit.id}`, {
+                cash: Number(edit.cash), bank: Number(edit.bank), debt: Number(edit.debt),
+                reputation: Number(edit.reputation), legal_reputation: Number(edit.legal_reputation),
+                criminal_suspicion: Number(edit.criminal_suspicion), social_status: Number(edit.social_status),
+                health: Number(edit.health), energy: Number(edit.energy),
+            });
+            toast.success(`${edit.name} updated`); setEdit(null); load();
+        } catch (e) { toast.error(errMessage(e)); }
+    };
     if (!players) return <Spinner />;
     return (
         <Panel className="p-0 overflow-hidden">
             <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/8 bg-[#050505] font-mono text-[10px] uppercase text-muted-foreground">
                 <div className="col-span-3">Name</div><div className="col-span-1">Lvl</div><div className="col-span-2 text-right">Cash</div>
-                <div className="col-span-2 text-right">Net Worth</div><div className="col-span-2">Status</div><div className="col-span-2 text-right">Rep</div>
+                <div className="col-span-2 text-right">Net Worth</div><div className="col-span-1 text-right">Rep</div><div className="col-span-1 text-right">Legal</div>
+                <div className="col-span-1 text-right">Susp</div><div className="col-span-1"></div>
             </div>
             {players.map((p) => (
-                <div key={p.id} className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-white/5 text-sm items-center">
+                <div key={p.id} className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-white/5 text-sm items-center" data-testid={`admin-player-${p.id}`}>
                     <div className="col-span-3 text-white truncate">{p.name}</div>
                     <div className="col-span-1 font-mono tnum">{p.level}</div>
                     <div className="col-span-2 text-right font-mono"><Money value={p.cash} /></div>
                     <div className="col-span-2 text-right font-mono"><Money value={p.net_worth} /></div>
-                    <div className="col-span-2"><Pill>{p.status}</Pill></div>
-                    <div className="col-span-2 text-right font-mono tnum text-muted-foreground">{Math.round(p.reputation)}</div>
+                    <div className="col-span-1 text-right font-mono tnum text-muted-foreground">{Math.round(p.reputation)}</div>
+                    <div className="col-span-1 text-right font-mono tnum text-neon-yellow">{Math.round(p.legal_reputation ?? 0)}</div>
+                    <div className="col-span-1 text-right font-mono tnum text-neon-red">{Math.round(p.criminal_suspicion ?? 0)}</div>
+                    <div className="col-span-1 text-right"><KButton variant="ghost" className="!px-2 !py-1 !text-[10px]" onClick={() => setEdit({ ...p })} data-testid={`edit-player-${p.id}`}>Edit</KButton></div>
                 </div>
             ))}
+            {edit && (
+                <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setEdit(null)}>
+                    <Panel className="p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-3"><div className="font-display font-bold text-white">Edit {edit.name}</div><button onClick={() => setEdit(null)}><X className="w-4 h-4 text-muted-foreground" /></button></div>
+                        <div className="grid grid-cols-2 gap-3">
+                            {[["cash", "Cash"], ["bank", "Bank"], ["debt", "Debt"], ["reputation", "Reputation"], ["legal_reputation", "Legal Standing"], ["criminal_suspicion", "Criminal Suspicion"], ["social_status", "Social Status"], ["health", "Health"], ["energy", "Energy"]].map(([k, label]) => (
+                                <label key={k} className="text-[11px] text-muted-foreground flex flex-col gap-1">{label}
+                                    <KInput type="number" value={edit[k] ?? 0} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} testid={`edit-${k}`} />
+                                </label>
+                            ))}
+                        </div>
+                        <KButton variant="green" className="w-full mt-4" onClick={save} data-testid="save-player">Save Player</KButton>
+                    </Panel>
+                </div>
+            )}
         </Panel>
     );
 }
@@ -214,13 +361,17 @@ export default function Admin() {
 
             <div className="flex flex-wrap gap-2">
                 <TabBtn active={tab === "stats"} onClick={() => setTab("stats")} icon={Database}>Stats</TabBtn>
-                {CONTENT_TYPES.map((c) => <TabBtn key={c.key} active={tab === c.key} onClick={() => setTab(c.key)}>{c.label}</TabBtn>)}
-                <TabBtn active={tab === "config"} onClick={() => setTab("config")} icon={SlidersHorizontal}>Config</TabBtn>
+                <TabBtn active={tab === "economy"} onClick={() => setTab("economy")} icon={DollarSign}>Economy Sandbox</TabBtn>
+                <TabBtn active={tab === "tuning"} onClick={() => setTab("tuning")} icon={Gauge}>Tuning</TabBtn>
                 <TabBtn active={tab === "players"} onClick={() => setTab("players")} icon={Users}>Players</TabBtn>
+                <TabBtn active={tab === "config"} onClick={() => setTab("config")} icon={SlidersHorizontal}>Config</TabBtn>
+                {CONTENT_TYPES.map((c) => <TabBtn key={c.key} active={tab === c.key} onClick={() => setTab(c.key)}>{c.label}</TabBtn>)}
             </div>
 
             <div>
                 {tab === "stats" && <StatsView />}
+                {tab === "economy" && <EconomyTuner />}
+                {tab === "tuning" && <TuningPanel />}
                 {tab === "config" && <ConfigEditor />}
                 {tab === "players" && <PlayersTable />}
                 {CONTENT_TYPES.some((c) => c.key === tab) && <ContentEditor ctype={tab} />}

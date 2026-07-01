@@ -158,13 +158,42 @@ DEFAULT_CONFIG = {
         "wage_min_mult": 0.7,
         "wage_max_mult": 1.85,
     },
+    # ADMIN SANDBOX live-tunable knobs (see /app/docs/ADMIN_SANDBOX.md). Engine reads these each tick.
+    "tuning": {
+        "upgrade_days": 7,               # in-game days an upgrade takes (1-30)
+        "marketing_days": 3,             # in-game days a marketing campaign runs (1-14)
+        "raise_cooldown_days": 7,        # min in-game days between NPC wage-raise requests (1-30)
+        "satisfaction_mult_min": 0.85,   # production multiplier at 0 satisfaction
+        "satisfaction_mult_max": 1.0,    # production multiplier at 100 satisfaction
+        "reputation_mult_min": 0.5,      # demand multiplier at 0 reputation
+        "reputation_mult_max": 1.0,      # demand multiplier at 100 reputation
+        "worker_cond_min": 0.85,         # NPC productivity condition floor (effectiveness->production)
+        "worker_cond_max": 1.05,         # NPC productivity condition ceiling
+        "accident_eff_threshold": 0.55,  # below this effectiveness, work-injury risk applies
+        "accident_chance": 0.30,         # chance of injury per shift when below the threshold
+        # progressive income-tax brackets on job wages: [gross_up_to (null = top), rate]
+        "tax_brackets": [[100, 0.10], [250, 0.15], [None, 0.22]],
+    },
 }
+
+
+# ---- ADMIN SANDBOX live tuning cache (refreshed on every get_config) ----
+TUNE = {}
+
+
+def apply_tuning(cfg):
+    """Refresh the shared tuning cache from the live config doc. Engine functions read TUNE."""
+    t = (cfg or {}).get("tuning") or {}
+    base = DEFAULT_CONFIG["tuning"]
+    for k, v in base.items():
+        TUNE[k] = t.get(k, v)
+    return TUNE
 
 
 # Daily-summary ledger: signed per-day money buckets (expenses stored negative).
 LEDGER_KEYS = [
-    "wages_earned", "crime_income", "social_income",       # income (+)
-    "rent", "bills", "vehicle_costs", "fines", "medical", "living_costs",  # expenses (-)
+    "wages_earned", "crime_income", "social_income", "savings_interest",   # income (+)
+    "rent", "bills", "vehicle_costs", "fines", "medical", "living_costs", "taxes",  # expenses (-)
     "loan_interest", "business_pnl", "employee_wages",      # info / debt
 ]
 

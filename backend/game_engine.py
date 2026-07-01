@@ -3,6 +3,16 @@ import uuid
 import random
 from datetime import datetime, timezone, timedelta
 from game_models import now_utc, clamp, SKILLS, empty_ledger
+import game_models
+
+
+def _tax_rate_for(gross):
+    """Progressive income-tax rate from admin-tunable brackets [[up_to, rate], ...]."""
+    brackets = game_models.TUNE.get("tax_brackets") or [[100, 0.10], [250, 0.15], [None, 0.22]]
+    for up_to, rate in brackets:
+        if up_to is None or gross < up_to:
+            return rate
+    return brackets[-1][1]
 
 
 def parse_dt(v):
@@ -28,6 +38,8 @@ async def get_config(db):
     if not cfg:
         from game_models import DEFAULT_CONFIG
         cfg = {**DEFAULT_CONFIG}
+    import game_models
+    game_models.apply_tuning(cfg)
     return cfg
 
 
@@ -99,9 +111,9 @@ def ledger_event(p, text):
 
 async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
     L = p.get("day_ledger") or empty_ledger()
-    income = L.get("wages_earned", 0) + L.get("crime_income", 0) + L.get("social_income", 0)
+    income = L.get("wages_earned", 0) + L.get("crime_income", 0) + L.get("social_income", 0) + L.get("savings_interest", 0)
     expense = (L.get("rent", 0) + L.get("bills", 0) + L.get("vehicle_costs", 0)
-               + L.get("fines", 0) + L.get("medical", 0) + L.get("living_costs", 0))
+               + L.get("fines", 0) + L.get("medical", 0) + L.get("living_costs", 0) + L.get("taxes", 0))
     net = round(income + expense, 2)
     gnow = game_now(cfg, now)
     doc = {
@@ -275,9 +287,21 @@ async def complete_activity(db, p, cfg):
 
     elif kind == "job":
         hours = payload["hours"]
-        pay = round(payload["hourly_wage"] * hours * eff, 2)
-        add_money(p, pay)
-        ledger_add(p, "wages_earned", pay)
+        base_pay = round(payload["hourly_wage"] * hours * eff, 2)
+        # REPUTATION + SOCIAL STATUS tip for customer-facing work (see PLAYER_STATS_LOGIC.md)
+        tip = 0.0
+        if payload.get("category") in ("retail", "food", "logistics", "office", "management", "trade"):
+            tip_rate = clamp((p["reputation"] - 50) / 100.0 * 0.15 + (p.get("social_status", 10) - 10) / 100.0 * 0.05, 0.0, 0.20)
+            tip = round(base_pay * tip_rate, 2)
+        pay = round(base_pay + tip, 2)
+        # INCOME TAX withheld on wages (progressive, admin-tunable) — links Economy + Bank + Legal Standing.
+        gross = pay
+        rate = _tax_rate_for(gross)
+        tax = round(gross * rate, 2)
+        net_pay = round(gross - tax, 2)
+        add_money(p, net_pay)
+        ledger_add(p, "wages_earned", net_pay)
+        ledger_add(p, "taxes", -tax)
         p["fatigue"] = clamp(p["fatigue"] + payload["fatigue_ph"] * hours)
         p["stress"] = clamp(p["stress"] + payload["stress_ph"] * hours)
         p["energy"] = clamp(p["energy"] - payload["energy_ph"] * hours)
@@ -292,9 +316,9 @@ async def complete_activity(db, p, cfg):
             p["job"]["reliability"] = clamp(p["job"].get("reliability", 50) + rel_delta)
         p["stats_meta"]["shifts_worked"] = p["stats_meta"].get("shifts_worked", 0) + 1
         p["stats_meta"]["total_hours_worked"] = round(p["stats_meta"].get("total_hours_worked", 0) + hours, 1)
-        await add_event(db, pid, f"Finished {hours}h shift as {payload.get('title')} (+${pay}).", "job", "success")
+        await add_event(db, pid, f"Finished {hours}h shift as {payload.get('title')} (+${net_pay} after ${tax} tax{f', incl. ${tip} tips' if tip > 0 else ''}).", "job", "success")
         # random work event
-        if eff < 0.55 and random.random() < 0.3:
+        if eff < game_models.TUNE.get("accident_eff_threshold", 0.55) and random.random() < game_models.TUNE.get("accident_chance", 0.30):
             p["health"] = clamp(p["health"] - 8)
             await add_event(db, pid, "You were exhausted and made costly mistakes at work.", "job", "warning")
         else:
@@ -384,6 +408,24 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
             await add_event(db, pid, f"{name} succeeded. You {verb} ${abs(reward)}. Suspicion rising.", "crime", "warning")
 
 
+def _decay_skills(p, gh):
+    """Use-it-or-lose-it: skills above level 2 slowly lose XP when idle. Working/training re-adds XP,
+    so actively used skills never degrade. Gentle pressure toward a well-rounded, active life."""
+    rate = 0.35 * gh  # xp lost per game-hour of idleness (very gentle)
+    if rate <= 0:
+        return
+    for name, sk in (p.get("skills") or {}).items():
+        if sk.get("level", 1) <= 2:
+            continue
+        sk["xp"] = sk.get("xp", 0) - rate
+        if sk["xp"] < 0:
+            if sk["level"] > 2:
+                sk["level"] -= 1
+                sk["xp"] = 40  # drop a level, retain partial progress
+            else:
+                sk["xp"] = 0
+
+
 async def accrue_recurring(db, p, cfg, gh, housing_doc):
     if gh <= 0:
         return
@@ -401,6 +443,15 @@ async def accrue_recurring(db, p, cfg, gh, housing_doc):
         interest = round(p["debt"] * rate * gh / 24.0, 2)
         p["debt"] = round(p["debt"] + interest, 2)
         ledger_add(p, "loan_interest", -interest)
+    else:
+        # SAVINGS INTEREST: a debt-free bank balance earns modest daily interest (rewards saving).
+        srate = cfg.get("economy", {}).get("savings_interest_daily", 0.0008)
+        if p.get("bank", 0) > 0 and srate > 0:
+            si = round(p["bank"] * srate * gh / 24.0, 2)
+            if si > 0:
+                p["bank"] = round(p["bank"] + si, 2)
+                ledger_add(p, "savings_interest", si)
+    _decay_skills(p, gh)
     total = rent + bills + veh
     if total > 0:
         before_debt = p["debt"]

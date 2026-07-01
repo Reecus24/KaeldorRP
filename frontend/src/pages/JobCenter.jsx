@@ -124,6 +124,23 @@ export default function JobCenter() {
                                 {j.shift_options.map((h) => <Pill key={h}>{h}h</Pill>)}
                             </div>
 
+                            {j.requirements && Object.keys(j.requirements).length > 0 && (
+                                <div className="flex flex-wrap items-center gap-1.5 text-[11px] mb-3" data-testid={`requirements-${j.id}`}>
+                                    <span className="text-muted-foreground font-mono">Requires:</span>
+                                    {Object.entries(j.requirements.skills || {}).map(([s, lvl]) => (
+                                        <Pill key={s} tone="cyan">{(SKILL_LABELS[s] || s)} {lvl}</Pill>
+                                    ))}
+                                    {(j.requirements.education || []).map((e) => (
+                                        <Pill key={e} tone="purple">{e.replace(/_/g, " ")}</Pill>
+                                    ))}
+                                    {j.requirements.min_reputation && <Pill>Reputation {j.requirements.min_reputation}+</Pill>}
+                                    {j.requirements.min_legal_reputation && <Pill tone="yellow">Legal Standing {j.requirements.min_legal_reputation}+</Pill>}
+                                    {j.requirements.min_social_status && <Pill tone="yellow">Social {j.requirements.min_social_status}+</Pill>}
+                                    {j.requirements.max_suspicion != null && <Pill tone="red">Suspicion ≤ {j.requirements.max_suspicion}</Pill>}
+                                    {j.requirements.vehicle && <Pill>Vehicle</Pill>}
+                                </div>
+                            )}
+
                             {!j.qualified ? (
                                 <div className="flex items-center gap-1 text-[11px] text-neon-yellow font-mono">
                                     <Lock className="w-3 h-3" /> {j.reason}

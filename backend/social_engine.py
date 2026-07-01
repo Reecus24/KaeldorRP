@@ -352,11 +352,21 @@ async def _apply_interaction(db, p, cfg, c, a, gift, eff=1.0):
 
     if success:
         if kind == "ask_loan":
-            extra["cash"] = round(60 + c.get("trust", 0) * 4)
-            add_money(p, extra["cash"])
+            # A personal loan is REAL money you must pay back — added to your debt.
+            borrowed = round(40 + c.get("trust", 0) * 3)
+            extra["cash"] = borrowed
+            extra["loan"] = borrowed
+            add_money(p, borrowed)
+            p["debt"] = round(p.get("debt", 0) + borrowed, 2)
         elif kind == "ask_favor":
-            extra["cash"] = round(random.uniform(25, 90))
-            add_money(p, extra["cash"])
+            # A favor is help/information, NOT repeatable free cash. Small, non-monetary benefit.
+            p["stress"] = clamp(p["stress"] - 5)
+            extra["favor"] = True
+            if c.get("relationship_type") in ("boss", "coworker", "mentor") and p.get("job"):
+                p["job"]["reliability"] = clamp(p["job"].get("reliability", 50) + 4)
+                extra["favor_note"] = "put in a good word for you at work"
+            else:
+                extra["favor_note"] = "helped you sort something out"
         elif kind == "ask_reference" and p.get("job"):
             p["job"]["reliability"] = clamp(p["job"].get("reliability", 50) + 10)
         elif kind == "meet_shady":
@@ -368,8 +378,12 @@ async def _apply_interaction(db, p, cfg, c, a, gift, eff=1.0):
 
     name = c["name"]
     msg = (a.get("success_text", "It went well.") if success else a.get("fail_text", "It didn't go well.")).replace("{name}", name)
-    if extra.get("cash"):
+    if extra.get("loan"):
+        msg += f" (+${extra['loan']} borrowed — added to your debt to repay)"
+    elif extra.get("cash"):
         msg += f" (+${extra['cash']})"
+    if extra.get("favor_note"):
+        msg += f" — {name} {extra['favor_note']}."
     if extra.get("became_romantic"):
         msg = f"You and {name} are officially together now! " + msg
     return msg, ("success" if success else "warning")
@@ -427,16 +441,17 @@ def _discover_success(p, a, eff):
 async def _do_network(db, p, cfg, a, eff):
     if _discover_success(p, a, eff):
         bizs = await db.businesses.find({"player_id": p["id"], "bankrupt": {"$ne": True}}, {"_id": 0}).to_list(50)
-        if bizs:
+        # Primary value of networking = job leads & new contacts (realistic), with a MODEST business boost.
+        if bizs and random.random() < 0.5:
             b = random.choice(bizs)
-            b["reputation"] = clamp(b.get("reputation", 50) + 8)
-            b["satisfaction"] = clamp(b.get("satisfaction", 60) + 4)
-            await db.businesses.update_one({"id": b["id"]}, {"$set": {"reputation": b["reputation"], "satisfaction": b["satisfaction"]}})
-            await add_event(db, p["id"], f"Networking paid off — {b['name']} gained reputation from new connections.", "social", "success")
+            b["reputation"] = clamp(b.get("reputation", 50) + 4)
+            await db.businesses.update_one({"id": b["id"]}, {"$set": {"reputation": b["reputation"]}})
+            await add_event(db, p["id"], f"Networking paid off — {b['name']} picked up a little word-of-mouth reputation.", "social", "success")
         else:
             await create_contact(db, p, archetype_id="business_contact", announce=True)
-        p["social_status"] = clamp(p["social_status"] + 3)
-        p["mood"] = clamp(p["mood"] + 5)
+            await add_event(db, p["id"], "You made a useful new business contact at the mixer.", "social", "success")
+        p["social_status"] = clamp(p["social_status"] + 1)
+        p["mood"] = clamp(p["mood"] + 4)
     else:
         p["stress"] = clamp(p["stress"] + 5)
         await add_event(db, p["id"], "The networking event was a bust — nobody useful showed up.", "social", "warning")
