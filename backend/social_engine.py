@@ -488,13 +488,49 @@ async def _do_meet_at(db, p, cfg, a, eff, archetype_ids, weights, place_label):
         await add_event(db, p["id"], f"You spent time at {place_label} but didn't click with anyone new.", "social", "info")
 
 
+def _archetype_passes(arche, loc):
+    """True if an archetype satisfies a location's category whitelist + attribute thresholds."""
+    wl = loc.get("category_whitelist") or []
+    if wl and not (set(arche.get("tags") or []) & set(wl)):
+        return False
+    for attr, v in (loc.get("min_attrs") or {}).items():
+        if arche.get(attr, 0) < v:
+            return False
+    for attr, v in (loc.get("max_attrs") or {}).items():
+        if arche.get(attr, 999999) > v:
+            return False
+    return True
+
+
+def location_pool(loc, archetypes):
+    """Effective encounter pool for a location.
+    Manually-assigned NPCs are ALWAYS included and BYPASS the filters (manual priority).
+    If `include_filtered`, archetypes passing the category/attribute filters are added too.
+    Returns [{archetype_id, weight, source}]."""
+    by_id = {a["id"]: a for a in archetypes}
+    pool = {}
+    for n in (loc.get("npcs") or []):
+        aid = n.get("archetype_id")
+        if aid and n.get("weight", 0) > 0 and aid in by_id:
+            pool[aid] = {"archetype_id": aid, "weight": float(n["weight"]), "source": "manual"}
+    if loc.get("include_filtered"):
+        fw = float(loc.get("filter_weight", 1.0) or 1.0)
+        for a in archetypes:
+            if a["id"] in pool or fw <= 0:
+                continue
+            if _archetype_passes(a, loc):
+                pool[a["id"]] = {"archetype_id": a["id"], "weight": fw, "source": "filter"}
+    return list(pool.values())
+
+
 async def _visit_location(db, p, cfg, loc, eff):
-    """Resolve a Socials 3.0 location visit using the location's DB-defined encounter weights."""
+    """Resolve a Socials 3.0 location visit: filter the eligible NPC pool, then roll by weight."""
     if loc.get("suspicion_gain"):
         p["criminal_suspicion"] = clamp(p.get("criminal_suspicion", 0) + loc["suspicion_gain"])
-    npcs = [n for n in (loc.get("npcs") or []) if n.get("archetype_id") and n.get("weight", 0) > 0]
-    ids = [n["archetype_id"] for n in npcs]
-    weights = [n["weight"] for n in npcs]
+    archetypes = await db.npc_archetypes.find({}, {"_id": 0}).to_list(200)
+    pool = [n for n in location_pool(loc, archetypes) if n["weight"] > 0]
+    ids = [n["archetype_id"] for n in pool]
+    weights = [n["weight"] for n in pool]
     a = {"success": {"base": loc.get("success_base", 0.72), "charisma_factor": loc.get("charisma_factor", 0.3)}}
     await _do_meet_at(db, p, cfg, a, eff, ids, weights, loc.get("name", "the venue"))
 

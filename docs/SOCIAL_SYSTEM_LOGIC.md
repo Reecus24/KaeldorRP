@@ -59,3 +59,22 @@ Meeting places are now fully data-driven and admin-editable (no hardcoded lists)
 
 Meeting a `shady_dealer` here (e.g. at The Backstreets) is still the ONLY way to unlock the Underworld
 (see UNDERWORLD_MARKETS.md).
+
+## Location NPC Filter System (Socials 3.0 addendum)
+Each NPC archetype now carries **`tags`** (Criminal / Wealthy / Corporate / Fitness / Social / Drifter)
+and numeric **attributes** (`social_status`, `legal_standing`, `wealth`, all 0-100). See `ARCHETYPE_META` in seed_data.py.
+
+Locations gain optional filter fields:
+- `include_filtered` (bool) — when true, archetypes matching the filters are auto-added to the encounter pool.
+- `category_whitelist` (list of tags) — empty = any; otherwise the archetype must share ≥1 tag.
+- `min_attrs` / `max_attrs` ({attr: value}) — archetype attr must be ≥ min and ≤ max.
+- `filter_weight` (float) — meeting weight applied to each filter-matched archetype.
+
+**Resolution order (`social_engine.location_pool`)**
+1. **Manual NPCs first** — every entry in `location.npcs` is added with its explicit weight and **BYPASSES all filters** (manual priority / dynamic override).
+2. **Filtered NPCs** — if `include_filtered`, every archetype passing `_archetype_passes()` (whitelist + min/max thresholds) that isn't already manual is added with `filter_weight`.
+3. The combined pool is weight-normalized to % and rolled with `random.choices` on a successful visit.
+
+Example: *The Platinum Lounge* uses `include_filtered` + whitelist `[Wealthy, Corporate]` + `min_attrs {social_status: 60}` → auto-populates Manager/Wholesaler/Boss/Mentor/Business Contact. *The Backstreets* whitelists `[Criminal]` + `max_attrs {legal_standing: 40}` while still manually pinning the Shady Dealer.
+
+**Admin UI (Admin ▸ Locations ▸ editor):** a "Auto-include NPCs matching filters" toggle reveals tag chips, min/max attribute inputs and a filter weight. Location cards show the active filter summary and mark filter-sourced NPCs with `*`.

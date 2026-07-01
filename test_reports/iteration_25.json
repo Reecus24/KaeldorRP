@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 25 (NPC Filter System addendum to Dynamic Locations) fully verified. Backend pytest 12/12 PASS covering response shape (tag_options/attr_options/archetype tags+attrs), Platinum Lounge filter pool (5 Wealthy/Corporate NPCs with social_status>=60, all source=filter), Backstreets manual bypass (bar_regular Drifter still present as source=manual), toggle-tag-persists PUT round-trip, and CREATE/DELETE of a filtered Fitness-only location (returns exactly gym_coach+athlete). Admin editor filter UI verified live: loc-include-filtered toggle rendered, tag-<Tag> chips for all 6 tags, min-social_status=60, loc-filter-weight=1. Player Meet People view (kiri) shows Platinum Lounge encounters exactly matching the /admin filter pool (5 × 20%) and Backstreets shows Shady Contact 70% + Bar Regular 30% with manual bypass — parity between admin preview and engine confirmed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_location_filters.py",
+    "/app/test_reports/pytest/iteration_25.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "location_pool() in social_engine.py cleanly separates manual (bypass) from filter sources — good design, aligned with review-request semantics.",
+    "_archetype_passes uses `arche.get(attr, 999999) > v` for max_attrs — if an archetype is missing an attribute it will fail max checks (999999 > any max). Currently all archetypes get defaults via seed_data ARCHETYPE_META backfill, but a stricter default (e.g., raise/log) would prevent silent exclusion if new archetypes are added without meta.",
+    "Frontend uses purple '*' badge on filter-sourced pills and hyphenated 'Filters: Wealthy/Corporate · min social_status≥60' preview — user-friendly and matches admin editor state.",
+    "GET /admin/locations now returns tag_options + attr_options + enriched archetypes — expanding response ~2-3x for the admin panel. Fine for admin-only use, but consider a lightweight variant if this list grows further.",
+    "Legacy note from iter_24 still applies: server.py is ~3238 lines; locations + filters section (2140-2310) is ripe for extraction into a dedicated router module."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_location_filters.py",
+    "/app/test_reports/iteration_25.json",
+    "/app/test_reports/pytest/iteration_25.xml"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% (all review items verified)"},
+  "test_credentials": "admin@kaeldor.com/admin123 (used for /admin/locations CRUD + filter editor); mara@kaeldor.com/demo123 (still busy from iter_24 Visit Riverside Park); kiri@kaeldor.com/demo123 (also busy Visit Riverside Park — used only to render Meet People, all visit buttons disabled as expected).",
+  "seed_data_creation": "None persisted. Pytest created and deleted a throwaway TEST_Fitness_Filter location; the toggle-tag test PUT loc_club with an extra tag 'Fitness' and reverted to the original ['Wealthy','Corporate'] whitelist. All seed data restored.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Pytest at /app/backend/tests/test_location_filters.py — run with `REACT_APP_BACKEND_URL=... pytest -n0`. Key facts: (1) location_pool merges manual (always) + filtered (only if include_filtered=true); (2) `chance` is a fraction 0..1 (frontend x100); (3) admin GET returns tag_options=['Criminal','Wealthy','Corporate','Fitness','Social','Drifter'] and attr_options=['social_status','legal_standing','wealth']. Confirmed data-testids: loc-include-filtered, tag-<Tag>, min-<attr>, max-<attr>, loc-filter-weight, loc-edit-<id>, loc-save, loc-cancel, loc-new, loc-del-<id>, location-<id>, encounters-<id>, visit-btn-<id>. Filter pool for loc_club = {manager, wholesaler, boss, mentor, business_contact} (all Wealthy/Corporate & social_status>=60). loc_streets manual = shady_dealer + bar_regular (bar_regular bypasses Criminal filter).",
+  "rca of the issue": "N/A — no defects. Only implementation-quality observations noted above."
+}

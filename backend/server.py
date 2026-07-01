@@ -25,6 +25,7 @@ from game_engine import (
     add_notification, ledger_add, game_now, game_day_index,
 )
 from seed_data import seed_content, CONTENT_MAP, JOBS
+import seed_data
 import employee_engine
 import social_engine
 import market_engine
@@ -2140,19 +2141,24 @@ async def social_discover(action_id: str, user: dict = Depends(current_user)):
 
 # ---------------- DYNAMIC SOCIAL LOCATIONS & ENCOUNTERS (Socials 3.0) ----------------
 async def _archetype_label_map():
-    arch = await db.npc_archetypes.find({}, {"_id": 0, "id": 1, "label": 1, "category": 1}).to_list(200)
+    arch = await db.npc_archetypes.find(
+        {}, {"_id": 0, "id": 1, "label": 1, "category": 1, "tags": 1,
+             "social_status": 1, "legal_standing": 1, "wealth": 1}).to_list(200)
     return {a["id"]: a for a in arch}
 
 
 def _loc_encounters(loc, amap):
-    """Attach archetype labels + normalized meeting probabilities for transparency."""
-    npcs = [n for n in (loc.get("npcs") or []) if n.get("archetype_id")]
-    total = sum(max(0.0, n.get("weight", 0)) for n in npcs) or 1.0
+    """Attach archetype labels + normalized meeting probabilities (manual + filtered) for transparency."""
+    pool = social_engine.location_pool(loc, list(amap.values()))
+    total = sum(max(0.0, n.get("weight", 0)) for n in pool) or 1.0
     out = []
-    for n in npcs:
+    for n in pool:
         a = amap.get(n["archetype_id"], {})
         out.append({"archetype_id": n["archetype_id"], "label": a.get("label", n["archetype_id"]),
-                    "weight": n.get("weight", 0), "chance": round(max(0.0, n.get("weight", 0)) / total, 4)})
+                    "weight": n.get("weight", 0), "source": n.get("source", "manual"),
+                    "tags": a.get("tags", []),
+                    "chance": round(max(0.0, n.get("weight", 0)) / total, 4)})
+    out.sort(key=lambda x: x["chance"], reverse=True)
     return out
 
 
@@ -2231,6 +2237,11 @@ class LocationBody(BaseModel):
     active: Optional[bool] = True
     order: Optional[int] = 50
     npcs: Optional[list] = None
+    include_filtered: Optional[bool] = False
+    category_whitelist: Optional[list] = None
+    min_attrs: Optional[dict] = None
+    max_attrs: Optional[dict] = None
+    filter_weight: Optional[float] = 1.0
 
 
 @api.get("/admin/locations")
@@ -2241,7 +2252,9 @@ async def admin_locations(admin: dict = Depends(admin_user)):
     for loc in locs:
         loc["encounters"] = _loc_encounters(loc, amap)
     return {"locations": locs,
-            "archetypes": sorted(amap.values(), key=lambda a: a.get("label", ""))}
+            "archetypes": sorted(amap.values(), key=lambda a: a.get("label", "")),
+            "tag_options": seed_data.ARCHETYPE_TAG_OPTIONS,
+            "attr_options": ["social_status", "legal_standing", "wealth"]}
 
 
 def _clean_npcs(npcs):
@@ -2258,11 +2271,24 @@ def _clean_npcs(npcs):
     return out
 
 
+def _clean_attrs(attrs):
+    out = {}
+    for k, v in (attrs or {}).items():
+        try:
+            out[k] = float(v)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 @api.post("/admin/locations")
 async def admin_create_location(body: LocationBody, admin: dict = Depends(admin_user)):
     loc = body.model_dump()
     loc["id"] = uuid.uuid4().hex
     loc["npcs"] = _clean_npcs(loc.get("npcs"))
+    loc["category_whitelist"] = [t for t in (loc.get("category_whitelist") or []) if t]
+    loc["min_attrs"] = _clean_attrs(loc.get("min_attrs"))
+    loc["max_attrs"] = _clean_attrs(loc.get("max_attrs"))
     await db.locations.insert_one({**loc})
     return {"ok": True, "id": loc["id"]}
 
@@ -2271,6 +2297,9 @@ async def admin_create_location(body: LocationBody, admin: dict = Depends(admin_
 async def admin_update_location(location_id: str, body: LocationBody, admin: dict = Depends(admin_user)):
     upd = body.model_dump()
     upd["npcs"] = _clean_npcs(upd.get("npcs"))
+    upd["category_whitelist"] = [t for t in (upd.get("category_whitelist") or []) if t]
+    upd["min_attrs"] = _clean_attrs(upd.get("min_attrs"))
+    upd["max_attrs"] = _clean_attrs(upd.get("max_attrs"))
     await db.locations.update_one({"id": location_id}, {"$set": upd})
     return {"ok": True}
 

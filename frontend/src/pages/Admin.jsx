@@ -356,14 +356,41 @@ function StatsView() {
 function emptyLoc() {
     return { name: "", category: "bar", desc: "", icon: "MapPin", money_cost: 0, duration_minutes: 60,
         cooldown_minutes: 120, requires_job: false, suspicion_gain: 0, success_base: 0.72, charisma_factor: 0.3,
-        active: true, order: 50, npcs: [] };
+        active: true, order: 50, npcs: [], include_filtered: false, category_whitelist: [], min_attrs: {}, max_attrs: {}, filter_weight: 1 };
 }
 
-function LocationEditor({ draft, setDraft, archetypes, onSave, onCancel, saving }) {
+function AttrRow({ label, attrs, options, onChange }) {
+    const set = (attr, v) => {
+        const next = { ...attrs };
+        if (v === "" || v === null) delete next[attr];
+        else next[attr] = Number(v);
+        onChange(next);
+    };
+    return (
+        <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{label}</div>
+            <div className="grid grid-cols-3 gap-2">
+                {options.map((attr) => (
+                    <label key={attr} className="text-[10px] text-muted-foreground flex flex-col gap-1">
+                        {attr.replace("_", " ")}
+                        <KInput type="number" value={attrs[attr] ?? ""} placeholder="—"
+                            onChange={(e) => set(attr, e.target.value)} testid={`${label.toLowerCase().includes("min") ? "min" : "max"}-${attr}`} />
+                    </label>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function LocationEditor({ draft, setDraft, archetypes, tagOptions, attrOptions, onSave, onCancel, saving }) {
     const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
     const setNpc = (i, k, v) => setDraft((d) => { const n = d.npcs.map((x) => ({ ...x })); n[i][k] = v; return { ...d, npcs: n }; });
     const addNpc = () => setDraft((d) => ({ ...d, npcs: [...d.npcs, { archetype_id: archetypes[0]?.id || "", weight: 1 }] }));
     const delNpc = (i) => setDraft((d) => ({ ...d, npcs: d.npcs.filter((_, j) => j !== i) }));
+    const toggleTag = (t) => setDraft((d) => {
+        const cur = d.category_whitelist || [];
+        return { ...d, category_whitelist: cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t] };
+    });
     const total = draft.npcs.reduce((s, n) => s + (Number(n.weight) > 0 ? Number(n.weight) : 0), 0) || 1;
     return (
         <Panel className="p-5 space-y-3 border-neon-cyan/30" data-testid="location-editor">
@@ -396,18 +423,51 @@ function LocationEditor({ draft, setDraft, archetypes, onSave, onCancel, saving 
                     <input type="checkbox" checked={!!draft.active} onChange={(e) => set("active", e.target.checked)} data-testid="loc-active" /> Active</label>
             </div>
 
+            {/* NPC FILTERS */}
+            <div className="border-t border-white/10 pt-3 space-y-3">
+                <label className="text-[11px] text-white flex items-center gap-2 font-medium">
+                    <input type="checkbox" checked={!!draft.include_filtered} onChange={(e) => set("include_filtered", e.target.checked)} data-testid="loc-include-filtered" />
+                    Auto-include NPCs matching filters (in addition to manual)
+                </label>
+                {draft.include_filtered && (
+                    <div className="space-y-3 pl-1">
+                        <div>
+                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Category whitelist (empty = any)</div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {tagOptions.map((t) => {
+                                    const on = (draft.category_whitelist || []).includes(t);
+                                    return (
+                                        <button key={t} onClick={() => toggleTag(t)} data-testid={`tag-${t}`}
+                                            className={cn("text-[10px] font-mono px-2 py-1 rounded-sm border transition-colors",
+                                                on ? "bg-neon-cyan/20 border-neon-cyan text-neon-cyan" : "border-white/15 text-muted-foreground hover:border-white/40")}>
+                                            {t}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div className="grid sm:grid-cols-2 gap-3">
+                            <AttrRow label="Min attribute" attrs={draft.min_attrs || {}} options={attrOptions} onChange={(v) => set("min_attrs", v)} />
+                            <AttrRow label="Max attribute" attrs={draft.max_attrs || {}} options={attrOptions} onChange={(v) => set("max_attrs", v)} />
+                        </div>
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1 w-32">Filter weight
+                            <KInput type="number" step="0.1" value={draft.filter_weight} onChange={(e) => set("filter_weight", Number(e.target.value))} testid="loc-filter-weight" /></label>
+                    </div>
+                )}
+            </div>
+
             <div className="border-t border-white/10 pt-3">
                 <div className="flex items-center justify-between mb-2">
-                    <span className="font-display font-bold text-white text-sm">Who you can meet here</span>
+                    <span className="font-display font-bold text-white text-sm">Manually assigned NPCs (bypass filters)</span>
                     <KButton variant="ghost" onClick={addNpc} data-testid="loc-add-npc"><Plus className="w-3.5 h-3.5" /> Add NPC</KButton>
                 </div>
-                {draft.npcs.length === 0 && <div className="text-[11px] text-muted-foreground">No NPCs assigned — nobody can be met here.</div>}
+                {draft.npcs.length === 0 && <div className="text-[11px] text-muted-foreground">No manual NPCs. {draft.include_filtered ? "The pool comes from the filters above." : "Nobody can be met here — assign NPCs or enable filters."}</div>}
                 <div className="space-y-2">
                     {draft.npcs.map((n, i) => (
                         <div key={i} className="flex items-center gap-2" data-testid={`loc-npc-row-${i}`}>
                             <select value={n.archetype_id} onChange={(e) => setNpc(i, "archetype_id", e.target.value)} data-testid={`loc-npc-select-${i}`}
                                 className="flex-1 bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white">
-                                {archetypes.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                                {archetypes.map((a) => <option key={a.id} value={a.id}>{a.label} [{(a.tags || []).join(",")}]</option>)}
                             </select>
                             <div className="w-24"><KInput type="number" step="0.1" value={n.weight} onChange={(e) => setNpc(i, "weight", Number(e.target.value))} testid={`loc-npc-weight-${i}`} /></div>
                             <span className="w-14 text-right font-mono text-[11px] text-neon-cyan" data-testid={`loc-npc-chance-${i}`}>
@@ -459,7 +519,7 @@ function LocationsPanel() {
                 {!draft && <KButton variant="green" onClick={() => setDraft(emptyLoc())} data-testid="loc-new"><Plus className="w-4 h-4" /> New Location</KButton>}
             </div>
 
-            {draft && <LocationEditor draft={draft} setDraft={setDraft} archetypes={data.archetypes} onSave={save} onCancel={() => setDraft(null)} saving={saving} />}
+            {draft && <LocationEditor draft={draft} setDraft={setDraft} archetypes={data.archetypes} tagOptions={data.tag_options || []} attrOptions={data.attr_options || []} onSave={save} onCancel={() => setDraft(null)} saving={saving} />}
 
             {!draft && (
                 <div className="grid md:grid-cols-2 gap-3">
@@ -479,10 +539,18 @@ function LocationsPanel() {
                             </div>
                             <p className="text-[11px] text-muted-foreground mb-2">{l.desc}</p>
                             <div className="text-[10px] font-mono text-muted-foreground mb-2">${l.money_cost} · {l.duration_minutes}min · CD {l.cooldown_minutes}min{l.suspicion_gain ? ` · +${l.suspicion_gain} suspicion` : ""}</div>
+                            {l.include_filtered && (
+                                <div className="text-[10px] font-mono text-neon-purple/90 mb-2" data-testid={`filter-info-${l.id}`}>
+                                    Filters: {(l.category_whitelist || []).length ? l.category_whitelist.join("/") : "any"}
+                                    {Object.keys(l.min_attrs || {}).length ? ` · min ${Object.entries(l.min_attrs).map(([k, v]) => `${k}≥${v}`).join(", ")}` : ""}
+                                    {Object.keys(l.max_attrs || {}).length ? ` · max ${Object.entries(l.max_attrs).map(([k, v]) => `${k}≤${v}`).join(", ")}` : ""}
+                                </div>
+                            )}
                             <div className="flex flex-wrap gap-1" data-testid={`admin-encounters-${l.id}`}>
                                 {l.encounters.map((e) => (
-                                    <span key={e.archetype_id} className="font-mono text-[10px] px-1.5 py-0.5 rounded-sm border border-neon-cyan/25 text-neon-cyan/90">
-                                        {e.label} <span className="text-white">{Math.round(e.chance * 100)}%</span>
+                                    <span key={e.archetype_id} className={cn("font-mono text-[10px] px-1.5 py-0.5 rounded-sm border",
+                                        e.source === "filter" ? "border-neon-purple/30 text-neon-purple/90" : "border-neon-cyan/25 text-neon-cyan/90")}>
+                                        {e.label} <span className="text-white">{Math.round(e.chance * 100)}%</span>{e.source === "filter" ? "*" : ""}
                                     </span>
                                 ))}
                                 {l.encounters.length === 0 && <span className="text-[10px] text-neon-red font-mono">No NPCs assigned</span>}

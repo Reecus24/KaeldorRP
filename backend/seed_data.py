@@ -575,6 +575,37 @@ NPC_ARCHETYPES = [
      "desc": "A training partner from the gym."},
 ]
 
+# NPC categorization for the Location Filter System (tags + numeric attributes 0-100).
+# Attributes let admins gate encounters (e.g. social_status > 70 luxury club; legal_standing < 30 hangout).
+ARCHETYPE_META = {
+    "best_friend":     {"tags": ["Social"],              "social_status": 50, "legal_standing": 65, "wealth": 45},
+    "old_friend":      {"tags": ["Social"],              "social_status": 48, "legal_standing": 65, "wealth": 45},
+    "sibling":         {"tags": ["Social"],              "social_status": 50, "legal_standing": 68, "wealth": 45},
+    "parent":          {"tags": ["Social"],              "social_status": 55, "legal_standing": 75, "wealth": 55},
+    "love_interest":   {"tags": ["Social"],              "social_status": 55, "legal_standing": 65, "wealth": 50},
+    "neighbor":        {"tags": ["Drifter", "Social"],   "social_status": 45, "legal_standing": 62, "wealth": 40},
+    "mentor":          {"tags": ["Corporate", "Social"], "social_status": 70, "legal_standing": 80, "wealth": 65},
+    "boss":            {"tags": ["Corporate", "Wealthy"],"social_status": 72, "legal_standing": 78, "wealth": 78},
+    "coworker":        {"tags": ["Corporate"],           "social_status": 45, "legal_standing": 70, "wealth": 42},
+    "manager":         {"tags": ["Corporate", "Wealthy"],"social_status": 68, "legal_standing": 76, "wealth": 72},
+    "wholesaler":      {"tags": ["Corporate", "Wealthy"],"social_status": 62, "legal_standing": 66, "wealth": 76},
+    "business_contact":{"tags": ["Corporate"],           "social_status": 60, "legal_standing": 68, "wealth": 65},
+    "landlord":        {"tags": ["Wealthy"],             "social_status": 58, "legal_standing": 72, "wealth": 80},
+    "customer_regular":{"tags": ["Drifter"],             "social_status": 45, "legal_standing": 65, "wealth": 45},
+    "bar_regular":     {"tags": ["Drifter"],             "social_status": 42, "legal_standing": 58, "wealth": 38},
+    "gym_coach":       {"tags": ["Fitness"],             "social_status": 60, "legal_standing": 75, "wealth": 52},
+    "athlete":         {"tags": ["Fitness"],             "social_status": 55, "legal_standing": 72, "wealth": 46},
+    "shady_dealer":    {"tags": ["Criminal"],            "social_status": 35, "legal_standing": 15, "wealth": 45},
+}
+ARCHETYPE_TAG_OPTIONS = ["Criminal", "Wealthy", "Corporate", "Fitness", "Social", "Drifter"]
+for _a in NPC_ARCHETYPES:
+    _m = ARCHETYPE_META.get(_a["id"], {"tags": ["Drifter"], "social_status": 50, "legal_standing": 65, "wealth": 45})
+    _a.setdefault("tags", _m["tags"])
+    _a.setdefault("social_status", _m["social_status"])
+    _a.setdefault("legal_standing", _m["legal_standing"])
+    _a.setdefault("wealth", _m["wealth"])
+
+
 SOCIAL_TRAITS = [
     {"id": "warm", "label": "Warm", "desc": "Easy to get along with; relationships hold up well.", "effects": {"success_mod": 0.08, "decay_mult": -0.2}},
     {"id": "distant", "label": "Distant", "desc": "Hard to reach; relationship fades faster.", "effects": {"success_mod": -0.06, "decay_mult": 0.3}},
@@ -669,12 +700,19 @@ LOCATIONS = [
      "desc": "The wrong side of town. Risky — a chance to meet a Shady Contact who opens the door to the Underworld.",
      "money_cost": 0, "duration_minutes": 90, "cooldown_minutes": 180, "requires_job": False,
      "suspicion_gain": 3, "success_base": 0.6, "charisma_factor": 0.25,
+     "include_filtered": True, "category_whitelist": ["Criminal"], "min_attrs": {}, "max_attrs": {"legal_standing": 40}, "filter_weight": 1.0,
      "npcs": [{"archetype_id": "shady_dealer", "weight": 0.7}, {"archetype_id": "bar_regular", "weight": 0.3}]},
     {"id": "loc_park", "name": "Riverside Park", "category": "park", "icon": "Trees", "active": True, "order": 5,
      "desc": "A relaxed public park. Meet friendly faces and unwind.",
      "money_cost": 0, "duration_minutes": 60, "cooldown_minutes": 120, "requires_job": False,
      "suspicion_gain": 0, "success_base": 0.7, "charisma_factor": 0.35,
      "npcs": [{"archetype_id": "bar_regular", "weight": 0.6}, {"archetype_id": "athlete", "weight": 0.4}]},
+    {"id": "loc_club", "name": "The Platinum Lounge", "category": "club", "icon": "Wine", "active": True, "order": 6,
+     "desc": "An exclusive members' club. Only the wealthy and well-connected get through the door.",
+     "money_cost": 120, "duration_minutes": 90, "cooldown_minutes": 180, "requires_job": False,
+     "suspicion_gain": 0, "success_base": 0.7, "charisma_factor": 0.4,
+     "include_filtered": True, "category_whitelist": ["Wealthy", "Corporate"], "min_attrs": {"social_status": 60}, "max_attrs": {}, "filter_weight": 1.0,
+     "npcs": []},
 ]
 
 GIFT_TYPES = [
