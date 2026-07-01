@@ -5,6 +5,14 @@ Browser-based **persistent, real-time life-simulation RPG** ("Kaeldor RPG"). A l
 
 **Hard design rule:** NO action points, NO daily action limits, NO "end turn". Always playable. Balance comes from real-time action durations, fatigue, money, risk, cooldowns, health, stress, consequences, and opportunity cost. Offline time counts; jobs/education/business/legal/recovery continue while offline.
 
+## Session Update — 2026-07-01 (NPC Filter System for Dynamic Locations)
+**NPC categorization:** every archetype now carries `tags` (Criminal/Wealthy/Corporate/Fitness/Social/Drifter) + numeric attributes `social_status`, `legal_standing`, `wealth` (0-100), defined via `ARCHETYPE_META` in seed_data.py.
+**Location filters:** locations gain `include_filtered`, `category_whitelist`, `min_attrs`, `max_attrs`, `filter_weight`. `social_engine.location_pool()` builds the encounter pool = manual NPCs (ALWAYS included, BYPASS filters — dynamic override) + archetypes passing `_archetype_passes()` (whitelist tag match + min/max attribute thresholds) when `include_filtered`. Rolled by normalized weight on visit.
+**Admin UI:** Locations editor gains a filter section (Auto-include toggle, tag chips, min/max attribute inputs, filter weight); cards show a filter summary and mark filter-sourced NPCs with `*`. `GET /admin/locations` returns `tag_options`/`attr_options` + archetype tags/attrs. New seeded showcase: "The Platinum Lounge" (Wealthy/Corporate, social_status≥60).
+**Docs:** `/app/docs/SOCIAL_SYSTEM_LOGIC.md` updated with the filtering logic.
+**Verification:** testing_agent iteration_25 — backend 12/12 pytest PASS + frontend PASS (admin/player parity confirmed). Filter engine unit-checked (manual bypass + tag/attr filtering).
+
+
 ## Session Update — 2026-07-01 (Underworld Overhaul + Financial Sandbox)
 **Underworld gatekeeping:** the tab is fully locked until the player has a TRUSTED criminal contact. Meet a Shady Contact via Socials 3.0 (new `go_to_streets` "Prowl the Backstreets" location action), unlock at Relationship≥40 & Trust≥30 (`UW_MIN_SCORE`/`UW_MIN_TRUST`). Gated: `/illegal-actions`, `/illegal-actions/commit`, `/market/crypto`, crypto trades. New `GET /underworld/status`.
 **Crime risk profiles:** crimes now expose live effective `bust_risk` (caught → fine+jail+suspicion) vs `fail_chance` (job flops → $0, NO jail), computed to mirror `_resolve_illegal` (street smarts lowers both; suspicion raises bust; bust+fail capped 0.95). Underworld crime cards render Fail vs Bust as two distinct panels.
