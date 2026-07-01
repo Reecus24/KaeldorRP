@@ -701,6 +701,32 @@ async def shop_items(user: dict = Depends(current_user)):
     return await db.items.find({}, {"_id": 0}).to_list(200)
 
 
+@api.get("/shop/stores")
+async def shop_stores(user: dict = Depends(current_user)):
+    await get_state(user)
+    shops = await db.city_shops.find({"active": True}, {"_id": 0}).to_list(100)
+    shops.sort(key=lambda s: (s.get("order", 99), s.get("name", "")))
+    counts = {}
+    for it in await db.items.find({}, {"_id": 0, "store_type": 1}).to_list(300):
+        counts[it.get("store_type")] = counts.get(it.get("store_type"), 0) + 1
+    btypes = {b["id"]: b["name"] for b in await db.business_types.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(100)}
+    for s in shops:
+        s["item_count"] = counts.get(s.get("category"), 0)
+        s["business_type_name"] = btypes.get(s.get("business_type_id"))
+    return shops
+
+
+@api.get("/shop/stores/{store_id}/items")
+async def shop_store_items(store_id: str, user: dict = Depends(current_user)):
+    await get_state(user)
+    shop = await db.city_shops.find_one({"id": store_id, "active": True}, {"_id": 0})
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    items = await db.items.find({"store_type": shop.get("category")}, {"_id": 0}).to_list(200)
+    items.sort(key=lambda x: x["name"])
+    return {"shop": shop, "items": items}
+
+
 class BuyBody(BaseModel):
     item_id: str
     qty: int = 1
@@ -2307,6 +2333,55 @@ async def admin_update_location(location_id: str, body: LocationBody, admin: dic
 @api.delete("/admin/locations/{location_id}")
 async def admin_delete_location(location_id: str, admin: dict = Depends(admin_user)):
     await db.locations.delete_one({"id": location_id})
+    return {"ok": True}
+
+
+# ---- Admin: City Shops management ----
+class CityShopBody(BaseModel):
+    name: str
+    category: str = "grocery"
+    desc: Optional[str] = ""
+    icon: Optional[str] = "Store"
+    business_type_id: Optional[str] = None
+    location_id: Optional[str] = None
+    active: Optional[bool] = True
+    order: Optional[int] = 50
+
+
+@api.get("/admin/city-shops")
+async def admin_city_shops(admin: dict = Depends(admin_user)):
+    shops = await db.city_shops.find({}, {"_id": 0}).to_list(200)
+    shops.sort(key=lambda s: (s.get("order", 99), s.get("name", "")))
+    counts = {}
+    for it in await db.items.find({}, {"_id": 0, "store_type": 1}).to_list(300):
+        counts[it.get("store_type")] = counts.get(it.get("store_type"), 0) + 1
+    btypes = await db.business_types.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(100)
+    locs = await db.locations.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
+    bmap = {b["id"]: b["name"] for b in btypes}
+    for s in shops:
+        s["item_count"] = counts.get(s.get("category"), 0)
+        s["business_type_name"] = bmap.get(s.get("business_type_id"))
+    return {"shops": shops, "category_options": seed_data.ITEM_CATEGORY_OPTIONS,
+            "business_types": btypes, "locations": locs}
+
+
+@api.post("/admin/city-shops")
+async def admin_create_city_shop(body: CityShopBody, admin: dict = Depends(admin_user)):
+    shop = body.model_dump()
+    shop["id"] = uuid.uuid4().hex
+    await db.city_shops.insert_one({**shop})
+    return {"ok": True, "id": shop["id"]}
+
+
+@api.put("/admin/city-shops/{shop_id}")
+async def admin_update_city_shop(shop_id: str, body: CityShopBody, admin: dict = Depends(admin_user)):
+    await db.city_shops.update_one({"id": shop_id}, {"$set": body.model_dump()})
+    return {"ok": True}
+
+
+@api.delete("/admin/city-shops/{shop_id}")
+async def admin_delete_city_shop(shop_id: str, admin: dict = Depends(admin_user)):
+    await db.city_shops.delete_one({"id": shop_id})
     return {"ok": True}
 
 

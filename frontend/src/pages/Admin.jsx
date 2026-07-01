@@ -3,7 +3,7 @@ import { api, errMessage } from "@/lib/api";
 import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/primitives";
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
-import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge, MapPin } from "lucide-react";
+import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge, MapPin, Store } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -563,6 +563,103 @@ function LocationsPanel() {
     );
 }
 
+function CityShopsPanel() {
+    const [data, setData] = useState(null);
+    const [draft, setDraft] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const load = useCallback(() => api.get("/admin/city-shops").then(({ data }) => setData(data)).catch(() => setData({ shops: [], category_options: [], business_types: [], locations: [] })), []);
+    useEffect(() => { load(); }, [load]);
+
+    const emptyShop = () => ({ name: "", category: data?.category_options?.[0] || "grocery", desc: "", icon: "Store", business_type_id: "", location_id: "", active: true, order: 50 });
+    const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+    const save = async () => {
+        setSaving(true);
+        try {
+            const { id, item_count, business_type_name, _id, ...body } = draft;
+            body.business_type_id = body.business_type_id || null;
+            body.location_id = body.location_id || null;
+            if (id) await api.put(`/admin/city-shops/${id}`, body);
+            else await api.post("/admin/city-shops", body);
+            toast.success("Shop saved — live in the Shop tab immediately");
+            setDraft(null); await load();
+        } catch (e) { toast.error(errMessage(e)); }
+        setSaving(false);
+    };
+    const del = async (s) => { if (!window.confirm(`Delete "${s.name}"?`)) return; try { await api.delete(`/admin/city-shops/${s.id}`); toast.success("Deleted"); await load(); } catch (e) { toast.error(errMessage(e)); } };
+
+    if (!data) return <Spinner />;
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">City shops the players browse. Assign an item Category (the shop sells only items of that category) and optionally link a business type or location.</p>
+                {!draft && <KButton variant="green" onClick={() => setDraft(emptyShop())} data-testid="shop-new"><Plus className="w-4 h-4" /> New Shop</KButton>}
+            </div>
+
+            {draft && (
+                <Panel className="p-5 space-y-3 border-neon-cyan/30" data-testid="cityshop-editor">
+                    <div className="grid sm:grid-cols-2 gap-3">
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Shop name
+                            <KInput value={draft.name} onChange={(e) => set("name", e.target.value)} testid="shop-name" /></label>
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Item category
+                            <select value={draft.category} onChange={(e) => set("category", e.target.value)} data-testid="shop-category"
+                                className="bg-black/40 border border-white/15 rounded-sm px-2 py-2 text-xs text-white">
+                                {data.category_options.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select></label>
+                    </div>
+                    <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Description
+                        <KInput value={draft.desc} onChange={(e) => set("desc", e.target.value)} testid="shop-desc" /></label>
+                    <div className="grid sm:grid-cols-3 gap-3 items-end">
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Link business type (optional)
+                            <select value={draft.business_type_id || ""} onChange={(e) => set("business_type_id", e.target.value)} data-testid="shop-biztype"
+                                className="bg-black/40 border border-white/15 rounded-sm px-2 py-2 text-xs text-white">
+                                <option value="">— none —</option>
+                                {data.business_types.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                            </select></label>
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Link location (optional)
+                            <select value={draft.location_id || ""} onChange={(e) => set("location_id", e.target.value)} data-testid="shop-location"
+                                className="bg-black/40 border border-white/15 rounded-sm px-2 py-2 text-xs text-white">
+                                <option value="">— none —</option>
+                                {data.locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                            </select></label>
+                        <div className="flex items-center gap-4">
+                            <label className="text-[11px] text-muted-foreground flex flex-col gap-1 w-20">Order
+                                <KInput type="number" value={draft.order} onChange={(e) => set("order", Number(e.target.value))} testid="shop-order" /></label>
+                            <label className="text-[11px] text-muted-foreground flex items-center gap-2 mt-4">
+                                <input type="checkbox" checked={!!draft.active} onChange={(e) => set("active", e.target.checked)} data-testid="shop-active" /> Active</label>
+                        </div>
+                    </div>
+                    <div className="flex gap-2 pt-2">
+                        <KButton variant="green" loading={saving} disabled={!draft.name} onClick={save} data-testid="shop-save">Save Shop</KButton>
+                        <KButton variant="ghost" onClick={() => setDraft(null)} data-testid="shop-cancel">Cancel</KButton>
+                    </div>
+                </Panel>
+            )}
+
+            {!draft && (
+                <div className="grid md:grid-cols-2 gap-3">
+                    {data.shops.map((s) => (
+                        <Panel key={s.id} className="p-4" data-testid={`admin-shop-${s.id}`}>
+                            <div className="flex items-start justify-between mb-1">
+                                <div>
+                                    <span className="font-display font-bold text-white">{s.name}</span>
+                                    <span className="ml-2 text-[10px] uppercase text-neon-cyan/80 font-mono">{s.category}</span>
+                                    {!s.active && <Pill tone="red" className="ml-2">Inactive</Pill>}
+                                </div>
+                                <div className="flex gap-1">
+                                    <button onClick={() => setDraft({ ...s })} className="text-muted-foreground hover:text-white" data-testid={`shop-edit-${s.id}`}><Pencil className="w-4 h-4" /></button>
+                                    <button onClick={() => del(s)} className="text-neon-red hover:text-neon-red/70" data-testid={`shop-del-${s.id}`}><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mb-2">{s.desc}</p>
+                            <div className="text-[10px] font-mono text-muted-foreground">{s.item_count} items{s.business_type_name ? ` · linked to ${s.business_type_name}` : ""}</div>
+                        </Panel>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function Admin() {
     const [tab, setTab] = useState("stats");
 
@@ -576,6 +673,7 @@ export default function Admin() {
                 <TabBtn active={tab === "economy"} onClick={() => setTab("economy")} icon={DollarSign}>Economy Sandbox</TabBtn>
                 <TabBtn active={tab === "tuning"} onClick={() => setTab("tuning")} icon={Gauge}>Tuning</TabBtn>
                 <TabBtn active={tab === "locations"} onClick={() => setTab("locations")} icon={MapPin}>Locations</TabBtn>
+                <TabBtn active={tab === "cityshops"} onClick={() => setTab("cityshops")} icon={Store}>City Shops</TabBtn>
                 <TabBtn active={tab === "players"} onClick={() => setTab("players")} icon={Users}>Players</TabBtn>
                 <TabBtn active={tab === "config"} onClick={() => setTab("config")} icon={SlidersHorizontal}>Config</TabBtn>
                 {CONTENT_TYPES.map((c) => <TabBtn key={c.key} active={tab === c.key} onClick={() => setTab(c.key)}>{c.label}</TabBtn>)}
@@ -586,6 +684,7 @@ export default function Admin() {
                 {tab === "economy" && <EconomyTuner />}
                 {tab === "tuning" && <TuningPanel />}
                 {tab === "locations" && <LocationsPanel />}
+                {tab === "cityshops" && <CityShopsPanel />}
                 {tab === "config" && <ConfigEditor />}
                 {tab === "players" && <PlayersTable />}
                 {CONTENT_TYPES.some((c) => c.key === tab) && <ContentEditor ctype={tab} />}

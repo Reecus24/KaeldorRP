@@ -243,6 +243,38 @@ ITEMS = [
      "desc": "Stay in shape — slower energy drain and faster recovery when equipped."},
 ]
 
+# City Shops: map each item to a store type so shops sell only their category.
+ITEM_STORE_TYPE = {
+    "energy_drink": "grocery", "protein_bar": "grocery", "coffee": "grocery",
+    "painkillers": "pharmacy", "first_aid_kit": "pharmacy", "sleeping_pills": "pharmacy",
+    "nice_clothes": "clothing", "business_suit": "clothing", "luxury_watch": "clothing",
+    "smartphone": "electronics", "laptop": "electronics",
+    "toolbelt": "hardware", "athletic_gear": "hardware",
+}
+ITEM_CATEGORY_OPTIONS = ["grocery", "pharmacy", "clothing", "electronics", "hardware"]
+for _it in ITEMS:
+    _it.setdefault("store_type", ITEM_STORE_TYPE.get(_it["id"], "grocery"))
+
+# Default city shops (admin-editable via the Sandbox → City Shops tab).
+CITY_SHOPS = [
+    {"id": "shop_grocery", "name": "Kaeldor Fresh Foods", "category": "grocery", "icon": "ShoppingBasket",
+     "desc": "Grocery Store — daily food and beverages to keep your needs topped up.",
+     "business_type_id": "kiosk", "location_id": None, "active": True, "order": 1},
+    {"id": "shop_pharmacy", "name": "MediCare Pharmacy", "category": "pharmacy", "icon": "Cross",
+     "desc": "Pharmacy — painkillers, first aid and recovery items for your health.",
+     "business_type_id": None, "location_id": None, "active": True, "order": 2},
+    {"id": "shop_clothing", "name": "Vantage Apparel", "category": "clothing", "icon": "Shirt",
+     "desc": "Clothing Boutique — outfits and accessories that boost your social standing.",
+     "business_type_id": None, "location_id": None, "active": True, "order": 3},
+    {"id": "shop_electronics", "name": "Circuit City", "category": "electronics", "icon": "Laptop",
+     "desc": "Electronics Store — smartphones and laptops for comms and work.",
+     "business_type_id": None, "location_id": None, "active": True, "order": 4},
+    {"id": "shop_hardware", "name": "Ironworks Hardware & Sports", "category": "hardware", "icon": "Hammer",
+     "desc": "Hardware & Sports — pro tools and fitness gear for the grind.",
+     "business_type_id": None, "location_id": None, "active": True, "order": 5},
+]
+
+
 HOUSING = [
     {"id": "studio_tiny", "name": "Tiny Studio", "tier": 1, "rent_per_day": 18, "buy_price": 0,
      "deposit": 0, "bills_per_day": 4, "sleep_quality": 0.8, "mood_bonus": -2,
@@ -794,6 +826,7 @@ CONTENT_MAP = {
     "social_events": ("social_events", SOCIAL_EVENTS),
     "market_assets": ("market_assets", MARKET_ASSETS),
     "locations": ("locations", LOCATIONS),
+    "city_shops": ("city_shops", CITY_SHOPS),
 }
 
 
