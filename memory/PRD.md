@@ -117,3 +117,27 @@ User decisions: (1a) auto-shifts ONLY for player-business jobs (NPC Job Center k
 - Endpoints added: `GET /shift-presets`, `POST /jobs/employment/{id}/clock-out`, `POST /businesses/{id}/backup`. Migration adds default schedule to legacy employment.
 - Tests: engine smoke 14/14 (`tests/smoke_phase11.py`), HTTP 8/8 (`tests/test_phase11_player_employment.py`), UI smoke PASS → backend 100% / frontend (after fixes) green. time_scale stays 1.0.
 - NEXT: Phase 2 (Owner tools: job-listings editor, internal training). P2: owner-side schedule editing with player accept/decline.
+
+
+## HYGIENE REMOVAL + BUSINESS SUPPLY-CHAIN REWRITE — DONE (2026-07-01, verified iter_13)
+User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy button), 3a (NO auto-bankruptcy), 4a (keep marketing/reputation as demand boost), 5a (migrate existing businesses). Plus: rename business; clear demo debts.
+
+### Hygiene — fully removed
+- Removed `hygiene` from `NEED_STATS`, player factory, decay config (`game_models.py`), `need_keys`/decay/mood-penalty/job-decay (`game_engine.py`), `cond` formula (`employment.py`), sleep/jog effects + the whole `shower` action (`seed_data.py`).
+- Frontend: removed from `helpers.js` NEED_META + STAT_INFO, HomeNeeds category+sub, ActionCard POSITIVE_GOOD, Dashboard nav desc.
+- DB migration run: deleted `shower` action, `$unset effects.hygiene` from actions/items, `$unset hygiene` from all player docs. No hygiene-only items existed.
+
+### Business — transparent SUPPLY-CHAIN model (replaces rent/base_revenue/base_expenses/PLAYER_PRESENCE/backup/auto-bankruptcy)
+- Each business type has `product{name,price}`, `recipe[{id,name,qty,cost}]`, `production_per_worker_hour`, `daily_demand` (`seed_data.BUSINESS_TYPES`). Runtime: `materials{}`, `products`, `restock_target`, `auto_restock`.
+- `employee_engine.resolve_business(db,cfg,now,b)`: idempotent on business's own `last_resolved_at` (single writer → NO clobber-race). Per window: gather ALL workers (NPC+player) via `gather_workers` → identical `worker_productivity(skill,reliability,condition)`; auto-restock from business cash; produce = min(capacity, materials); sell = min(products, demand×marketing×reputation×level); wages debited (shortfall → business debt, NO bankruptcy). Player wages `$inc`'d to `player_employment.earnings_pending`/`personal_hours_pending` (atomic-drained by `employment.sweep_player_earnings` in the employee's own resolve → race-safe). `_day_rates` = transparent steady-state P&L (rev/materials/wages/net, components rounded so tile == breakdown).
+- `employment.py`: removed `accrue_player_employment`/`_accrue_one`; added `resolve_worked_businesses` + `sweep_player_earnings`; projections now return `units_per_hour`/`margin_per_unit`/`productivity`/`rev_per_hour`/`net_per_hour` (NOT wage-coupled). NPCs get a `schedule`+`wage_per_hour` on hire → same engine as players.
+- New endpoints: `POST /businesses/{id}/rename`, `/buy-materials`, `/restock-settings`. `buy_business` seeds starting materials; `migrate_business_supply_chain()` on startup patches business_types + existing businesses + NPC schedules.
+- Frontend `BusinessManage.jsx`: Overview has "Supply Chain — how this business makes money" panel (Recipe → Materials/unit + Margin/unit, Daily P&L breakdown, Inventory pills + auto-restock + Buy-Materials, Rename modal); Staffing (roster/active, no backup); Finances history uses rev/material/wages/net. `money2()` (cents) for per-unit values. `OwnedBusinesses.jsx` uses `metrics.net_day`.
+- Tests: iter_13 backend 9/9 + UI all green. Demo debts cleared to 0. Dovan's kiosk (id 249566f3664b40a9b9934c150c713de2) net ≈ -$15/day is EXPECTED (Mara wage $22.5/h > her $20.6/h margin output) — transparent economics.
+
+### NEXT (backlog, user-approved order)
+- Phase 3: remaining transparency/labels (tooltips/UI clarity).
+- Phase 4: real inventory (buy→inventory→use), equipment slots, admin item editor.
+- Phase D: Dashboard Life Inbox / relationship-driven events.
+- Logic Audit P1 (`/app/memory/LOGIC_AUDIT.md`): housing deposit refund, house selling, suspicion decay, natural health regen, clinic bill, sleep stress-relief.
+- Phase 5 (P2): custom business products (admin data models).

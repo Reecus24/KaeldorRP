@@ -442,7 +442,8 @@ export default function BusinessManage() {
     const b = detail.business;
     const m = detail.metrics;
     const costs = detail.costs || {};
-    const net = m.net_day || 0;
+    // headline net derived from the same whole-dollar components shown in the P&L box, so it always adds up on screen
+    const net = Math.round(m.rev_day || 0) - Math.round(m.material_day || 0) - Math.round(m.wage_per_day || 0);
 
     return (
         <div className="space-y-6">

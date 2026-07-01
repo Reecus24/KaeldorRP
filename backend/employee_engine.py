@@ -126,15 +126,15 @@ def _day_rates(b, workers):
     sold_day = min(capacity_day, demand_day)
     mc = material_cost_per_unit(b)
     price = unit_price(b)
-    rev_day = sold_day * price
-    material_day = sold_day * mc
-    wages_day = sum(w["wage_per_hour"] * employment.schedule_hours_per_day(w["schedule"]) for w in workers)
-    net_day = rev_day - material_day - wages_day
+    rev_day = round(sold_day * price, 2)
+    material_day = round(sold_day * mc, 2)
+    wages_day = round(sum(w["wage_per_hour"] * employment.schedule_hours_per_day(w["schedule"]) for w in workers), 2)
+    net_day = round(rev_day - material_day - wages_day, 2)
     return {
         "demand_day": round(demand_day, 1), "capacity_day": round(capacity_day, 1),
         "produced_day": round(sold_day, 1), "sold_day": round(sold_day, 1),
-        "rev_day": round(rev_day, 2), "material_day": round(material_day, 2),
-        "wages_day": round(wages_day, 2), "net_day": round(net_day, 2),
+        "rev_day": rev_day, "material_day": material_day,
+        "wages_day": wages_day, "net_day": net_day,
     }
 
 
