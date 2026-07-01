@@ -109,6 +109,71 @@ def satisfaction_mult(b):
     return round(0.85 + 0.15 * (b.get("satisfaction", 80) / 100.0), 4)
 
 
+# ===================== CANONICAL ECONOMY FORMULAS =====================
+# Single source of truth — see /app/docs/ECONOMY_LOGIC.md. All wage/production
+# math MUST route through these two functions. No alternate wage paths.
+def _num(v):
+    """Coerce an hour value that may be numeric or an 'HH:MM' string to a float."""
+    if isinstance(v, (int, float)):
+        return float(v)
+    return employment.hhmm_to_float(v)
+
+
+def calculate_worker_daily_wage(worker, opening=None):
+    """ONLY wage formula: hourly_wage * scheduled_shift_hours. Off-shift / no schedule = $0.
+    If `opening` is given, the shift is clipped to the opening window (never paid while closed)."""
+    schedule = worker.get("schedule")
+    if not schedule:
+        return 0.0
+    start = _num(schedule.get("start", 0))
+    end = _num(schedule.get("end", 0))
+    if opening is not None:
+        o = _num(opening.get("open", 0))
+        c = _num(opening.get("close", 24))
+        if c <= o:
+            c = 24.0
+        start = max(o, start)
+        end = min(c, end)
+    hours = end - start
+    if hours <= 0:
+        return 0.0
+    rate = worker.get("hourly_wage", worker.get("wage_per_hour", 0)) or 0.0
+    return round(rate * hours, 4)
+
+
+def calculate_total_covered_hours(employees, opening_hours):
+    """UNION of all workers' shift durations, clipped to & capped at the opening window.
+    Overlapping shifts do NOT double-count (union, not sum) per ECONOMY_LOGIC.md."""
+    o = _num(opening_hours.get("open", 8))
+    c = _num(opening_hours.get("close", 20))
+    if c <= o:
+        c = 24.0
+    ivals = []
+    for emp in employees:
+        sch = emp.get("schedule")
+        if not sch:
+            continue
+        s = max(o, _num(sch.get("start", 0)))
+        e = min(c, _num(sch.get("end", 0)))
+        if e > s:
+            ivals.append((s, e))
+    ivals.sort()
+    total = 0.0
+    cur_s = cur_e = None
+    for s, e in ivals:
+        if cur_e is None:
+            cur_s, cur_e = s, e
+        elif s <= cur_e:
+            cur_e = max(cur_e, e)
+        else:
+            total += cur_e - cur_s
+            cur_s, cur_e = s, e
+    if cur_e is not None:
+        total += cur_e - cur_s
+    return round(min(total, c - o), 4)
+
+
+
 def effective_price(b):
     return round(unit_price(b) * marketing_price_mult(b), 4)
 
@@ -160,8 +225,8 @@ def _day_rates(b, workers, upgrade_penalty=1.0):
     rep = reputation_mult(b)
     lvl = 1 + 0.6 * (b.get("level", 1) - 1)
     opening = b.get("opening_hours")
-    scheds = [w["schedule"] for w in workers]
-    covered_hours = employment.covered_hours_per_day(opening, scheds)
+    # canonical coverage + wage formulas (see /app/docs/ECONOMY_LOGIC.md)
+    covered_hours = calculate_total_covered_hours(workers, opening)
     open_hours = employment.open_hours_total(opening)
     demand_day = b.get("daily_demand", 0) * mkt * rep * lvl
     capacity_day = pph * covered_hours * satisfaction_mult(b) * lvl
@@ -170,7 +235,7 @@ def _day_rates(b, workers, upgrade_penalty=1.0):
     eprice = effective_price(b)
     rev_day = round(sold_day * eprice * upgrade_penalty, 2)
     material_day = round(sold_day * mc, 2)
-    wages_day = round(sum(w["wage_per_hour"] * employment.worker_shift_hours(w["schedule"], opening) for w in workers), 2)
+    wages_day = round(sum(calculate_worker_daily_wage(w, opening) for w in workers), 2)
     net_day = round(rev_day - material_day - wages_day, 2)
     return {
         "demand_day": round(demand_day, 1), "capacity_day": round(capacity_day, 1),

@@ -175,3 +175,10 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - OVERLAP GUARD (BUG 1): PATCH /employees/{id}/shift validates `peak_concurrent(all shifts) <= concurrent_slots` (= base_slots + level-1); rejects with "Shift overlaps with {name} — only N worker(s) can be active at the same time." Added `peak_concurrent`, `find_overlapping` helpers; metrics exposes `concurrent_slots`.
 - Wage formula confirmed correct: wages = Σ(hourly × clipped shift_hours); production = pph × union_covered_hours × sat × level_mult (coverage-based, not headcount). Verified E2E: shrink NPC1 to 6h halves net; hiring NPC2 into uncovered hours RAISES net; overlap rejected; 3rd hire while covered = unscheduled $0 (net unchanged).
 - Frontend Schedule tab: unscheduled workers show "Unscheduled · $0" pill + no timeline block; "Max N on shift at once" indicator.
+
+## 2026-07-01 — Economy refactor: single source of truth
+- Created /app/docs/ECONOMY_LOGIC.md (only-valid wage/production/net formulas).
+- Added canonical functions in employee_engine.py: `calculate_worker_daily_wage(worker, opening)` and `calculate_total_covered_hours(employees, opening)`. `_day_rates` now routes wages+coverage through them; resolve_business accrual is their time-integral (wage_per_hour × on-shift hours; pph × union-covered × mult). No flat daily wage, no ×24, no ×8 in the calc path.
+- Added /app/tests/verify_economy.py (8 assertions incl. live engine _day_rates) — ALL PASS. Run: `python3 /app/tests/verify_economy.py`.
+- Grep audit: 0 hits for ×24, ×8 production, or daily_wage in calc path. Remaining daily_wage = NPC generation attribute + hourly-rate derivation (compliant); market `wage_day` = hours×rate display value; `backup_wage_day` = legacy field $unset cleanup.
+- No economy regression: all 10 L1 market estimates within ±1% of targets.
