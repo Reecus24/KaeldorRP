@@ -52,9 +52,6 @@ def worker_productivity(skill_level, reliability, condition):
 
 
 async def get_staffing(db, b):
-    plan = b.get("roster_plan")
-    if plan:
-        return [{"role": x["role"], "recommended": int(x.get("recommended", 1))} for x in plan if x.get("recommended", 1) > 0]
     doc = await db.staffing_requirements.find_one({"id": b.get("type_id")}, {"_id": 0})
     return (doc or {}).get("requirements", [])
 
@@ -119,7 +116,7 @@ def _day_rates(b, workers):
     pph = b.get("production_per_worker_hour", 0)
     mkt = 1 + 0.06 * b.get("marketing_level", 0)
     rep = 0.5 + 0.5 * (b.get("reputation", 50) / 100.0)
-    lvl = 1 + 0.25 * (b.get("level", 1) - 1)
+    lvl = 1 + 0.6 * (b.get("level", 1) - 1)
     demand_day = b.get("daily_demand", 0) * mkt * rep * lvl
     prod_hours_day = sum(w["productivity"] * employment.schedule_hours_per_day(w["schedule"]) for w in workers)
     capacity_day = pph * prod_hours_day
@@ -202,27 +199,28 @@ async def business_metrics(db, b):
         if employment.emp_on_shift(pe, g_now):
             p_active_by_role[r] = p_active_by_role.get(r, 0) + 1
 
-    staffing, active_ratios, roster_ratios = [], [], []
+    staffing, active_ratios = [], []
     for r in reqs:
         rec = r.get("recommended", 1)
-        roster = npc_by_role.get(r["role"], 0) + p_by_role.get(r["role"], 0)
+        assigned = npc_by_role.get(r["role"], 0) + p_by_role.get(r["role"], 0)
         active = npc_active_by_role.get(r["role"], 0) + p_active_by_role.get(r["role"], 0)
         if active > 0:
             status = "Working now"
-        elif roster > 0:
-            status = "Scheduled — off shift"
+        elif assigned > 0:
+            status = "Off shift"
         else:
             status = "Unfilled"
         staffing.append({
             "role": r["role"], "recommended": rec,
-            "npc_have": npc_by_role.get(r["role"], 0), "player_roster": p_by_role.get(r["role"], 0),
-            "roster_filled": roster, "active_working": active,
-            "active_filled": active, "status": status,
+            "npc_have": npc_by_role.get(r["role"], 0), "player_have": p_by_role.get(r["role"], 0),
+            "assigned": assigned, "active_working": active, "status": status,
         })
         active_ratios.append(min(1, active / rec) if rec else 1)
-        roster_ratios.append(min(1, roster / rec) if rec else 1)
     coverage = round(sum(active_ratios) / len(active_ratios), 2) if active_ratios else 1.0
-    roster_cov = round(sum(roster_ratios) / len(roster_ratios), 2) if roster_ratios else 1.0
+
+    base_slots = max(1, sum(r.get("recommended", 1) for r in reqs))
+    max_slots = base_slots + (b.get("level", 1) - 1)
+    staff_count = len(npcs) + len(sick) + len(pemps)
 
     allp = npcs + sick
     morale_avg = round(sum(e.get("morale", 60) for e in allp) / len(allp)) if allp else 0
@@ -230,7 +228,9 @@ async def business_metrics(db, b):
     mat_view = [{"id": r["id"], "name": r["name"], "qty": r.get("qty", 1), "cost": r.get("cost", 0),
                  "stock": round(materials.get(r["id"], 0), 1)} for r in _recipe(b)]
     return {
-        "staffing": staffing, "coverage": coverage, "active_coverage": coverage, "roster_coverage": roster_cov,
+        "staffing": staffing, "coverage": coverage, "active_coverage": coverage,
+        "base_slots": base_slots, "max_staff_slots": max_slots, "staff_count": staff_count,
+        "slots_free": max(0, max_slots - staff_count),
         "employee_count": len(npcs), "sick_count": len(sick), "applicant_count": applicants,
         "player_employee_count": len(pemps),
         "morale_avg": morale_avg, "satisfaction": round(b.get("satisfaction", 60)),
@@ -469,7 +469,7 @@ async def resolve_business(db, cfg, now, b):
         # sell to demand
         mkt = 1 + 0.06 * b.get("marketing_level", 0)
         rep = 0.5 + 0.5 * (b.get("reputation", 50) / 100.0)
-        lvl = 1 + 0.25 * (b.get("level", 1) - 1)
+        lvl = 1 + 0.6 * (b.get("level", 1) - 1)
         demand_units = b.get("daily_demand", 0) * mkt * rep * lvl * gh / 24.0
         sold = min(b.get("products", 0), demand_units)
         if sold > 0:

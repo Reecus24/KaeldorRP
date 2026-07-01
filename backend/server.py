@@ -289,9 +289,9 @@ async def estimate_income_per_day(p):
             jd = await db.jobs.find_one({"id": job.get("job_id")}, {"_id": 0, "hourly_wage": 1})
             wage = (jd or {}).get("hourly_wage", 0)
         income += (wage or 0) * 6  # ~6 productive hours/day
-    bizs = await db.businesses.find({"player_id": p["id"], "bankrupt": {"$ne": True}}, {"_id": 0, "last_net_day": 1}).to_list(100)
+    bizs = await db.businesses.find({"player_id": p["id"], "bankrupt": {"$ne": True}}, {"_id": 0, "net_day": 1}).to_list(100)
     for b in bizs:
-        income += max(0, b.get("last_net_day", 0))
+        income += max(0, b.get("net_day", 0))
     return round(income, 2)
 
 
@@ -1367,7 +1367,7 @@ async def business_detail(biz_id: str, user: dict = Depends(current_user)):
     costs = {
         "upgrade_cost": round(pp * 0.4 * lvl) if can_upgrade else None,
         "upgrade_from_level": lvl, "upgrade_to_level": lvl + 1 if can_upgrade else lvl,
-        "upgrade_revenue_boost_pct": 35, "upgrade_reputation_gain": 4, "can_upgrade": can_upgrade,
+        "upgrade_adds_slot": can_upgrade, "upgrade_reputation_gain": 4, "can_upgrade": can_upgrade,
         "marketing_cost": round(pp * 0.12 * (mkt + 1)),
         "marketing_level": mkt, "marketing_next_level": mkt + 1,
         "marketing_revenue_boost_pct": 6, "marketing_reputation_gain": 8,
@@ -1410,8 +1410,10 @@ async def hire_applicant(biz_id: str, emp_id: str, user: dict = Depends(current_
     if not emp:
         raise HTTPException(status_code=404, detail="Applicant not found")
     b = await _get_owned_business(p, biz_id)
-    plan_by_role = {x["role"]: x for x in (b.get("roster_plan") or [])}
-    sched_key = (plan_by_role.get(emp["role"], {}) or {}).get("schedule") or emp.get("schedule", {}).get("preset") or "early"
+    m = await employee_engine.business_metrics(db, b)
+    if m["staff_count"] >= m["max_staff_slots"]:
+        raise HTTPException(status_code=400, detail=f"No free staff slots ({m['staff_count']}/{m['max_staff_slots']}). Upgrade the business to add a slot.")
+    sched_key = (emp.get("schedule") or {}).get("preset") or "early"
     wph = emp.get("wage_per_hour") or round(emp.get("daily_wage", 90) / 8.0, 2)
     await db.employees.update_one({"id": emp_id}, {"$set": {
         "status": "active", "hire_date": now_utc().isoformat(), "last_paid": now_utc().isoformat(),

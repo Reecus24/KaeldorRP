@@ -213,6 +213,12 @@ def decay_needs(p, gh, cfg, resting):
         p["mood"] = clamp(p["mood"] - 1.0 * gh)
     if p["energy"] < 15:
         p["stress"] = clamp(p["stress"] + 1.0 * gh)
+    # criminal suspicion cools down while not committing crimes (~1.5/game-hour)
+    if p.get("criminal_suspicion", 0) > 0:
+        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] - 1.5 * gh)
+    # slow passive health regen when reasonably fed/rested/calm
+    if p["health"] < 100 and p["hunger"] < 80 and p["fatigue"] < 85 and p["stress"] < 85:
+        p["health"] = clamp(p["health"] + 0.8 * gh)
     # mood drifts toward baseline (modified by housing handled elsewhere)
     baseline = d.get("mood_baseline", 60.0)
     if p["mood"] < baseline:
