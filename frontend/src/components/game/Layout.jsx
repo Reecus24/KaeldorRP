@@ -2,7 +2,7 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useGame } from "@/context/GameContext";
-import { Money, StatBar, Pill } from "@/components/game/primitives";
+import { Money, StatBar, Pill, InfoTip } from "@/components/game/primitives";
 import ActivityPanel from "@/components/game/ActivityPanel";
 import EventLog from "@/components/game/EventLog";
 import ChatWidget from "@/components/game/ChatWidget";
@@ -209,7 +209,7 @@ export default function Layout({ children }) {
                                 <span className="text-muted-foreground">CASH <Money value={player.cash} testid="topbar-cash" /></span>
                                 <span className="text-muted-foreground">BANK <Money value={player.bank} testid="topbar-bank" /></span>
                                 <span className="text-muted-foreground">DEBT <span className="text-neon-red tnum">${Math.round(player.debt).toLocaleString()}</span></span>
-                                <span className="text-muted-foreground">NET <Money value={state?.net_worth} testid="topbar-networth" /></span>
+                                <span className="text-muted-foreground inline-flex items-center gap-1">NET <Money value={state?.net_worth} testid="topbar-networth" /><InfoTip text="NET = Cash + Bank - Debt + 50% Asset Resell Value." testid="networth-info" /></span>
                             </div>
                             <Pill tone={mode.tone} className="hidden sm:inline-flex" >
                                 <Clock3 className="w-3 h-3 mr-1" /> {mode.label}

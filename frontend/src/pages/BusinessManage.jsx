@@ -27,10 +27,10 @@ function Tab({ active, onClick, icon: Icon, children, testid }) {
     );
 }
 
-function Tile({ label, value, accent = "#fff", sub }) {
+function Tile({ label, value, accent = "#fff", sub, info }) {
     return (
         <Panel className="p-3">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">{label}{info && <InfoTip text={info} />}</div>
             <div className="font-display font-bold text-lg" style={{ color: accent }}>{value}</div>
             {sub && <div className="text-[10px] text-muted-foreground">{sub}</div>}
         </Panel>
@@ -371,6 +371,8 @@ export default function BusinessManage() {
     const costs = detail.costs || {};
     // headline net derived from the same whole-dollar components shown in the P&L box, so it always adds up on screen
     const net = Math.round(m.rev_day || 0) - Math.round(m.material_day || 0) - Math.round(m.wage_per_day || 0);
+    const RETAIL_IDS = ["kiosk", "clothing_store", "pet_shop", "online_shop"];
+    const capacityLabel = RETAIL_IDS.includes(b.type_id) ? "Sales Capacity / day" : "Production / day";
 
     return (
         <div className="space-y-6">
@@ -398,11 +400,13 @@ export default function BusinessManage() {
                         <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00F3FF" sub={`${Math.round(m.sold_day)} sold × ${money2(m.effective_price ?? m.product?.price ?? 0)}`} />
                         <Tile label="Materials / day" value={money(m.material_day)} accent="#FFC300" sub={`${money2(m.material_cost_per_unit)}/unit`} />
                         <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#FF8A00" />
-                        <Tile label="Products in stock" value={Math.round(m.products_in_stock)} accent="#B026FF" sub={`${Math.round(m.demand_day)}/day demand`} />
+                        <Tile label={capacityLabel} value={`${Math.round(m.capacity_day ?? 0)}/day`} accent="#B026FF" info="How many units your staff can make/sell per day at current staffing and satisfaction. Hire more staff or upgrade to raise it." sub={`vs ${Math.round(m.demand_day)}/day demand`} />
+                        <Tile label="Products in stock" value={Math.round(m.products_in_stock)} accent="#B026FF" />
                         <Tile label="Uncollected cash" value={money(b.cash)} accent="#00FF66" />
                         <Tile label="Staff slots" value={`${m.staff_count ?? 0}/${m.max_staff_slots ?? 0}`} accent="#00F3FF" sub="upgrade for +1 slot" />
                         <Tile label="Business debt" value={money(b.debt)} accent={b.debt > 0 ? "#FF0055" : "#9CA3AF"} />
-                        <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" sub={`Satisfaction ${m.satisfaction}%`} />
+                        <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" info="Reputation acts as a multiplier for market demand. Higher reputation attracts more customers." sub={`Demand ×${(m.reputation_demand_mult ?? 1).toFixed(2)}`} />
+                        <Tile label="Satisfaction" value={`${m.satisfaction}%`} accent="#00F3FF" info="Staff satisfaction determines work efficiency. Unhappy workers produce or sell at a slower pace." sub={`Output ×${(m.satisfaction_production_mult ?? 1).toFixed(2)}`} />
                     </div>
 
                     {/* SUPPLY CHAIN — transparent P&L */}
@@ -414,7 +418,7 @@ export default function BusinessManage() {
                         <div className="grid lg:grid-cols-2 gap-4">
                             <div>
                                 <div className="text-[11px] uppercase tracking-wider text-neon-cyan/70 mb-2">Recipe</div>
-                                <div className="text-sm text-white mb-1">Sells: <span className="font-bold">{m.product?.name}</span> @ <span className="text-neon-green">{money2(m.product?.price || 0)}</span>/unit</div>
+                                <div className="text-sm text-white mb-1">Sells: <span className="font-bold">{m.product?.name}</span> @ <span className="text-neon-green">{money2(m.effective_price ?? m.product?.price ?? 0)}</span>/unit{m.marketing_level > 0 ? <span className="text-neon-cyan"> (incl. +{m.marketing_price_pct}% marketing)</span> : null}</div>
                                 <div className="space-y-1 font-mono text-[12px]">
                                     {(m.recipe || []).map((r) => (
                                         <div key={r.id} className="flex justify-between text-muted-foreground" data-testid={`recipe-${r.id}`}>
@@ -432,13 +436,15 @@ export default function BusinessManage() {
                             <div>
                                 <div className="text-[11px] uppercase tracking-wider text-neon-cyan/70 mb-2">Daily profit &amp; loss</div>
                                 <div className="space-y-1 font-mono text-[12px] border border-white/10 rounded-sm p-3" data-testid="pnl-breakdown">
-                                    <div className="flex justify-between"><span className="text-muted-foreground">Sold {Math.round(m.sold_day)} × {money2(m.product?.price || 0)}</span><span className="text-neon-green">+{money(m.rev_day)}</span></div>
+                                    <div className="flex justify-between"><span className="text-muted-foreground">Sold {Math.round(m.sold_day)} × {money2(m.effective_price ?? m.product?.price ?? 0)}</span><span className="text-neon-green">+{money(m.rev_day)}</span></div>
                                     <div className="flex justify-between"><span className="text-muted-foreground">− Materials ({Math.round(m.sold_day)} units)</span><span className="text-neon-yellow">−{money(m.material_day)}</span></div>
                                     <div className="flex justify-between"><span className="text-muted-foreground">− Wages (all workers)</span><span className="text-neon-red">−{money(m.wage_per_day)}</span></div>
                                     <div className="flex justify-between border-t border-white/10 pt-1 mt-1"><span className="text-white font-bold">Net / day</span><span className={net >= 0 ? "text-neon-green font-bold" : "text-neon-red font-bold"} data-testid="pnl-net">{net >= 0 ? "+" : ""}{money(net)}</span></div>
                                 </div>
-                                <div className="text-[11px] text-muted-foreground mt-2">
-                                    Demand caps sales at ~{Math.round(m.demand_day)}/day. Add workers or raise skill to produce more; run Marketing to raise demand.
+                                <div className="text-[11px] text-muted-foreground mt-2" data-testid="pnl-footer">
+                                    {(m.capacity_day ?? 0) < (m.demand_day ?? 0)
+                                        ? `Currently producing ${Math.round(m.capacity_day)} units/day. Market demand is ${Math.round(m.demand_day)}. Hire more staff or upgrade to increase output.`
+                                        : `Demand caps sales at ${Math.round(m.demand_day)} units/day. Invest in Marketing to attract more customers.`}
                                 </div>
                             </div>
                         </div>
@@ -502,11 +508,11 @@ export default function BusinessManage() {
                                 <p className="text-[11px] text-muted-foreground mb-3 flex-1">Move the business's uncollected cash into your wallet. Instant.</p>
                                 <KButton variant="green" disabled={b.cash <= 0} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(b.cash)}</KButton>
                             </div>
-                            <div className="border border-neon-purple/40 rounded-sm p-3 flex flex-col bg-neon-purple/5">
+                            <div className="border border-white/10 rounded-sm p-3 flex flex-col">
                                 <div className="font-display font-bold text-white text-sm mb-0.5 flex items-center gap-1.5">Marketing · Lvl {costs.marketing_level}
-                                    <InfoTip text="Marketing builds your brand: +25% customer demand AND a +12% price premium per level. The price premium raises revenue immediately — even when you're already selling out." testid="marketing-info" /></div>
+                                    <InfoTip text="Marketing builds your brand: +25% customer demand AND a +10% price premium per level. The price premium raises revenue immediately — even when you're already selling out." testid="marketing-info" /></div>
                                 <p className="text-[11px] text-muted-foreground mb-3 flex-1">Each level: +{costs.marketing_demand_boost_pct}% demand, +{costs.marketing_price_boost_pct}% price, +{costs.marketing_reputation_gain} reputation. Takes ~{costs.marketing_duration_days} in-game days to roll out.</p>
-                                <KButton className="border border-neon-purple text-neon-purple hover:bg-neon-purple hover:text-white disabled:opacity-40" disabled={costs.activity_in_progress} loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign launched", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> {costs.activity?.type === "marketing" ? "Campaign running…" : costs.activity_in_progress ? "Busy…" : `Run Marketing · ${money(costs.marketing_cost)} · ${costs.marketing_duration_days}d`}</KButton>
+                                <KButton variant="primary" disabled={costs.activity_in_progress} loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign launched", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> {costs.activity?.type === "marketing" ? "Campaign running…" : costs.activity_in_progress ? "Busy…" : `Run Marketing · ${money(costs.marketing_cost)} · ${costs.marketing_duration_days}d`}</KButton>
                             </div>
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
                                 <div className="font-display font-bold text-white text-sm mb-0.5 flex items-center gap-1.5">Upgrade — +1 Staff Slot

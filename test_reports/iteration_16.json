@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 16 — verified the new BUSINESS activity system + housing/shop/net-worth features. All 9 pytest cases pass (backend). Marketing/upgrade activities set the correct fields (type, started_at, ends_at, duration_days=3/7, completed:false) and correctly return HTTP 400 on a second start ('A marketing is already in progress here'). Housing deposit refund on re-rent, move-out refund, and sell (60% of buy_price) all work; GET /api/game/state returns 200 after move-out/sell (no 500). Shop→Inventory split works: buying adds to inventory without applying effects; GET /api/inventory sets usable:false for gear (smartphone/laptop); POST /api/inventory/{id}/use on gear returns HTTP 400 ('Gear is passive equipment'); using consumables decrements qty by 1. GET /api/game/state.net_worth_breakdown has all 7 keys (cash, bank, debt, vehicles, property, business, total). Metrics contain effective_price, marketing_level, marketing_price_pct, reputation_demand_mult, satisfaction_production_mult, capacity_day. Staffing sum(recommended) == max_staff_slots verified on live business. FRONTEND: /businesses shows ONLY 'Manage Business' button per card (Upgrade/Marketing/Sell removed from card list). BusinessManage marketing button uses cyan primary style (border-neon-cyan text-neon-cyan), NOT purple. marketing-info/upgrade-info tooltips render. pnl-footer text is context-aware. networth-info tooltip present in header. Shop has inventory-panel. /real-estate shows Move-Out for renters. No German text detected. Two DEFECTS found (below).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/businesses/{id} (Dovan's Street Kiosk, level 1, 1 NPC worker)",
+        "issue": "metrics.net_day = $85.99/day, well below the stated target of ~$200-$250/day for a Level-1 kiosk with one NPC worker. Root cause: reputation_demand_mult=0.8039 (rep 58, no marketing) AND satisfaction_production_mult=0.8236 (satisfaction ~60) both compound to drop capacity_day to 48.4 vs demand_day 184; sold_day only ~48/day @ effective_price $12 → rev $580/day, materials $314/day, wages $180/day → net $86/day. Balancing pass may need to (a) raise base production_per_worker_hour for kiosk in seed_data, (b) raise starting reputation/satisfaction, or (c) lower wages/materials. Not a code bug — a tuning concern flagged for main agent."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "BusinessManage.jsx",
+        "issue": "No element with data-testid='business-activity-banner' exists. When an activity (marketing/upgrade) is in progress the buttons show 'Campaign running…' / 'Upgrading…' text but there is no dedicated progress banner element as specified in the acceptance criteria. Also data-testid='activity-remaining' is missing.",
+        "selector": "[data-testid='business-activity-banner']",
+        "priority": "MEDIUM"
+      },
+      {
+        "component": "Layout.jsx / primitives.jsx (header NET tile)",
+        "issue": "Header renders the NET value with a networth-info tooltip InfoTip (found ✓), but there is no element carrying data-testid='tile-networth' as specified in the acceptance criteria. The topbar money uses data-testid='topbar-networth' instead.",
+        "selector": "[data-testid='tile-networth']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration16_features.py",
+    "/app/test_reports/pytest/iteration16.xml"
+  ],
+  "action_items": [
+    "Rebalance seed_data for Kiosk business type (or bump initial reputation/satisfaction on new businesses) so a Level-1 kiosk with one worker delivers net_day in the $200-$250 target range. Currently ~$86/day.",
+    "Add a dedicated activity progress banner in BusinessManage.jsx with data-testid='business-activity-banner' (containing an 'activity-remaining' child) that renders when costs.activity_in_progress is true. Currently only the buttons change label; there is no banner element for the tests to assert against.",
+    "Add data-testid='tile-networth' to the header NET wrapper in Layout.jsx (adjacent to networth-info) as spec'd in the review request. Currently only topbar-networth exists on the Money component."
+  ],
+  "critical_code_review_comments": [
+    "employee_engine.business_metrics correctly exposes all economy fields (effective_price, marketing_price_pct, reputation_demand_mult, satisfaction_production_mult, capacity_day, base_slots, max_staff_slots) and scales 'recommended' per role so sum(recommended) == max_staff_slots. Solid.",
+    "server.py upgrade_business/marketing_business share identical 'activity in progress' gate; consider extracting a helper _assert_no_activity(b) to DRY up the check across future actions (bankrupt guard could share the same helper).",
+    "server.py housing endpoints correctly refund deposit_paid on re-rent and move-out and clear p['housing'] to {} on move-out/sell. game_state remains 200 after because get_state doesn't require housing to be set — good defensive behavior.",
+    "shop_buy adds to inventory without applying effects; get_inventory marks usable=(category != 'gear'); use_item hard-blocks gear (400). Nice separation. Minor: inventory qty guard `inv.get(item_id, 0) <= 0` at line 736 duplicates the check at 750-752 — acceptable but could be unified.",
+    "net_worth_parts returns all 7 keys used by the header tooltip; property value uses 80% (not 60% as the header tooltip claims '50%'). Header tooltip text says '50% Asset Resell Value' but property is valued at 80% and vehicles use spec.resale (~50%). Consider making tooltip text more accurate or reducing property weight to 50%."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration16_features.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 pytest cases)",
+    "frontend": "83% (10/12 UI acceptance checks; 2 missing testids)"
+  },
+  "test_credentials": "admin@kaeldor.com/admin123, dovan@kaeldor.com/demo123, player@kaeldor.com/player123, kiri/mara@kaeldor.com/demo123 — all verified.",
+  "seed_data_creation": "Test-only players created via /api/auth/register with TEST_house_*, TEST_own_*, TEST_shop_* prefixes; funded via direct Mongo (players collection) since no admin grant endpoint exists. Dovan's kiosk activity was cleared via mongo unset before the timer test for idempotency.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iteration16_features.py uses direct Mongo write (pymongo, MONGO_URL/DB_NAME env) to fund freshly-registered TEST_* accounts because the /api/admin/players endpoints do not expose a cash-adjust POST. If future iterations add /api/admin/players/{id}/adjust, prefer that instead. Running: `REACT_APP_BACKEND_URL=... pytest tests/test_iteration16_features.py -o addopts='' -p no:cacheprovider`. Existing dovan kiosk had a lingering marketing activity from this run — mongo doc business id 249566f3664b40a9b9934c150c713de2 activity: type=marketing; unset if you need a clean start. Balance number to watch: net_day should climb toward $200-250 after tuning.",
+  "rca of the issue": "1) business-activity-banner testid: BusinessManage.jsx only mutates the marketing/upgrade button labels ('Campaign running…' / 'Upgrading…') when costs.activity_in_progress is true; no separate banner element with the spec'd testid exists. Add a conditional <div data-testid='business-activity-banner'> block above the action grid with a progress bar and a <span data-testid='activity-remaining'> child derived from costs.activity.ends_at - now(). 2) net_day balance: satisfaction/reputation multipliers compound before capacity, halving capacity_day to 48.4 vs demand 184; effective net is $86 — well below spec target. Recommend main agent bump kiosk production_per_worker_hour ~2x in seed_data.py OR raise starting reputation/satisfaction to 70+ so multipliers reach ~1.0."
+}

@@ -981,11 +981,11 @@ def _estimate_market_pnl(t, reqs, roles):
     mc = round(sum(r.get("qty", 1) * r.get("cost", 0) for r in recipe), 2)
     price = (t.get("product") or {}).get("price", 0) or 0
     pph = t.get("production_per_worker_hour", 0) or 0
-    PROD, HOURS = 0.85, 8.0
+    PROD, HOURS, SAT = 0.71, 8.0, 0.9  # realistic NPC productivity, one shift, representative team morale
     heads = sum(r.get("recommended", 1) for r in reqs) if reqs else 1
     prod_hours = heads * HOURS * PROD
-    capacity = pph * prod_hours
-    demand = (t.get("daily_demand", 0) or 0) * 0.75  # rep 50, no marketing, level 1
+    capacity = pph * prod_hours * SAT
+    demand = (t.get("daily_demand", 0) or 0) * 0.79  # rep ~58, no marketing, level 1
     sold = min(capacity, demand)
     wages = 0.0
     if reqs:

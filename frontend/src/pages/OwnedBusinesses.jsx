@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
-import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar, Money, EmptyState } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
@@ -18,7 +17,7 @@ function activityInfo(act) {
     return { upgrade, pct, remLabel: remDays < 0.1 ? "finishing…" : `${remDays.toFixed(1)}d left`, Icon: upgrade ? Hammer : Megaphone };
 }
 
-function BizCard({ b, onCollect, busyKey }) {
+function BizCard({ b }) {
     const net = b.metrics?.net_day || 0;
     const ai = activityInfo(b.activity);
     const staff = (b.metrics?.employee_count || 0) + (b.metrics?.player_employee_count || 0);
@@ -80,45 +79,31 @@ function BizCard({ b, onCollect, busyKey }) {
                 <div className="flex items-center gap-1 text-[11px] text-neon-red font-mono mb-2"><AlertTriangle className="w-3 h-3" /> Open Manage to inject cash, revive, or sell.</div>
             )}
 
-            <div className="grid grid-cols-2 gap-2">
-                <KButton variant="green" loading={busyKey === b.id + "collect"} disabled={b.cash <= 0 || b.bankrupt} onClick={() => onCollect(b)} data-testid={`collect-${b.id}`}>
-                    Collect {money(b.cash)}
-                </KButton>
-                <Link to={`/businesses/${b.id}`} className="contents">
-                    <KButton variant="primary" className="w-full" data-testid={`manage-${b.id}`}><Settings2 className="w-3.5 h-3.5" /> Manage</KButton>
-                </Link>
-            </div>
+            <Link to={`/businesses/${b.id}`} className="block">
+                <KButton variant="primary" className="w-full" data-testid={`manage-${b.id}`}><Settings2 className="w-3.5 h-3.5" /> Manage Business</KButton>
+            </Link>
         </Panel>
     );
 }
 
 export default function OwnedBusinesses() {
-    const { act } = useGame();
     const [bizs, setBizs] = useState(null);
-    const [busyKey, setBusyKey] = useState(null);
 
     const load = () => api.get("/businesses/owned").then(({ data }) => setBizs(data)).catch(() => setBizs([]));
     useEffect(() => { load(); }, []);
-
-    const onCollect = async (b) => {
-        setBusyKey(b.id + "collect");
-        await act(() => api.post(`/businesses/${b.id}/collect`), "Profit collected");
-        await load();
-        setBusyKey(null);
-    };
 
     if (!bizs) return <Spinner />;
 
     return (
         <div className="space-y-6">
             <SectionTitle icon={Boxes} kicker="Your empire" title="My Businesses"
-                sub="A quick glance at each venture. Collect profits here, and open Manage to hire staff, upgrade, run marketing, buy materials or sell." />
+                sub="A quick glance at each venture. Open Manage to collect profits, hire staff, upgrade, run marketing, buy materials or sell." />
 
             {bizs.length === 0 ? (
                 <EmptyState icon={Boxes} title="You don't own any business yet" sub="Visit the Business Marketplace to buy your first venture." />
             ) : (
                 <div className="grid md:grid-cols-2 gap-3">
-                    {bizs.map((b) => <BizCard key={b.id} b={b} onCollect={onCollect} busyKey={busyKey} />)}
+                    {bizs.map((b) => <BizCard key={b.id} b={b} />)}
                 </div>
             )}
             <Link to="/business-market"><KButton variant="ghost" data-testid="goto-market">Buy another business →</KButton></Link>
