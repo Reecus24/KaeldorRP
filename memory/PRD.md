@@ -234,3 +234,12 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - P5 Creative: Income Tax (tunable brackets), Savings Interest, Skill Decay. Doc CREATIVE_ENHANCEMENTS.md.
 - Verified: verify_economy.py PASSES; testing_agent iteration_19 backend 11/11, frontend 100%, 0 issues.
 - Docs source-of-truth: /app/docs/{ECONOMY,PLAYER_STATS,SOCIAL_SYSTEM,ADMIN_SANDBOX,CREATIVE_ENHANCEMENTS,UI_AUDIT_NOTES,MASTER_AUDIT_COMPLETE}.md
+
+## 2026-07-01 — Realistic Shop Overhaul + Admin City Shops Sandbox (COMPLETE ✓)
+- Replaced the flat item Shop with a **City Shops** browser. Items carry a `store_type` category (grocery/pharmacy/clothing/electronics/hardware); each shop stocks only its own category.
+- Seeded 5 shops (seed_data.CITY_SHOPS): Kaeldor Fresh Foods (grocery, linked to Street Kiosk biz type), MediCare Pharmacy, Vantage Apparel, Circuit City, Ironworks Hardware & Sports.
+- Player endpoints: GET /shop/stores (adds item_count + business_type_name), GET /shop/stores/{id}/items (category-filtered), POST /shop/buy (charges cash+bank via charge(), adds to inventory).
+- Admin CRUD: GET/POST/PUT/DELETE /admin/city-shops (CityShopBody: name, category, icon, desc, business_type_id, location_id, active, order). Admin UI "City Shops" tab (CityShopsPanel in Admin.jsx) — list + editor + delete; new/edited shops go live in player Shop tab immediately.
+- Frontend Shop.jsx overhauled: City Shops browser grid → enter shop → category items with effect/equip pills → Buy to Inventory.
+- VERIFIED: verify_economy.py + verify_markets.py PASS; backend curl (stores/items/buy/admin CRUD) all OK; testing_agent iteration_27 frontend 100%, 0 bugs.
+- Minor non-blocking notes from QA: admin tab testid contains a space (`admin-tab-city shops`); window.confirm used for delete. Left as-is (cosmetic).
