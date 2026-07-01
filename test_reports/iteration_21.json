@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend-only iteration 21 verification of the Socials 3.0 'Roleplay Meeting' overhaul, negative-day clock fix, staffing enforcement, economy P&L text, and OwnedBusinesses label — all 8 requested items PASS on the deployed frontend (https://grind-nation.preview.emergentagent.com). Verified with dovan@kaeldor.com/demo123. Concrete evidence: (1) Game clock top-header data-testid='game-clock' renders '15:51 Day 1' — POSITIVE day, no negative sign (regression 'DAY -8584' from iteration 20 is FIXED). (2) Social page /social SectionTitle sub reads 'You start with no one. Meet people at the Bar, the Gym or through Work, then build professional ties — a Manager can unlock a permanent staff wage discount, a Wholesaler a material cost discount.' — mentions Bar/Gym/Work exactly. (3) data-testid='social-tab-meet' present; clicking it renders EXACTLY three location actions with the required testids: discover-go_to_bar (Go to a Bar, 1.5h · $25), discover-go_to_gym (Go to the Gym, 1.5h · $15), discover-network_at_work (Network at Work, 1h, note 'Requires a job.'). (4) Clicking discover-btn-go_to_bar starts a timed activity — toast 'Started: Go to a Bar' appears, In-Progress panel shows countdown '1h 29m 57s' and 'This activity blocks you physically', Go buttons flip to 'BUSY'. (5) Contact detail /social/{landlord_id} interactions block contains ONLY Small Talk, Call/Text, Apologize, Help With a Problem — the strings 'Give a Gift', 'Ask a Favor', 'Ask to Borrow Money', 'Ask for a Loan' are ABSENT (verified via full-page innerText scan). small_talk and call_text testids still present. Landlord is not Manager/Wholesaler so rel-action-network_pro correctly not shown; Opportunities panel renders default 'Build this relationship to unlock opportunities.' (Manager/Wholesaler flow could not be tested end-to-end within the 1.5h real-time bar activity window, but the code path and testids are wired per Social.jsx/ContactDetail.jsx). (6) Business Manage /businesses/{kiosk_id} STAFFING panel renders 'Assigned 1/1' and staff slot pill '1/1 · upgrade for +1 slot'; 'Working now' does not exceed recommended (1<=1) and no overstaffed banner because counts match. (7) data-testid='pnl-footer' text = '21 / 181 units sold today. Hire more staff to reach full market potential.' — EXACT match to the cleaner spec format. (8) /businesses page card shows 'NET / DAY (EST.)' label (uppercased via CSS) plus 'Marketing campaign 2.5d left', staff/uncollected/debt/reputation/active/stock/satis/total-rev tiles, 3 applicants waiting, and a 'MANAGE BUSINESS' CTA — no render errors. (9) Dashboard, Social, My Businesses and Business Manage all load without blank screens or console errors (browser console captured, zero error entries in the run log).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_21.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Layout.jsx GameClock + helpers.fmtGameClock now emit 'HH:MM Day N' with N>=1 for a fresh install — negative-day regression fixed.",
+    "Social.jsx MeetPeople renders discover-actions with correct testids (discover-go_to_bar, discover-go_to_gym, discover-network_at_work) and disables buttons via BUSY state during a running activity, matching Socials 3.0 spec.",
+    "ContactDetail.jsx correctly dropped Give-a-Gift / Ask-a-Favor / Ask-to-Borrow interactions; only detail.actions from backend are rendered, so no stale UI-only shortcuts remain.",
+    "BusinessManage.jsx pnl-footer uses the concise '{sold} / {demand} units sold today. Hire more staff to reach full market potential.' format — matches the review spec exactly.",
+    "OwnedBusinesses.jsx renders 'Net / day (est.)' label (styled uppercase); est. arrow + $ value renders correctly for negative daily net (e.g. -$63) with the down-trend arrow."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% (8/8 checks pass)"},
+  "test_credentials": "dovan@kaeldor.com / demo123 used (owns Dovan's Street Kiosk with 1 landlord contact). mara@kaeldor.com / demo123 available for network_at_work-with-job re-verification.",
+  "seed_data_creation": "None — used existing dovan account. No cleanup needed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Frontend deployed and healthy at https://grind-nation.preview.emergentagent.com. All Socials 3.0 testids confirmed on live UI: social-tab-meet, discover-go_to_bar/gym/network_at_work, discover-btn-go_to_bar/gym/network_at_work, contact-opportunities, rel-action-network_pro (only for Manager/Wholesaler), pnl-footer, game-clock. Note: after clicking a Go button dovan is blocked for ~1.5h real time — to test Manager/Wholesaler contact detail + rel-action-network_pro end-to-end you either need a fresh player who is not in an activity OR need to seed a Manager/Wholesaler directly onto an account's contacts collection via a script. Landlord contact (bfa6e8fa98ef45d186b9650707e2bcca on dovan) is the fallback to verify removed gifts/favors/loans — used here. No console errors observed on Dashboard/Social/OwnedBusinesses/BusinessManage.",
+  "rca of the issue": "N/A — all requested fixes/features render correctly on the frontend."
+}

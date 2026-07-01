@@ -83,6 +83,7 @@ async def create_contact(db, p, archetype=None, archetype_id=None, name=None, ke
         "history": [{"ts": now.isoformat(), "text": arche.get("intro_text", "You met."), "type": "meet"}],
         "cooldowns": {},
         "notes": arche.get("desc", ""),
+        "perk": arche.get("perk"),
     }
     c["status"] = derive_status(c)
     await db.contacts.insert_one({**c})
@@ -96,11 +97,10 @@ async def _has_key(db, p, key):
 
 
 async def ensure_job_contacts(db, p, job=None):
+    # Socials 3.0: you inherently know your direct manager (boss). Colleagues are met via
+    # the "Network at Work" location action, not auto-added.
     if not await _has_key(db, p, "boss"):
         await create_contact(db, p, archetype_id="boss", key="boss", announce=False)
-    cw = await db.contacts.count_documents({"player_id": p["id"], "relationship_type": "coworker"})
-    for _ in range(max(0, 2 - cw)):
-        await create_contact(db, p, archetype_id="coworker", announce=False)
 
 
 async def ensure_landlord(db, p, housing=None):
@@ -127,20 +127,36 @@ def _set_crime_buff(p, cfg):
     p["social_buffs"] = {"crime_risk_mult": mult, "until": (now_utc() + timedelta(hours=hours)).isoformat()}
 
 
+# ----------------------------- professional perks (Socials 2.0/3.0) -----------------------------
+# Networking with a Manager (wage discount) or Wholesaler (material discount) unlocks a PERMANENT,
+# player-level business discount once trust & relationship are high enough. Multiple contacts stack
+# up to a hard cap.
+PERK_STEP_DEFAULT = 0.05
+PERK_CAP = 0.20
+PERK_TRUST_MIN = 60
+PERK_SCORE_MIN = 50
+
+
+def _grant_perk(p, perk):
+    if not perk:
+        return None
+    ptype = perk.get("type")
+    step = perk.get("step", PERK_STEP_DEFAULT)
+    perks = p.setdefault("social_perks", {})
+    cur = perks.get(ptype, 0.0)
+    if cur >= PERK_CAP - 1e-9:
+        return None
+    perks[ptype] = round(min(PERK_CAP, cur + step), 4)
+    return {"type": ptype, "value": perks[ptype], "label": perk.get("label", ptype)}
+
+
 # ----------------------------- offline resolution -----------------------------
 async def resolve_social(db, p, cfg, gh, now):
     scfg = cfg.get("social", {})
 
-    # First-time seeding for any character without a social circle yet.
+    # Socials 3.0: NO auto-seeded circle. Players start with an empty circle and must
+    # MEET people via location actions (bar / gym / work) before they can interact.
     if not p.get("social_seeded"):
-        await seed_starter_contacts(db, p)
-        if p.get("job"):
-            await ensure_job_contacts(db, p)
-        h = p.get("housing", {})
-        if h.get("id") and not h.get("owned"):
-            await ensure_landlord(db, p)
-        if await db.businesses.count_documents({"player_id": p["id"]}):
-            await ensure_business_contact(db, p)
         p["social_seeded"] = True
 
     contacts = await db.contacts.find({"player_id": p["id"]}, {"_id": 0}).to_list(400)
@@ -371,6 +387,14 @@ async def _apply_interaction(db, p, cfg, c, a, gift, eff=1.0):
             p["job"]["reliability"] = clamp(p["job"].get("reliability", 50) + 10)
         elif kind == "meet_shady":
             _set_crime_buff(p, cfg)
+        elif kind == "network_pro":
+            if (c.get("perk") and not c.get("perk_granted")
+                    and c.get("trust", 0) >= PERK_TRUST_MIN
+                    and c.get("relationship_score", 0) >= PERK_SCORE_MIN):
+                granted = _grant_perk(p, c["perk"])
+                if granted:
+                    c["perk_granted"] = True
+                    extra["perk"] = granted
         elif kind == "invite_date" and c.get("romance_capable"):
             if c.get("attraction", 0) >= 65 and c.get("relationship_score", 0) >= 55 and c.get("status") != "romantic":
                 c["status"] = "romantic"
@@ -386,6 +410,10 @@ async def _apply_interaction(db, p, cfg, c, a, gift, eff=1.0):
         msg += f" — {name} {extra['favor_note']}."
     if extra.get("became_romantic"):
         msg = f"You and {name} are officially together now! " + msg
+    if extra.get("perk"):
+        pk = extra["perk"]
+        pct = round(pk["value"] * 100)
+        msg += f" 🎉 Unlocked: {pk['label']} now {pct}% (permanent, applies to all your businesses)."
     return msg, ("success" if success else "warning")
 
 
@@ -411,10 +439,16 @@ async def complete_social_activity(db, p, cfg, payload, eff):
         return
     kind = a.get("kind")
     if a.get("untargeted"):
-        if kind == "network_business":
-            await _do_network(db, p, cfg, a, eff)
-        elif kind == "meet_new_people":
-            await _do_meet_new(db, p, cfg, a, eff)
+        if kind == "go_to_bar":
+            await _do_meet_at(db, p, cfg, a, eff, ["bar_regular", "manager", "wholesaler"],
+                              [0.5, 0.25, 0.25], "the bar")
+        elif kind == "go_to_gym":
+            await _do_meet_at(db, p, cfg, a, eff, ["athlete", "gym_coach"], [0.6, 0.4], "the gym")
+        elif kind == "network_at_work":
+            if not p.get("job"):
+                await add_event(db, p["id"], "You need a job before you can network at a workplace.", "social", "warning")
+                return
+            await _do_meet_at(db, p, cfg, a, eff, ["coworker", "manager"], [0.65, 0.35], "work")
         return
     c = await db.contacts.find_one({"id": payload.get("contact_id"), "player_id": p["id"]}, {"_id": 0})
     if not c:
@@ -438,35 +472,24 @@ def _discover_success(p, a, eff):
     return random.random() < min(0.97, chance) * (0.85 + 0.15 * eff)
 
 
-async def _do_network(db, p, cfg, a, eff):
+async def _do_meet_at(db, p, cfg, a, eff, archetype_ids, weights, place_label):
+    """Roleplay meeting: at a venue you have a CHANCE to meet a specific kind of NPC.
+    New contacts are added to your circle only through these location actions."""
     if _discover_success(p, a, eff):
-        bizs = await db.businesses.find({"player_id": p["id"], "bankrupt": {"$ne": True}}, {"_id": 0}).to_list(50)
-        # Primary value of networking = job leads & new contacts (realistic), with a MODEST business boost.
-        if bizs and random.random() < 0.5:
-            b = random.choice(bizs)
-            b["reputation"] = clamp(b.get("reputation", 50) + 4)
-            await db.businesses.update_one({"id": b["id"]}, {"$set": {"reputation": b["reputation"]}})
-            await add_event(db, p["id"], f"Networking paid off — {b['name']} picked up a little word-of-mouth reputation.", "social", "success")
-        else:
-            await create_contact(db, p, archetype_id="business_contact", announce=True)
-            await add_event(db, p["id"], "You made a useful new business contact at the mixer.", "social", "success")
+        aid = random.choices(archetype_ids, weights=weights)[0]
+        c = await create_contact(db, p, archetype_id=aid, announce=False)
+        p["mood"] = clamp(p["mood"] + 5)
         p["social_status"] = clamp(p["social_status"] + 1)
-        p["mood"] = clamp(p["mood"] + 4)
-    else:
-        p["stress"] = clamp(p["stress"] + 5)
-        await add_event(db, p["id"], "The networking event was a bust — nobody useful showed up.", "social", "warning")
-
-
-async def _do_meet_new(db, p, cfg, a, eff):
-    if _discover_success(p, a, eff):
-        c = await create_contact(db, p, archetype_id=random.choice(["old_friend", "love_interest", "neighbor"]), announce=False)
-        p["mood"] = clamp(p["mood"] + 6)
         if c:
-            await add_event(db, p["id"], f"You hit it off with {c['name']} — a new {c['relationship_type'].replace('_', ' ')}!", "social", "success")
+            label = c.get("archetype_label") or c["relationship_type"].replace("_", " ")
+            note = ""
+            if c.get("perk"):
+                note = " Build the relationship (Talk Business) to unlock a permanent business perk."
+            await add_event(db, p["id"], f"At {place_label} you met {c['name']} — {label}.{note}", "social", "success")
     else:
+        p["stress"] = clamp(p["stress"] + 4)
         p["mood"] = clamp(p["mood"] + 1)
-        p["stress"] = clamp(p["stress"] + 3)
-        await add_event(db, p["id"], "You went out but didn't really click with anyone new.", "social", "info")
+        await add_event(db, p["id"], f"You spent time at {place_label} but didn't click with anyone new.", "social", "info")
 
 
 # ----------------------------- serialization for the API -----------------------------
@@ -486,6 +509,7 @@ def contact_view(c):
         "last_interaction_seconds": round(idle),
         "known_since": c.get("known_since"), "notes": c.get("notes", ""),
         "decaying": idle > 3 * 86400,
+        "perk": c.get("perk"), "perk_granted": c.get("perk_granted", False),
     }
 
 
@@ -512,22 +536,23 @@ def contact_opportunities(c):
     rt = c.get("relationship_type")
     s = c.get("relationship_score", 0)
     t = c.get("trust", 0)
+    if c.get("perk"):
+        if c.get("perk_granted"):
+            out.append(f"Perk unlocked: {c['perk'].get('label', 'business perk')} (+{round(c['perk'].get('step', 0.05)*100)}%, permanent).")
+        else:
+            out.append(f"Talk Business to reach Trust {PERK_TRUST_MIN}+ and Relationship {PERK_SCORE_MIN}+ — unlocks a permanent {c['perk'].get('label', 'business perk')}.")
     if rt in ("boss", "coworker", "mentor") and s >= 50:
         out.append("Will give you a strong job reference (boosts reputation & reliability).")
     if rt == "boss" and s >= 40:
         out.append("A friendly boss means smoother promotions and fewer bad shifts.")
     if rt == "landlord" and s >= 45:
         out.append("Flexible on rent and likely to return your deposit in full.")
-    if rt == "business_contact" and s >= 45:
-        out.append("Offers supplier discounts and investment tips for your businesses.")
     if rt == "shady_contact" and t >= 40:
         out.append("Can lower your heat — reduces police risk on your next crime.")
     if c.get("status") == "romantic":
         out.append("Romantic partner — boosts your mood and life stability (but costs money).")
-    if rt in ("friend", "family") and t >= 45:
-        out.append("Will lend you money when you're in a pinch.")
     if not out:
-        out.append("Build this relationship to unlock favors and opportunities.")
+        out.append("Build this relationship to unlock opportunities.")
     return out
 
 

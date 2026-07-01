@@ -1072,7 +1072,6 @@ async def buy_business(type_id: str, user: dict = Depends(current_user)):
         await employee_engine._create_applicant(db, p, cfg, biz, reqs, premium=False)
     await add_event(db, p["id"], f"You acquired a business: {t['name']}! Applicants are waiting to be hired.", "business", "success", biz["id"])
     await save_player(p)
-    await social_engine.ensure_business_contact(db, p, t)
     return {"ok": True}
 
 

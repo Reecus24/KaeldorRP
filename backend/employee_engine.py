@@ -231,9 +231,10 @@ def calculate_effective_worker_hours(employees, opening, slots):
     return employment.effective_worker_hours_per_day(opening, [e.get("schedule") for e in employees], slots)
 
 
-def _day_rates(b, workers, upgrade_penalty=1.0, slots=1):
+def _day_rates(b, workers, upgrade_penalty=1.0, slots=1, wage_mult=1.0, material_mult=1.0):
     """Steady-state per-day P&L forecast (transparent; independent of tick size).
-    Production scales with EFFECTIVE worker-hours = concurrent workers (capped at slots) x hours."""
+    Production scales with EFFECTIVE worker-hours = concurrent workers (capped at slots) x hours.
+    wage_mult / material_mult apply owner social perks (e.g. 0.95 = 5% discount)."""
     pph = b.get("production_per_worker_hour", 0)
     mkt = marketing_demand_mult(b)
     rep = reputation_mult(b)
@@ -246,11 +247,11 @@ def _day_rates(b, workers, upgrade_penalty=1.0, slots=1):
     demand_day = b.get("daily_demand", 0) * mkt * rep * lvl
     capacity_day = pph * worker_hours * satisfaction_mult(b) * lvl
     sold_day = min(capacity_day, demand_day)
-    mc = material_cost_per_unit(b)
+    mc = material_cost_per_unit(b) * material_mult
     eprice = effective_price(b)
     rev_day = round(sold_day * eprice * upgrade_penalty, 2)
     material_day = round(sold_day * mc, 2)
-    wages_day = round(sum(calculate_worker_daily_wage(w, opening) for w in workers), 2)
+    wages_day = round(sum(calculate_worker_daily_wage(w, opening) for w in workers) * wage_mult, 2)
     net_day = round(rev_day - material_day - wages_day, 2)
     return {
         "demand_day": round(demand_day, 1), "capacity_day": round(capacity_day, 1),
@@ -261,13 +262,13 @@ def _day_rates(b, workers, upgrade_penalty=1.0, slots=1):
     }
 
 
-def _auto_restock(b, need_units, material_spend_out):
+def _auto_restock(b, need_units, material_spend_out, cost_mult=1.0):
     """Buy ingredients from business cash up to target buffer (and at least enough for need_units)."""
     target = max(b.get("restock_target", b.get("daily_demand", 0)) or 0, need_units)
     materials = b.get("materials") or {}
     spent = 0.0
     for r in _recipe(b):
-        rid, qty, cost = r["id"], r.get("qty", 1), r.get("cost", 0)
+        rid, qty, cost = r["id"], r.get("qty", 1), r.get("cost", 0) * cost_mult
         want = target * qty
         have = materials.get(rid, 0)
         if have >= want or cost <= 0:
@@ -334,7 +335,11 @@ async def business_metrics(db, b):
     for idx, r in enumerate(reqs):
         rec = scaled_rec[idx]
         assigned = npc_by_role.get(r["role"], 0) + p_by_role.get(r["role"], 0)
-        active = npc_active_by_role.get(r["role"], 0) + p_active_by_role.get(r["role"], 0)
+        active_raw = npc_active_by_role.get(r["role"], 0) + p_active_by_role.get(r["role"], 0)
+        # Only `rec` workers per role can CONTRIBUTE at once — cap the displayed "working now"
+        # count at the slot limit so the UI never claims more producers than capacity allows.
+        active = min(active_raw, rec)
+        overstaffed = active_raw > rec
         if not open_now:
             status = "Closed"
         elif active > 0:
@@ -346,7 +351,8 @@ async def business_metrics(db, b):
         staffing.append({
             "role": r["role"], "recommended": rec,
             "npc_have": npc_by_role.get(r["role"], 0), "player_have": p_by_role.get(r["role"], 0),
-            "assigned": assigned, "active_working": active, "status": status,
+            "assigned": assigned, "active_working": active, "active_raw": active_raw,
+            "overstaffed": overstaffed, "status": status,
         })
         active_ratios.append(min(1, active / rec) if rec else 1)
     coverage = round(sum(active_ratios) / len(active_ratios), 2) if active_ratios else 1.0
@@ -627,6 +633,12 @@ async def resolve_business(db, cfg, now, b):
     workers = await gather_workers(db, b, cfg, traits_map)
     slots = max(1, sum(r.get("recommended", 1) for r in reqs)) + (b.get("level", 1) - 1)  # concurrent capacity
 
+    # owner social perks (Socials 2.0/3.0): permanent wage / material discounts
+    owner_doc = await db.players.find_one({"id": b.get("player_id")}, {"_id": 0, "social_perks": 1})
+    _perks = (owner_doc or {}).get("social_perks", {}) or {}
+    wage_mult = round(1.0 - min(0.20, _perks.get("wage_discount", 0.0) or 0.0), 4)
+    material_mult = round(1.0 - min(0.20, _perks.get("material_discount", 0.0) or 0.0), 4)
+
     # --- business activity timers (upgrade / marketing campaign) ---
     upgrade_active = False
     act = b.get("activity")
@@ -665,13 +677,15 @@ async def resolve_business(db, cfg, now, b):
             if whrs <= 0.0001:
                 continue
             wg = round(w["wage_per_hour"] * whrs, 2)
+            if not w["is_player"]:
+                wg = round(wg * wage_mult, 2)  # perk discount applies to negotiated NPC staff only
             wages += wg
             if w["is_player"]:
                 player_bookings.append((w["emp"], wg, whrs, w["productivity"]))
         capacity = b.get("production_per_worker_hour", 0) * covered * satisfaction_mult(b) * lvl_mult
         # restock enough materials to cover this window's production (+buffer), auto if enabled
         if b.get("auto_restock", True) and capacity > 0:
-            material_spend += _auto_restock(b, capacity, None)
+            material_spend += _auto_restock(b, capacity, None, cost_mult=material_mult)
         produced = _producible(b, capacity)
         if produced > 0:
             _consume(b, produced)
@@ -715,7 +729,8 @@ async def resolve_business(db, cfg, now, b):
                                          "net": rev_share, "productivity": prod, "at": now.isoformat()}}})
 
     # --- steady-state per-day forecast for the UI ---
-    rates = _day_rates(b, workers, upgrade_penalty=0.5 if upgrade_active else 1.0, slots=slots)
+    rates = _day_rates(b, workers, upgrade_penalty=0.5 if upgrade_active else 1.0, slots=slots,
+                       wage_mult=wage_mult, material_mult=material_mult)
     b.update({k: rates[k] for k in ("demand_day", "capacity_day", "produced_day", "sold_day",
                                     "rev_day", "material_day", "wages_day", "net_day")})
     b["exp_day"] = round(rates["material_day"] + rates["wages_day"], 2)

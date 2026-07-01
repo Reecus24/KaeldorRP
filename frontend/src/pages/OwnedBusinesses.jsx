@@ -35,7 +35,7 @@ function BizCard({ b }) {
                     </div>
                 </div>
                 <div className="text-right">
-                    <div className="text-[10px] uppercase text-muted-foreground font-mono">Net / day</div>
+                    <div className="text-[10px] uppercase text-muted-foreground font-mono">Net / day (est.)</div>
                     <div className={cn("font-mono text-lg tnum flex items-center gap-1 justify-end", net >= 0 ? "text-neon-green" : "text-neon-red")}>
                         {net >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
                         {money(net)}
@@ -69,7 +69,7 @@ function BizCard({ b }) {
                     <div><div className="text-[9px] uppercase text-muted-foreground">Active</div><div className={cn("font-mono text-sm", b.metrics.coverage >= 0.9 ? "text-neon-green" : b.metrics.coverage < 0.6 ? "text-neon-red" : "text-neon-yellow")}>{Math.round((b.metrics.coverage || 0) * 100)}%</div></div>
                     <div><div className="text-[9px] uppercase text-muted-foreground">Stock</div><div className="font-mono text-sm text-neon-purple">{Math.round(b.metrics.products_in_stock || 0)}</div></div>
                     <div><div className="text-[9px] uppercase text-muted-foreground">Satis.</div><div className="font-mono text-sm text-neon-cyan">{b.metrics.satisfaction}%</div></div>
-                    <div><div className="text-[9px] uppercase text-muted-foreground">Total rev</div><div className="font-mono text-sm text-white">{money(b.revenue_total)}</div></div>
+                    <div><div className="text-[9px] uppercase text-muted-foreground">Total rev</div><div className="font-mono text-sm text-white" title="Lifetime revenue collected since purchase (not comparable to the per-day estimate)">{money(b.revenue_total)}</div></div>
                 </div>
             )}
             {b.metrics && b.metrics.applicant_count > 0 && (

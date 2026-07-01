@@ -131,7 +131,6 @@ export function relTime(sec) {
 
 // ---------- World clock ----------
 const GAME_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const GAME_BASE_MS = Date.UTC(2050, 0, 1);
 
 // Compute the current in-game Date from world anchors + time_scale (client-side ticking).
 export function computeGameTime(state) {
@@ -142,9 +141,14 @@ export function computeGameTime(state) {
     return new Date(wg + (Date.now() - wr) * ts);
 }
 
-export function fmtGameClock(d) {
+export function fmtGameClock(d, state) {
     if (!d || isNaN(d.getTime())) return { day: "—", time: "--:--", date: "" };
-    const dayIndex = Math.floor((d.getTime() - GAME_BASE_MS) / 86400000) + 1;
+    // Day index is relative to the world's game-start anchor (1:1 real-time clock),
+    // so it always starts at Day 1 and stays positive.
+    const baseMs = state?.world_start_game ? new Date(state.world_start_game).getTime() : d.getTime();
+    const base = new Date(baseMs);
+    const baseDayUTC = Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate());
+    const dayIndex = Math.floor((d.getTime() - baseDayUTC) / 86400000) + 1;
     const hh = String(d.getUTCHours()).padStart(2, "0");
     const mm = String(d.getUTCMinutes()).padStart(2, "0");
     return { day: `Day ${dayIndex}`, time: `${hh}:${mm}`, date: `${GAME_MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}` };

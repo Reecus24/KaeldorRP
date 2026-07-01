@@ -162,7 +162,7 @@ function GameClock() {
     const { state, tick } = useGame();
     void tick; // re-render every second
     const gt = computeGameTime(state);
-    const c = fmtGameClock(gt);
+    const c = fmtGameClock(gt, state);
     if (!gt) return null;
     return (
         <div className="hidden sm:flex flex-col items-end leading-none font-mono" data-testid="game-clock" title={c.date}>

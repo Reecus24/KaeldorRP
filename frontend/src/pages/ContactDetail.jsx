@@ -10,12 +10,12 @@ import { cn } from "@/lib/utils";
 import {
     Users, ArrowLeft, ShieldX, ShieldCheck, AlertTriangle, Sparkles, X, Clock, Coins,
     MessageCircle, Phone, Gift, HeartHandshake, HandHelping, Award, Banknote, LifeBuoy,
-    Heart, Skull, Coffee, Flower, BookOpen, UtensilsCrossed, Watch, Lock,
+    Heart, Skull, Coffee, Flower, BookOpen, UtensilsCrossed, Watch, Lock, Handshake,
 } from "lucide-react";
 
 const ICONS = {
     MessageCircle, Phone, Gift, HeartHandshake, HandHelping, Award, Banknote, LifeBuoy,
-    Heart, Skull, Users, Coffee, Flower, BookOpen, UtensilsCrossed, Watch,
+    Heart, Skull, Users, Coffee, Flower, BookOpen, UtensilsCrossed, Watch, Handshake,
 };
 const SEV = { success: "text-neon-green", info: "text-neon-cyan/90", warning: "text-neon-yellow", danger: "text-neon-red" };
 

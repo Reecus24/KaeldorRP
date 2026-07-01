@@ -619,8 +619,8 @@ export default function BusinessManage() {
                                 </div>
                                 <div className="text-[11px] text-muted-foreground mt-2" data-testid="pnl-footer">
                                     {(m.capacity_day ?? 0) < (m.demand_day ?? 0)
-                                        ? `Currently producing ${Math.round(m.capacity_day)} units/day. Market demand is ${Math.round(m.demand_day)}. Hire more staff or upgrade to increase output.`
-                                        : `Demand caps sales at ${Math.round(m.demand_day)} units/day. Invest in Marketing to attract more customers.`}
+                                        ? `${Math.round(m.sold_day)} / ${Math.round(m.demand_day)} units sold today. Hire more staff to reach full market potential.`
+                                        : `${Math.round(m.sold_day)} / ${Math.round(m.demand_day)} units sold today — you're meeting demand. Invest in Marketing to grow the market.`}
                                 </div>
                             </div>
                         </div>
@@ -667,9 +667,9 @@ export default function BusinessManage() {
                                             <span className="capitalize text-white text-sm">{s.role.replace(/_/g, " ")}</span>
                                             <div className="text-[11px] font-mono">
                                                 <span className="text-muted-foreground">Assigned {s.assigned}/{s.recommended} · </span>
-                                                <span className={activeOk ? "text-neon-green" : "text-neon-yellow"} data-testid={`staffing-active-${s.role}`}>Active {s.active_working}/{s.recommended}</span>
+                                                <span className={activeOk ? "text-neon-green" : "text-neon-yellow"} data-testid={`staffing-active-${s.role}`}>Working now {s.active_working}/{s.recommended}</span>
                                             </div>
-                                            <div className="text-[10px] text-muted-foreground">{s.status}{s.npc_have ? ` · ${s.npc_have} NPC` : ""}{s.player_have ? ` · ${s.player_have} player` : ""}</div>
+                                            <div className="text-[10px] text-muted-foreground">{s.status}{s.overstaffed ? ` · overstaffed (${s.active_raw} on shift, only ${s.recommended} produce — extra wages wasted)` : ""}</div>
                                         </div>
                                     </div>
                                 );

@@ -48,6 +48,13 @@ function ContactCard({ c, onQuick, busyKey }) {
                 </div>
                 <Pill tone={meta.tone} className="shrink-0">{meta.label}</Pill>
             </div>
+            {c.perk && (
+                <div className="mb-2">
+                    <Pill tone={c.perk_granted ? "green" : "cyan"} className="!text-[9px]">
+                        {c.perk_granted ? `✓ ${c.perk.label} active` : `Perk: ${c.perk.label}`}
+                    </Pill>
+                </div>
+            )}
 
             <div className="mb-2">
                 <div className="flex justify-between items-center mb-1">
@@ -114,7 +121,7 @@ function MeetPeople() {
     if (!acts) return <Spinner />;
     return (
         <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">Get out there. Meeting new people and networking takes real time, but it grows your circle and opens doors.</p>
+            <p className="text-sm text-muted-foreground">Head out to a specific place to meet a specific kind of person. Each takes real time. Meet a Manager or Wholesaler here, then network with them (Talk Business) to unlock permanent business perks.</p>
             <div className="grid sm:grid-cols-2 gap-3">
                 {acts.map((a) => {
                     const onCd = a.cooldown_remaining > 0;
@@ -165,7 +172,7 @@ export default function Social() {
     return (
         <div className="space-y-6">
             <SectionTitle icon={Users} kicker="Your people" title="Social Circle"
-                sub="Friends, family, partners, coworkers and contacts. Relationships fade if ignored — and strong ones unlock favors, references, deals and more."
+                sub="You start with no one. Meet people at the Bar, the Gym or through Work, then build professional ties — a Manager can unlock a permanent staff wage discount, a Wholesaler a material cost discount."
                 right={
                     <div className="hidden sm:flex gap-2">
                         <Pill tone="cyan">{s.total || 0} contacts</Pill>
@@ -193,7 +200,7 @@ export default function Social() {
                     ))}
                 </Panel>
             ) : visible.length === 0 ? (
-                <EmptyState icon={Users} title="Nobody here yet" sub="Use the Meet People tab to grow your circle, or take a job / rent a place to meet new contacts." />
+                <EmptyState icon={Users} title="Nobody here yet" sub="Use the Meet People tab to go to the Bar, the Gym or Network at Work and grow your circle." />
             ) : (
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {visible.map((c) => <ContactCard key={c.id} c={c} onQuick={onQuick} busyKey={busyKey} />)}
