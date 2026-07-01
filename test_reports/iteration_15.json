@@ -1,0 +1,35 @@
+{
+  "summary": "P0 verified: /business-market ACQUIRE PREVIEW no longer shows any NaN. Backend GET /api/businesses/market returns 10 types each with a finite numeric 'estimate' block and profit_day == round(revenue_day - material_day - wage_day, 2). Frontend renders all 10 cards cleanly for Kiri; every biz-profit-{id} shows a positive dollar amount. Buy endpoint returns proper 400 'cannot afford' for underfunded qualifying types (no crash). Regression PASSED: Dovan's Street Kiosk (id 249566f3664b40a9b9934c150c713de2) rev_day=281.86, material_day=117.44, wages_day=180.0, net_day=-15.58 — Net == Rev - Materials - Wages exactly. Data check PASSED: Mark Pilots player id 5fce7bc0-6f8c-42e2-b0ea-0b8d4e3cc5a4 still holds meaningful cash (>$500) while demo accounts remain small (kiri $357.65 cash + $1131 bank, mara $1492, dovan $0). All 6/6 pytest cases pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_business_market_estimate.py",
+    "/app/test_reports/pytest/iteration15_market.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:_estimate_market_pnl assumes at least 1 shift when reqs is empty and uses a $12/hr fallback — reasonable, but note the fallback deviates from role-based averages; if any business_type ships without staffing_requirements, its estimate will not match the real supply-chain math. Consider a warning log if reqs is empty.",
+    "server.py:894-901: wages default to '$12.00/hr * 8h = $96/day' when reqs is empty; the actual owned P&L uses role averages ~$180/day. Not a bug for current 10 seeded types (all have staffing_requirements), just tech debt.",
+    "BusinessMarket.jsx handles missing est.product gracefully via optional chaining — good. Consider showing 'staff_needed' recommended headcount in the card so buyers understand the assumption behind 'Est./day at recommended staffing'."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_business_market_estimate.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6)",
+    "frontend": "100% (10/10 cards rendered without NaN)"
+  },
+  "test_credentials": "kiri@kaeldor.com / demo123, dovan@kaeldor.com / demo123, mara@kaeldor.com / demo123 — all verified working via /api/auth/login.",
+  "seed_data_creation": "None. Read-only verification.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Owned business supply-chain fields live directly on the biz doc (rev_day, material_day, wages_day, net_day, sold_day, produced_day, capacity_day, demand_day, exp_day) — NOT inside metrics{}. metrics{} contains staffing/coverage info. Market estimate lives at type.estimate.{revenue_day,material_day,wage_day,profit_day,margin_per_unit,sold_day,material_cost_per_unit,product,demand_day,staff_needed}. data-testids on the market page: biz-type-{id}, buy-biz-{id}, biz-profit-{id}. All 10 business types (kiosk, delivery_service, online_shop, cleaning_co, bistro, pet_shop, clothing_store, auto_repair, gym, real_estate_agency) render clean.",
+  "rca of the issue": "N/A — this iteration verified the fix. The fix (adding _estimate_market_pnl and wiring it into GET /api/businesses/market plus refactoring BusinessMarket.jsx to consume t.estimate.*) is working as designed. No NaN observed."
+}

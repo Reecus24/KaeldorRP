@@ -878,14 +878,50 @@ async def sell_vehicle(instance_id: str, user: dict = Depends(current_user)):
 
 
 # ============================ BUSINESSES ============================
+def _estimate_market_pnl(t, reqs, roles):
+    """Baseline supply-chain P&L estimate for an UNOWNED business, assuming recommended NPC staffing
+    (1 shift/day each, ~0.85 productivity) and a fresh-business reputation of 50."""
+    recipe = t.get("recipe") or []
+    mc = round(sum(r.get("qty", 1) * r.get("cost", 0) for r in recipe), 2)
+    price = (t.get("product") or {}).get("price", 0) or 0
+    pph = t.get("production_per_worker_hour", 0) or 0
+    PROD, HOURS = 0.85, 8.0
+    heads = sum(r.get("recommended", 1) for r in reqs) if reqs else 1
+    prod_hours = heads * HOURS * PROD
+    capacity = pph * prod_hours
+    demand = (t.get("daily_demand", 0) or 0) * 0.75  # rep 50, no marketing, level 1
+    sold = min(capacity, demand)
+    wages = 0.0
+    if reqs:
+        for r in reqs:
+            rd = roles.get(r["role"], {})
+            hourly = ((rd.get("wage_min", 80) + rd.get("wage_max", 120)) / 2.0) / 8.0
+            wages += r.get("recommended", 1) * HOURS * hourly
+    else:
+        wages = HOURS * 12.0
+    rev = round(sold * price, 2)
+    material = round(sold * mc, 2)
+    wages = round(wages, 2)
+    return {
+        "product": t.get("product") or {}, "material_cost_per_unit": mc, "margin_per_unit": round(price - mc, 2),
+        "sold_day": round(sold, 1), "demand_day": round(demand, 1),
+        "revenue_day": rev, "material_day": material, "wage_day": wages,
+        "profit_day": round(rev - material - wages, 2),
+        "staff_needed": [{"role": r["role"], "recommended": r.get("recommended", 1)} for r in reqs],
+    }
+
+
 @api.get("/businesses/market")
 async def business_market(user: dict = Depends(current_user)):
     p = await get_state(user)
     types = await db.business_types.find({}, {"_id": 0}).to_list(100)
+    staffing = {s["id"]: s.get("requirements", []) for s in await db.staffing_requirements.find({}, {"_id": 0}).to_list(100)}
+    roles = {r["id"]: r for r in await db.employee_roles.find({}, {"_id": 0}).to_list(100)}
     out = []
     for t in types:
         ok, reason = meets_requirements(p, t.get("requirements"))
-        out.append({**t, "qualified": ok, "reason": reason})
+        out.append({**t, "qualified": ok, "reason": reason,
+                    "estimate": _estimate_market_pnl(t, staffing.get(t["id"], []), roles)})
     return sorted(out, key=lambda x: x.get("purchase_price", 0))
 
 
