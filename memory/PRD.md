@@ -262,3 +262,8 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - New GET /admin/overview returns city-wide metrics (players, employed, active workers, market value=Σnet_worth, cash/bank/debt, content counts); compact money format ($3.77M) in summary cards.
 - Backend curl-verified; testing_agent iteration_30 frontend 100%, 0 bugs (real DnD reorder + reload persistence + regression of City Shops/Job Sectors panels confirmed). Docs: docs/ADMIN_SANDBOX.md updated with layout-customization instructions.
 - Backlog: Admin.jsx now ~1095 lines — consider splitting into src/pages/admin/ modules (P2 refactor).
+
+## 2026-07-01 — Admin Live City Feed (COMPLETE ✓)
+- Overview ▸ Live Feed sub-tab: real-time city-wide activity ticker from the events collection across all players, enriched with player names.
+- GET /admin/feed?limit&types (CSV filter). Frontend LiveCityFeed: 6s auto-refresh, LIVE indicator, filter chips (All/Purchases/Work/Crime/Finance/Social), per-type colored icons + relative time.
+- Verified: backend curl (name join + type filter) + screenshots (render + filter switch). Read-only monitoring view.

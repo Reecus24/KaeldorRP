@@ -102,3 +102,13 @@ is shown compact (e.g. `$3.77M`).
 The layout (order + hidden list) is **saved per admin account** in the backend via
 `PUT /api/admin/layout` (stored on `users.admin_layout`) and reloaded on next visit via
 `GET /api/admin/layout`, so it follows the admin across devices/sessions.
+
+## Live City Feed (Overview tab) (2026-07-01)
+- **Overview ▸ Live Feed** sub-tab shows a real-time, city-wide activity ticker aggregated from the
+  `events` collection across ALL players (purchases, job applications/hirings, crimes & legal, finance/
+  market moves, social, health, housing, vehicles, education).
+- Endpoint `GET /api/admin/feed?limit=50&types=shop,crime` — most recent events (sorted by `ts` desc,
+  capped 100), each enriched with `player_name`. Optional `types` CSV filter.
+- UI: pulsing "LIVE · auto-refresh 6s" indicator (polls every 6s), category filter chips
+  (All / Purchases / Work & Hiring / Crime & Legal / Finance / Social), colored per-type icons and
+  relative timestamps. Read-only — a monitoring view for the Game Master.

@@ -1874,6 +1874,25 @@ async def put_admin_layout(body: AdminLayoutBody, admin: dict = Depends(admin_us
     return {"ok": True, "layout": layout}
 
 
+
+@api.get("/admin/feed")
+async def admin_feed(limit: int = 40, types: Optional[str] = None, admin: dict = Depends(admin_user)):
+    """Live city feed — most recent events across all players (purchases, hirings, crimes, market moves...)."""
+    q = {}
+    if types:
+        wanted = [t.strip() for t in types.split(",") if t.strip()]
+        if wanted:
+            q["type"] = {"$in": wanted}
+    limit = min(max(limit, 1), 100)
+    evs = await db.events.find(q, {"_id": 0}).sort("ts", -1).limit(limit).to_list(limit)
+    pids = list({e.get("player_id") for e in evs if e.get("player_id")})
+    players = await db.players.find({"id": {"$in": pids}}, {"_id": 0, "id": 1, "name": 1}).to_list(1000)
+    pmap = {p["id"]: p.get("name") for p in players}
+    for e in evs:
+        e["player_name"] = pmap.get(e.get("player_id")) or "Unknown"
+    return evs
+
+
 # ---------------- ADMIN SANDBOX: business economy tuning ----------------
 class BizEconomyBody(BaseModel):
     price: float | None = None
