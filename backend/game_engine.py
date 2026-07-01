@@ -40,6 +40,7 @@ async def get_config(db):
         cfg = {**DEFAULT_CONFIG}
     import game_models
     game_models.apply_tuning(cfg)
+    cfg["tuning"] = dict(game_models.TUNE)  # return the full effective tuning (defaults merged) for the admin UI
     return cfg
 
 
@@ -113,7 +114,8 @@ async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
     L = p.get("day_ledger") or empty_ledger()
     income = L.get("wages_earned", 0) + L.get("crime_income", 0) + L.get("social_income", 0) + L.get("savings_interest", 0)
     expense = (L.get("rent", 0) + L.get("bills", 0) + L.get("vehicle_costs", 0)
-               + L.get("fines", 0) + L.get("medical", 0) + L.get("living_costs", 0) + L.get("taxes", 0))
+               + L.get("fines", 0) + L.get("medical", 0) + L.get("living_costs", 0)
+               + L.get("taxes", 0) + L.get("loan_interest", 0))
     net = round(income + expense, 2)
     gnow = game_now(cfg, now)
     doc = {
@@ -208,7 +210,7 @@ def apply_effects(p, effects, mult=1.0):
             add_money(p, v * mult)
 
 
-def decay_needs(p, gh, cfg, resting):
+def decay_needs(p, gh, cfg, resting, studying=False):
     d = cfg.get("decay", {})
     eb = p.get("equip_bonus", {})
     p["hunger"] = clamp(p["hunger"] + d.get("hunger", 3.2) * gh)
@@ -227,9 +229,10 @@ def decay_needs(p, gh, cfg, resting):
         p["mood"] = clamp(p["mood"] - 1.0 * gh)
     if p["energy"] < 15:
         p["stress"] = clamp(p["stress"] + 1.0 * gh)
-    # criminal suspicion cools down while not committing crimes (~1.5/game-hour)
+    # criminal suspicion cools down while not committing crimes (admin-tunable, 0 = never cools)
     if p.get("criminal_suspicion", 0) > 0:
-        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] - 1.5 * gh)
+        _susp_decay = float(game_models.TUNE.get("suspicion_decay_per_hour", 1.5))
+        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] - _susp_decay * gh)
     # slow passive health regen when reasonably fed/rested/calm (+ equipped fitness gear)
     if p["health"] < 100 and p["hunger"] < 80 and p["fatigue"] < 85 and p["stress"] < 85:
         p["health"] = clamp(p["health"] + (0.8 + eb.get("health_regen", 0.0)) * gh)
@@ -244,6 +247,16 @@ def decay_needs(p, gh, cfg, resting):
         fl = eb.get(key)
         if fl:
             p[stat] = clamp(max(p.get(stat, 0.0), fl))
+    # STUDENT WELFARE: while actively in education (kind == "course"), needs are held at their
+    # perfect states as a safety net so long courses can never starve/collapse a player.
+    # See docs/PLAYER_STATS_LOGIC.md.
+    if studying:
+        p["health"] = 100.0
+        p["energy"] = 100.0
+        p["mood"] = 100.0
+        p["hunger"] = 0.0
+        p["fatigue"] = 0.0
+        p["stress"] = 0.0
 
 
 def weighted_event(events, scope):
@@ -371,6 +384,8 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
     catch = payload["police_risk"] * (1 + p["criminal_suspicion"] / 150.0) * (1 - min(0.4, street * 0.03))
     catch *= payload.get("risk_mult", 1.0)
     fail = payload["failure_chance"] * (1 - min(0.3, street * 0.025))
+    gain_mult = float(game_models.TUNE.get("suspicion_gain_mult", 1.0))
+    sg = payload.get("suspicion_gain", 10) * gain_mult
     p["stats_meta"]["crimes_committed"] = p["stats_meta"].get("crimes_committed", 0) + 1
     for sk, xp in payload.get("skill_xp", {}).items():
         add_skill_xp(p, sk, xp, cfg)
@@ -383,7 +398,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
         p["status"] = "jail"
         charge(p, payload.get("fine_amount", 200))
         ledger_add(p, "fines", -payload.get("fine_amount", 200))
-        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + payload.get("suspicion_gain", 10) + 15)
+        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + sg + 15)
         p["legal_reputation"] = clamp(p["legal_reputation"] - 15)
         p["reputation"] = clamp(p["reputation"] + payload.get("reputation_impact", -5))
         p["stress"] = clamp(p["stress"] + 25)
@@ -394,7 +409,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
         p["stats_meta"]["times_jailed"] = p["stats_meta"].get("times_jailed", 0) + 1
         await add_event(db, pid, f"BUSTED during {name}! Fined ${payload.get('fine_amount',0)} and jailed.", "crime", "danger")
     elif roll < catch + fail:
-        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + payload.get("suspicion_gain", 10) * 0.5)
+        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + sg * 0.5)
         p["stress"] = clamp(p["stress"] + 12)
         await add_event(db, pid, f"{name} failed. You got nothing and your nerves are shot.", "crime", "warning")
     else:
@@ -405,7 +420,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
         else:
             charge(p, -reward)
         ledger_add(p, "crime_income", reward)
-        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + payload.get("suspicion_gain", 10))
+        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + sg)
         p["reputation"] = clamp(p["reputation"] + payload.get("reputation_impact", 0))
         p["legal_reputation"] = clamp(p["legal_reputation"] - 4)
         if payload.get("lowers_suspicion"):
@@ -418,8 +433,8 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
 
 def _decay_skills(p, gh):
     """Use-it-or-lose-it: skills above level 2 slowly lose XP when idle. Working/training re-adds XP,
-    so actively used skills never degrade. Gentle pressure toward a well-rounded, active life."""
-    rate = 0.35 * gh  # xp lost per game-hour of idleness (very gentle)
+    so actively used skills never degrade. Rate is admin-tunable via TUNE['skill_decay_per_hour'] (0 = off)."""
+    rate = float(game_models.TUNE.get("skill_decay_per_hour", 0.35)) * gh
     if rate <= 0:
         return
     for name, sk in (p.get("skills") or {}).items():
@@ -507,11 +522,12 @@ async def resolve_player(db, p):
 
     act = p.get("current_activity")
     resting = bool(act and act.get("sleep_flag"))
+    studying = bool(act and act.get("kind") == "course")
 
     await release_confinement(db, p)
 
     if gh > 0:
-        decay_needs(p, gh, cfg, resting)
+        decay_needs(p, gh, cfg, resting, studying)
         # health collapse -> hospital
         if p["health"] <= 0 and p.get("status") not in ("jail", "hospital"):
             p["health"] = 1

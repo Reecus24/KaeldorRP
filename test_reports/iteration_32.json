@@ -1,0 +1,37 @@
+{
+  "summary": "Post-refactor regression + new Admin Tuning fields verified on the deployed preview. Backend routes/*.py smoke checks all 200; player core routes (/game/state, /shop/stores, /jobs/sectors, /businesses/market, /social/locations) and admin routes (/admin/overview, /admin/feed, /admin/players, /admin/config) all return 200. Frontend player flow renders dashboard + all four hubs (Shop, Jobs, Businesses, Social) without 404/500/blank pages. Admin flow: /admin loads, grouped nav (overview/economy/tuning/players/city/underworld) present, Live Feed 50 events, feed-player quick-jump opens player-edit-modal. Tuning panel: 3 NEW fields (Skill Decay Rate, Suspicion Decay Rate, Suspicion Gain Multiplier) render, save with success toast, persist across reload, and do NOT wipe the other tuning knobs (upgrade_days, stock_drift, stock_volatility, crypto_drift, accident_chance, satisfaction_mult_max, tax_brackets all preserved). Defaults restored to 0.35 / 1.5 / 1.0 after testing as instructed.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_flows": [
+    "curl /api/auth/login player@kaeldor.com/player123 -> 200; admin@kaeldor.com/admin123 -> 200",
+    "curl /api/game/state 200; /api/shop/stores 200; /api/jobs/sectors 200; /api/businesses/market 200; /api/social/locations 200 (all 5 refactored route modules healthy)",
+    "curl /api/admin/config returns 19 tuning keys including skill_decay_per_hour=0.35, suspicion_decay_per_hour=1.5, suspicion_gain_mult=1.0",
+    "Player login -> Home dashboard renders with stats bars (Energy/Fatigue/Hunger/Mood/Stress/Health)",
+    "/shop page loads, 6 store cards render (economy route working)",
+    "/jobs page loads, 8 job sectors render (player route working)",
+    "/businesses page loads (business route working)",
+    "/social page loads (social route working)",
+    "Admin login -> /admin renders Admin Dashboard with 6 group tabs: overview/economy/tuning/players/city/underworld",
+    "Admin Live Feed sub-tab loads 50 events with 50 clickable feed-player-<id> buttons; clicking one opens player-edit-modal for 'Kael Grossmann'",
+    "Admin > Gameplay Tuning > Tuning tab: tune-skill_decay_per_hour, tune-suspicion_decay_per_hour, tune-suspicion_gain_mult all editable inputs with correct default values 0.35 / 1.5 / 1",
+    "Set skill_decay_per_hour to 0 and clicked save-tuning -> toast 'Tuning saved — live on next tick'; hard page reload -> value persists as 0",
+    "After save, all sampled other knobs unchanged: upgrade_days=7, stock_drift=0.0015, stock_volatility=0.03, crypto_drift=0.004, accident_chance=0.3, satisfaction_mult_max=1; tax_brackets rates [0.1,0.15,0.22] preserved (Save PUTs the full tuning object as expected)",
+    "Restored defaults skill=0.35, suspicion_decay=1.5, suspicion_gain_mult=1.0 and reloaded -> all three persist to defaults"
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "TuningPanel.save() sends {tuning: clean} and admin PUT /admin/config does {$set: body} on the whole config document, so submitting a partial `tuning` object would REPLACE the full tuning dict (not merge). Since the frontend always sends the full tuning object it works today; if any future admin form saves a partial tuning key, other knobs will be wiped. Consider a shallow-merge server-side (e.g., {$set: {'tuning.key': val}} or fetch-merge-store) to make this robust."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "100% (smoke)", "frontend": "100%" },
+  "test_credentials": "admin@kaeldor.com/admin123, player@kaeldor.com/player123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Temporarily set skill_decay_per_hour to 0 during the persistence test, then restored the three new tuning knobs to their documented defaults (0.35 / 1.5 / 1.0).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend split into core.py + routes/{player,economy,business,social,admin}.py is transparent — no API path changes. Admin sub-tab testids use lowercase label (e.g., admin-tab-tuning). Save button testid is 'save-tuning'. Toast component may render duplicate toast nodes but only one visible. TUNE_FIELDS is a static list in Admin.jsx — new tuning keys added by backend must also be added there or they won't be editable in UI."
+}

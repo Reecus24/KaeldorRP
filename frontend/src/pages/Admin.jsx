@@ -239,6 +239,8 @@ const TUNE_FIELDS = [
     { section: "Effectiveness → Accidents", keys: [["accident_eff_threshold", "Injury effectiveness threshold"], ["accident_chance", "Injury chance below threshold"]] },
     { section: "Stock Market (per real hour)", keys: [["stock_drift", "Base return / hr (e.g. 0.0015)"], ["stock_volatility", "Volatility / hr (e.g. 0.03)"]] },
     { section: "Crypto Market (per real hour)", keys: [["crypto_drift", "Base return / hr (e.g. 0.004)"], ["crypto_volatility", "Volatility / hr (e.g. 0.09)"]] },
+    { section: "Player Progression", keys: [["skill_decay_per_hour", "Skill Decay Rate (XP/hr idle, 0 = off)"]] },
+    { section: "Criminal Suspicion", keys: [["suspicion_decay_per_hour", "Suspicion Decay Rate (/hr clean, 0 = never)"], ["suspicion_gain_mult", "Suspicion Gain Multiplier (x illegal acts)"]] },
 ];
 
 function TuningPanel() {

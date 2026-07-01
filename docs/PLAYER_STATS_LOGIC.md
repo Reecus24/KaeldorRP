@@ -77,3 +77,25 @@ Linked to (NEW — was previously vanity-only):
 - A famous, well-housed barista (rep 90, status 40) working a 6h shift at $16/h with eff 1.0:
   base_pay = 16*6*1.0 = $96; tip_rate = (40/100*0.15)+(30/100*0.05)= 0.06+0.015 = 0.075;
   tip = $7.20; total ≈ $103.20.
+
+## Student Welfare — needs frozen during education (2026-07-01)
+While a player's `current_activity.kind == "course"` (actively studying), `decay_needs` applies a
+**safety net** at the end of each tick: Health = Energy = Mood = 100, and Hunger = Fatigue = Stress = 0.
+This guarantees long courses (e.g. multi-day) can never starve or collapse a student. Other modifiers
+(equipment floors, suspicion cooldown, etc.) still run first; the welfare clamp is applied last.
+Implementation: `game_engine.decay_needs(..., studying=<kind=='course'>)`, flag computed in `resolve_player`.
+
+## Skill Decay — admin-tunable (2026-07-01)
+"Use-it-or-lose-it": skills above **level 2** slowly lose XP while idle (working/training re-adds XP, so
+actively used skills never degrade). The rate is an admin knob:
+- Config key: `tuning.skill_decay_per_hour` (default **0.35** XP lost per idle game-hour).
+- Read live from `game_models.TUNE` in `game_engine._decay_skills`.
+- **Set to 0 to disable skill decay entirely.**
+- Tune it in **Admin ▸ Gameplay Tuning ▸ Tuning ▸ Player Progression ▸ "Skill Decay Rate"**; changes
+  apply on the next resolve tick (get_config refreshes TUNE every request).
+
+## Criminal Suspicion — admin-tunable (2026-07-01)
+- **Decay**: while not committing crimes, suspicion cools down by `tuning.suspicion_decay_per_hour`
+  (default 1.5) per game-hour. Set to **0** to make suspicion permanent (never cools).
+- **Gain**: suspicion gained from illegal acts is scaled by `tuning.suspicion_gain_mult` (default 1.0).
+  Higher = harsher heat from crimes. Both are edited in Admin ▸ Gameplay Tuning ▸ Tuning ▸ Criminal Suspicion.

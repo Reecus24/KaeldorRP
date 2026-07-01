@@ -123,3 +123,19 @@ The layout (order + hidden list) is **saved per admin account** in the backend v
   bankruptcy, etc.) render with a red **Danger Red `#FF4444`** pulsing border/glow (`.danger-pulse`
   keyframe in index.css), a red AlertTriangle icon and a "DANGER" pill, so critical incidents stand
   out from standard events at a glance.
+
+## Skill Decay Rate tuning (2026-07-01)
+- **Admin ▸ Gameplay Tuning ▸ Tuning** now has a **"Player Progression ▸ Skill Decay Rate"** field
+  bound to `tuning.skill_decay_per_hour` (XP lost per idle game-hour for skills above L2).
+- **0 disables** skill decay entirely. Saving via the Tuning panel writes to `game_config.tuning` and
+  the engine reads it live from `TUNE` on the next resolve — no restart needed.
+- Note: `GET /admin/config` now returns the full effective `tuning` (defaults merged), so newly added
+  tuning knobs always appear in the UI even for older config documents.
+
+## Criminal Suspicion tuning (2026-07-01)
+- **Admin ▸ Gameplay Tuning ▸ Tuning ▸ Criminal Suspicion** adds two fields:
+  - **Suspicion Decay Rate** (`tuning.suspicion_decay_per_hour`, default 1.5): suspicion lost per clean
+    game-hour. **0 = suspicion never cools down.** Applied in `game_engine.decay_needs`.
+  - **Suspicion Gain Multiplier** (`tuning.suspicion_gain_mult`, default 1.0): multiplies the suspicion
+    gained from illegal acts (bust/fail/success) in `game_engine._resolve_illegal`.
+- Changes persist to `game_config.tuning` and apply live from `TUNE` on the next resolve tick.

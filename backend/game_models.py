@@ -181,6 +181,11 @@ DEFAULT_CONFIG = {
         "stock_volatility": 0.03,     # stock hourly volatility (3%)
         "crypto_drift": 0.004,        # expected crypto return per hour (0.4%)
         "crypto_volatility": 0.09,    # crypto hourly volatility (9%)
+        # player progression
+        "skill_decay_per_hour": 0.35,  # skill XP lost per idle game-hour for skills above L2 (0 = disable)
+        # criminal suspicion
+        "suspicion_decay_per_hour": 1.5,  # suspicion lost per clean game-hour (0 = never cools down)
+        "suspicion_gain_mult": 1.0,       # multiplier on suspicion gained from illegal acts
     },
 }
 

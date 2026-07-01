@@ -60,3 +60,23 @@ End-to-end validation: testing_agent iteration_19 → **backend 11/11, frontend 
 - Optional tab mergers (Daily Summary↔Messages, Player Jobs→Job Center) — proposed in UI_AUDIT_NOTES.md.
 - Optional: tax-evasion mechanic (not paying tax → Criminal Suspicion) — foundation is in place via tunable brackets.
 - Optional: surface live Effectiveness→pay preview on the Current Job screen.
+
+## Post-Refactor Verification Readout (2026-07-01)
+
+### Modular refactor
+- server.py (~3600 lines) split into core.py + routes/{player,economy,business,social,admin}.py; server.py
+  is now the entry point only. API paths UNCHANGED. verify_economy.py + verify_markets.py PASS; all 5 route
+  modules return 200 on smoke curls. See ARCHITECTURE.md.
+
+### 1. Daily Summary
+- `_flush_daily_summary` income = wages + crime + social + **savings interest**.
+- expense = rent + bills + vehicle costs + fines + medical + living costs + **taxes** + **loan interest**.
+  (Loan interest was added to the expense total in this pass so carried-debt interest is reflected in net.)
+- net = income + expense (expenses stored negative). Taxes and interest are BOTH included. ✓
+
+### 2. Rent logic
+- **Housing rent**: charged only when the home is NOT owned (`accrue_recurring`), proportional to elapsed
+  game-hours, deducted from cash/bank via `charge()`, recorded under ledger `rent`. ✓
+- **Business rent**: NONE. `employee_engine` explicitly enforces "NO rent / artificial fixed costs on owned
+  businesses"; business P&L = sales − materials − wages only. No "Ghost Rent" is deducted from uncollected
+  earnings. ✓
