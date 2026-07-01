@@ -64,6 +64,7 @@ export default function BusinessMarket() {
                                 <div className="flex justify-between"><span className="text-muted-foreground">− Wages</span><span className="text-neon-red">−{money(est.wage_day || 0)}</span></div>
                                 <div className="flex justify-between border-t border-white/10 pt-1"><span className="text-muted-foreground">Est. profit/day</span><span className={profit >= 0 ? "text-neon-green" : "text-neon-red"} data-testid={`biz-profit-${t.id}`}>{profit >= 0 ? "+" : ""}{money(profit)}</span></div>
                             </div>
+                            <p className="text-[10px] text-muted-foreground/70 mb-1">Assumes: {(est.staff_needed || []).map((s) => `${s.recommended}× ${s.role.replace(/_/g, " ")}`).join(", ") || "1 worker"} on shift.</p>
                             <p className="text-[10px] text-muted-foreground/70 mb-3">No rent — you buy ingredients, staff produce & sell. Marketing/upgrades raise demand & output.</p>
 
                             {!t.qualified ? (
