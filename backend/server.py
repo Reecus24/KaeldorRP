@@ -220,6 +220,22 @@ async def migrate_job_shift_options():
         await db.jobs.update_one({"id": j["id"]}, {"$set": {"shift_options": new_so}})
 
 
+async def migrate_vehicle_categories():
+    """Seed vehicle categories if missing and backfill each vehicle's category_id (one-time)."""
+    from seed_data import VEHICLE_CATEGORIES, VEHICLE_CATEGORY_MAP
+    for c in VEHICLE_CATEGORIES:
+        if not await db.vehicle_categories.find_one({"id": c["id"]}, {"_id": 0, "id": 1}):
+            await db.vehicle_categories.insert_one({**c})
+    async for v in db.vehicles.find({}, {"_id": 0, "id": 1, "category_id": 1}):
+        if "category_id" not in v:
+            await db.vehicles.update_one({"id": v["id"]}, {"$set": {"category_id": VEHICLE_CATEGORY_MAP.get(v["id"])}})
+
+
+async def migrate_job_visibility():
+    """Backfill visible_in_listings=True on any job missing the field (progressive job visibility)."""
+    await db.jobs.update_many({"visible_in_listings": {"$exists": False}}, {"$set": {"visible_in_listings": True}})
+
+
 
 @app.on_event("startup")
 async def startup():
@@ -243,6 +259,8 @@ async def startup():
     await migrate_city_shops()
     await migrate_job_sectors()
     await migrate_job_shift_options()
+    await migrate_vehicle_categories()
+    await migrate_job_visibility()
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@kaeldor.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

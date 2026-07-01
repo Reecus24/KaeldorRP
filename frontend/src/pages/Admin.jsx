@@ -7,7 +7,7 @@ import {
     Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
     MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
     Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles,
-    ShoppingCart, Scale, Home, Car, HeartPulse, Radio, AlertTriangle, Search,
+    ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -787,6 +787,12 @@ function JobSectorsPanel() {
     };
     const del = async (s) => { if (!window.confirm(`Delete "${s.name}"?`)) return; try { await api.delete(`/admin/job-sectors/${s.id}`); toast.success("Deleted"); await load(); } catch (e) { toast.error(errMessage(e)); } };
     const editSector = (s) => setDraft({ ...s, job_ids: [...(s.job_ids || [])] });
+    const toggleVisibility = async (j) => {
+        try {
+            await api.put(`/admin/jobs/${j.id}/visibility`, { visible: !(j.visible_in_listings !== false) });
+            await load();
+        } catch (e) { toast.error(errMessage(e)); }
+    };
 
     if (!data) return <Spinner />;
     // which sector each job is currently assigned to (excluding the one being edited)
@@ -865,6 +871,148 @@ function JobSectorsPanel() {
                             </div>
                             <p className="text-[11px] text-muted-foreground mb-2">{s.desc}</p>
                             <div className="text-[10px] font-mono text-muted-foreground">{s.job_count} job{s.job_count === 1 ? "" : "s"} assigned</div>
+                        </Panel>
+                    ))}
+                </div>
+            )}
+
+            {!draft && (
+                <Panel className="p-4" data-testid="job-visibility-panel">
+                    <div className="font-display font-bold text-white mb-1 flex items-center gap-2"><Eye className="w-4 h-4 text-neon-cyan" /> Job Center Visibility</div>
+                    <p className="text-[11px] text-muted-foreground mb-3">Hide "rank-up only" jobs so players can't apply for them directly — they'll only be reachable by earning a promotion. Hidden jobs stay fully promotable.</p>
+                    <div className="grid sm:grid-cols-2 gap-1.5 max-h-80 overflow-y-auto pr-1">
+                        {data.jobs.map((j) => {
+                            const visible = j.visible_in_listings !== false;
+                            return (
+                                <div key={j.id} className="flex items-center justify-between gap-2 p-2 border border-white/10 rounded-sm" data-testid={`job-visibility-${j.id}`}>
+                                    <div className="min-w-0">
+                                        <span className="text-xs text-white">{j.title}</span>
+                                        <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">T{j.tier} · {j.category}</span>
+                                    </div>
+                                    <button onClick={() => toggleVisibility(j)}
+                                        className={cn("inline-flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-sm border transition-colors",
+                                            visible ? "border-neon-green/40 text-neon-green hover:bg-neon-green/10" : "border-neon-yellow/40 text-neon-yellow hover:bg-neon-yellow/10")}
+                                        title={visible ? "Visible — click to hide" : "Hidden — click to show"} data-testid={`job-visibility-toggle-${j.id}`}>
+                                        {visible ? <><Eye className="w-3 h-3" /> Visible</> : <><EyeOff className="w-3 h-3" /> Hidden</>}
+                                    </button>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </Panel>
+            )}
+        </div>
+    );
+}
+
+
+const VCAT_ICON_OPTIONS = ["Car", "Bike", "Truck", "Gem"];
+
+function VehicleCategoriesPanel() {
+    const [data, setData] = useState(null);
+    const [draft, setDraft] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const load = useCallback(() => api.get("/admin/vehicle-categories").then(({ data }) => setData(data)).catch(() => setData({ categories: [], vehicles: [] })), []);
+    useEffect(() => { load(); }, [load]);
+
+    const emptyCat = () => ({ name: "", desc: "", icon: "Car", active: true, order: 50, vehicle_ids: [] });
+    const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+    const toggleVeh = (vid) => setDraft((d) => {
+        const has = (d.vehicle_ids || []).includes(vid);
+        return { ...d, vehicle_ids: has ? d.vehicle_ids.filter((x) => x !== vid) : [...(d.vehicle_ids || []), vid] };
+    });
+    const editCat = (c) => setDraft({ ...c, vehicle_ids: (data.vehicles || []).filter((v) => v.category_id === c.id).map((v) => v.id) });
+    const save = async () => {
+        setSaving(true);
+        try {
+            const body = { name: draft.name, desc: draft.desc || "", icon: draft.icon || "Car",
+                active: !!draft.active, order: Number(draft.order) || 50, vehicle_ids: draft.vehicle_ids || [] };
+            if (draft.id) await api.put(`/admin/vehicle-categories/${draft.id}`, body);
+            else await api.post("/admin/vehicle-categories", body);
+            toast.success("Category saved — live in the Vehicle Dealer immediately");
+            setDraft(null); await load();
+        } catch (e) { toast.error(errMessage(e)); }
+        setSaving(false);
+    };
+    const del = async (c) => { if (!window.confirm(`Delete "${c.name}"? Its vehicles become uncategorized.`)) return; try { await api.delete(`/admin/vehicle-categories/${c.id}`); toast.success("Deleted"); await load(); } catch (e) { toast.error(errMessage(e)); } };
+
+    if (!data) return <Spinner />;
+    const otherAssigned = {};
+    (data.vehicles || []).forEach((v) => { if (v.category_id && (!draft || v.category_id !== draft.id)) otherAssigned[v.id] = v.category_id; });
+    const catName = (id) => (data.categories.find((c) => c.id === id) || {}).name || id;
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">Showroom categories players browse in the Vehicle Dealer. Create a category, then assign vehicle models to it — each vehicle belongs to one category. Any vehicle left unassigned appears under an "Other Vehicles" fallback so nothing is unreachable.</p>
+                {!draft && <KButton variant="green" onClick={() => setDraft(emptyCat())} data-testid="vcat-new"><Plus className="w-4 h-4" /> New Category</KButton>}
+            </div>
+
+            {draft && (
+                <Panel className="p-5 space-y-3 border-neon-cyan/30" data-testid="vcat-editor">
+                    <div className="grid sm:grid-cols-2 gap-3">
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Category name
+                            <KInput value={draft.name} onChange={(e) => set("name", e.target.value)} testid="vcat-name" /></label>
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Icon
+                            <select value={draft.icon} onChange={(e) => set("icon", e.target.value)} data-testid="vcat-icon"
+                                className="bg-black/40 border border-white/15 rounded-sm px-2 py-2 text-xs text-white">
+                                {VCAT_ICON_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select></label>
+                    </div>
+                    <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Description
+                        <KInput value={draft.desc} onChange={(e) => set("desc", e.target.value)} testid="vcat-desc" /></label>
+                    <div className="flex items-center gap-4">
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1 w-20">Order
+                            <KInput type="number" value={draft.order} onChange={(e) => set("order", Number(e.target.value))} testid="vcat-order" /></label>
+                        <label className="text-[11px] text-muted-foreground flex items-center gap-2 mt-4">
+                            <input type="checkbox" checked={!!draft.active} onChange={(e) => set("active", e.target.checked)} data-testid="vcat-active" /> Active</label>
+                    </div>
+
+                    <div className="pt-2">
+                        <div className="text-[11px] font-mono uppercase tracking-wider text-neon-cyan/80 mb-2">Assign Vehicles ({(draft.vehicle_ids || []).length} selected)</div>
+                        <div className="grid sm:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1" data-testid="vcat-vehicle-picker">
+                            {data.vehicles.map((v) => {
+                                const checked = (draft.vehicle_ids || []).includes(v.id);
+                                const takenBy = otherAssigned[v.id];
+                                return (
+                                    <label key={v.id} className={cn("flex items-center gap-2 p-2 border rounded-sm cursor-pointer transition-colors",
+                                        checked ? "border-neon-cyan/50 bg-neon-cyan/5" : "border-white/10 hover:border-white/25")} data-testid={`vcat-vehicle-${v.id}`}>
+                                        <input type="checkbox" checked={checked} onChange={() => toggleVeh(v.id)} data-testid={`vcat-vehicle-cb-${v.id}`} />
+                                        <div className="min-w-0 flex-1">
+                                            <span className="text-xs text-white">{v.name}</span>
+                                            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">{v.type} · ${v.price?.toLocaleString()}</span>
+                                            {takenBy && !checked && <span className="block text-[9px] text-neon-yellow/80 font-mono">in {catName(takenBy)}</span>}
+                                        </div>
+                                    </label>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                        <KButton variant="green" loading={saving} disabled={!draft.name} onClick={save} data-testid="vcat-save">Save Category</KButton>
+                        <KButton variant="ghost" onClick={() => setDraft(null)} data-testid="vcat-cancel">Cancel</KButton>
+                    </div>
+                </Panel>
+            )}
+
+            {!draft && (
+                <div className="grid md:grid-cols-2 gap-3">
+                    {data.categories.map((c) => (
+                        <Panel key={c.id} className="p-4" data-testid={`admin-vcat-${c.id}`}>
+                            <div className="flex items-start justify-between mb-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-display font-bold text-white">{c.name}</span>
+                                    <span className="text-[10px] uppercase text-neon-cyan/80 font-mono">{c.icon}</span>
+                                    {!c.active && <Pill tone="red">Inactive</Pill>}
+                                </div>
+                                <div className="flex gap-1">
+                                    <button onClick={() => editCat(c)} className="text-muted-foreground hover:text-white" data-testid={`vcat-edit-${c.id}`}><Pencil className="w-4 h-4" /></button>
+                                    <button onClick={() => del(c)} className="text-neon-red hover:text-neon-red/70" data-testid={`vcat-del-${c.id}`}><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mb-2">{c.desc}</p>
+                            <div className="text-[10px] font-mono text-muted-foreground">{c.vehicle_count} model{c.vehicle_count === 1 ? "" : "s"} assigned</div>
                         </Panel>
                     ))}
                 </div>
@@ -1004,7 +1152,7 @@ const ADMIN_GROUPS = [
           { key: "npc_archetypes", label: "NPC Archetypes" }, { key: "social_traits", label: "Personality" },
           { key: "relationship_actions", label: "Rel. Actions" }, { key: "gift_types", label: "Gifts" }, { key: "social_events", label: "Social Events" }] },
     { key: "city", label: "City Infrastructure", icon: Building2,
-      children: [{ key: "cityshops", label: "City Shops" }, { key: "jobsectors", label: "Job Sectors" }, { key: "locations", label: "Locations" }] },
+      children: [{ key: "cityshops", label: "City Shops" }, { key: "jobsectors", label: "Job Sectors" }, { key: "vehiclecats", label: "Vehicle Categories" }, { key: "locations", label: "Locations" }] },
     { key: "underworld", label: "Underworld & Finance", icon: Skull,
       children: [{ key: "illegal_actions", label: "Illegal" }] },
 ];
@@ -1068,6 +1216,7 @@ function renderAdminLeaf(key, ctx = {}) {
         case "locations": return <LocationsPanel />;
         case "cityshops": return <CityShopsPanel />;
         case "jobsectors": return <JobSectorsPanel />;
+        case "vehiclecats": return <VehicleCategoriesPanel />;
         case "jobshifts": return <JobShiftsPanel />;
         case "players": return <PlayersTable focus={ctx.focusPlayer} onFocusHandled={ctx.onFocusHandled} />;
         default: return <ContentEditor ctype={key} />;

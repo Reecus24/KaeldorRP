@@ -153,6 +153,9 @@ JOB_SHIFTS = {
 for _j in JOBS:
     if _j["id"] in JOB_SHIFTS:
         _j["shift_options"] = JOB_SHIFTS[_j["id"]]
+    # Progressive visibility: jobs default to visible in the Job Center. Admins can hide
+    # "rank-up only" jobs (reachable only via promotion) by setting this False.
+    _j.setdefault("visible_in_listings", True)
 
 
 # Job Sectors / Agencies. The Job Center groups jobs into sectors; players browse a
@@ -437,6 +440,30 @@ VEHICLES = [
      "insurance_per_day": 20, "maintenance_per_day": 12, "accident_risk": 0.04, "speed": 5,
      "resale": 0.55, "desc": "Status on wheels."},
 ]
+
+# ============================ VEHICLE CATEGORIES (Dealer showroom) ============================
+# The Vehicle Dealer groups models into browsable categories (same Sector/Box pattern as the Job
+# Center and City Shops). Each vehicle carries a `category_id` linking to a vehicle_categories doc;
+# any vehicle without an active category falls into a player-facing "Other Vehicles" catch-all.
+VEHICLE_CATEGORIES = [
+    {"id": "cat_bikes", "name": "Bikes & Scooters", "icon": "Bike", "order": 1, "active": True,
+     "desc": "Fast, agile two-wheelers for darting through city traffic on a tight budget."},
+    {"id": "cat_economy", "name": "Compact & Economy", "icon": "Car", "order": 2, "active": True,
+     "desc": "Affordable everyday cars — your first reliable set of four wheels."},
+    {"id": "cat_utility", "name": "Vans & Utility", "icon": "Truck", "order": 3, "active": True,
+     "desc": "Cargo haulers built for delivery work and moving goods for your business."},
+    {"id": "cat_luxury", "name": "Luxury", "icon": "Gem", "order": 4, "active": True,
+     "desc": "Premium status symbols — top speed, top comfort, top price."},
+]
+VEHICLE_CATEGORY_MAP = {
+    "bicycle": "cat_bikes", "scooter": "cat_bikes",
+    "cheap_car": "cat_economy", "reliable_car": "cat_economy",
+    "van": "cat_utility", "delivery_van": "cat_utility",
+    "luxury_car": "cat_luxury",
+}
+for _v in VEHICLES:
+    _v["category_id"] = VEHICLE_CATEGORY_MAP.get(_v["id"])
+
 
 # Supply-chain model: each business buys named ingredients (recipe), workers process them into a
 # finished product, and the product is sold to meet demand. Profit = sales - materials - wages.
@@ -946,6 +973,7 @@ CONTENT_MAP = {
     "locations": ("locations", LOCATIONS),
     "city_shops": ("city_shops", CITY_SHOPS),
     "job_sectors": ("job_sectors", JOB_SECTORS),
+    "vehicle_categories": ("vehicle_categories", VEHICLE_CATEGORIES),
 }
 
 

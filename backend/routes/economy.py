@@ -305,6 +305,42 @@ async def list_vehicles(user: dict = Depends(current_user)):
     return {"owned": p.get("vehicles", []), "listings": sorted(vehicles, key=lambda x: x.get("price", 0))}
 
 
+@api.get("/vehicle-categories")
+async def list_vehicle_categories(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    cats = await db.vehicle_categories.find({"active": True}, {"_id": 0}).to_list(100)
+    cats.sort(key=lambda c: (c.get("order", 99), c.get("name", "")))
+    vehicles = await db.vehicles.find({}, {"_id": 0, "category_id": 1}).to_list(300)
+    active_ids = {c["id"] for c in cats}
+    counts = {}
+    for v in vehicles:
+        counts[v.get("category_id")] = counts.get(v.get("category_id"), 0) + 1
+    out = [{**c, "vehicle_count": counts.get(c["id"], 0)} for c in cats]
+    uncat = sum(1 for v in vehicles if v.get("category_id") not in active_ids)
+    if uncat > 0:
+        out.append({"id": "other", "name": "Other Vehicles", "icon": "Car", "order": 999, "active": True,
+                    "virtual": True, "desc": "Vehicles not yet sorted into a category.", "vehicle_count": uncat})
+    return {"categories": out, "owned": p.get("vehicles", [])}
+
+
+@api.get("/vehicle-categories/{category_id}")
+async def vehicle_category_detail(category_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    vehicles = await db.vehicles.find({}, {"_id": 0}).to_list(300)
+    if category_id == "other":
+        active_ids = {c["id"] for c in await db.vehicle_categories.find({"active": True}, {"_id": 0, "id": 1}).to_list(100)}
+        cat = {"id": "other", "name": "Other Vehicles", "icon": "Car", "virtual": True,
+               "desc": "Vehicles not yet sorted into a category."}
+        listings = [v for v in vehicles if v.get("category_id") not in active_ids]
+    else:
+        cat = await db.vehicle_categories.find_one({"id": category_id, "active": True}, {"_id": 0})
+        if not cat:
+            raise HTTPException(status_code=404, detail="Category not found")
+        listings = [v for v in vehicles if v.get("category_id") == category_id]
+    listings.sort(key=lambda x: x.get("price", 0))
+    return {"category": cat, "listings": listings, "owned": p.get("vehicles", [])}
+
+
 
 
 @api.post("/vehicles/{vehicle_id}/buy")

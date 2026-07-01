@@ -192,7 +192,8 @@ async def list_job_sectors(user: dict = Depends(current_user)):
     p = await get_state(user)
     sectors = await db.job_sectors.find({"active": True}, {"_id": 0}).to_list(100)
     sectors.sort(key=lambda s: (s.get("order", 99), s.get("name", "")))
-    all_jobs = {j["id"]: j for j in await db.jobs.find({}, {"_id": 0}).to_list(300)}
+    all_jobs = {j["id"]: j for j in await db.jobs.find({}, {"_id": 0}).to_list(300)
+                if j.get("visible_in_listings", True)}
     out = []
     covered = set()
     for s in sectors:
@@ -216,7 +217,8 @@ async def list_job_sectors(user: dict = Depends(current_user)):
 @api.get("/jobs/sectors/{sector_id}")
 async def job_sector_detail(sector_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
-    all_jobs = {j["id"]: j for j in await db.jobs.find({}, {"_id": 0}).to_list(300)}
+    all_jobs = {j["id"]: j for j in await db.jobs.find({}, {"_id": 0}).to_list(300)
+                if j.get("visible_in_listings", True)}
     if sector_id == "unassigned":
         sectors = await db.job_sectors.find({"active": True}, {"_id": 0, "job_ids": 1}).to_list(100)
         covered = {jid for s in sectors for jid in (s.get("job_ids") or [])}

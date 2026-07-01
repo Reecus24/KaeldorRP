@@ -965,6 +965,15 @@ class JobSectorBody(BaseModel):
     job_ids: Optional[List[str]] = None
 
 
+class VehicleCategoryBody(BaseModel):
+    name: str
+    desc: Optional[str] = ""
+    icon: Optional[str] = "Car"
+    active: Optional[bool] = True
+    order: Optional[int] = 50
+    vehicle_ids: Optional[List[str]] = None
+
+
 
 
 # ============================ EMPLOYMENT: APPLICATIONS & PLAYER HIRING ============================

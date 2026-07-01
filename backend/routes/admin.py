@@ -397,7 +397,7 @@ async def admin_delete_city_shop(shop_id: str, admin: dict = Depends(admin_user)
 async def admin_job_sectors(admin: dict = Depends(admin_user)):
     sectors = await db.job_sectors.find({}, {"_id": 0}).to_list(200)
     sectors.sort(key=lambda s: (s.get("order", 99), s.get("name", "")))
-    jobs = await db.jobs.find({}, {"_id": 0, "id": 1, "title": 1, "category": 1, "tier": 1}).to_list(300)
+    jobs = await db.jobs.find({}, {"_id": 0, "id": 1, "title": 1, "category": 1, "tier": 1, "visible_in_listings": 1}).to_list(300)
     jobs.sort(key=lambda x: (x.get("tier", 1), x.get("title", "")))
     assigned = {}
     for s in sectors:
@@ -433,6 +433,71 @@ async def admin_update_job_sector(sector_id: str, body: JobSectorBody, admin: di
 @api.delete("/admin/job-sectors/{sector_id}")
 async def admin_delete_job_sector(sector_id: str, admin: dict = Depends(admin_user)):
     await db.job_sectors.delete_one({"id": sector_id})
+    return {"ok": True}
+
+
+@api.put("/admin/jobs/{job_id}/visibility")
+async def admin_set_job_visibility(job_id: str, body: dict, admin: dict = Depends(admin_user)):
+    """Toggle whether a job appears in the Job Center listings. Hidden ('rank-up only') jobs
+    stay fully reachable via the promotion system, which looks jobs up directly by id."""
+    visible = bool(body.get("visible", True))
+    res = await db.jobs.update_one({"id": job_id}, {"$set": {"visible_in_listings": visible}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True, "visible_in_listings": visible}
+
+
+
+
+async def _assign_vehicles_to_category(category_id, vehicle_ids):
+    """Set category_id on the listed vehicles and clear it from any vehicle that was in this
+    category but is no longer listed (keeps the one-category-per-vehicle invariant)."""
+    ids = list(vehicle_ids or [])
+    await db.vehicles.update_many({"category_id": category_id, "id": {"$nin": ids}}, {"$set": {"category_id": None}})
+    if ids:
+        await db.vehicles.update_many({"id": {"$in": ids}}, {"$set": {"category_id": category_id}})
+
+
+@api.get("/admin/vehicle-categories")
+async def admin_vehicle_categories(admin: dict = Depends(admin_user)):
+    cats = await db.vehicle_categories.find({}, {"_id": 0}).to_list(200)
+    cats.sort(key=lambda c: (c.get("order", 99), c.get("name", "")))
+    vehicles = await db.vehicles.find({}, {"_id": 0, "id": 1, "name": 1, "type": 1, "price": 1, "category_id": 1}).to_list(300)
+    vehicles.sort(key=lambda v: v.get("price", 0))
+    counts = {}
+    for v in vehicles:
+        counts[v.get("category_id")] = counts.get(v.get("category_id"), 0) + 1
+    for c in cats:
+        c["vehicle_count"] = counts.get(c["id"], 0)
+    return {"categories": cats, "vehicles": vehicles}
+
+
+@api.post("/admin/vehicle-categories")
+async def admin_create_vehicle_category(body: VehicleCategoryBody, admin: dict = Depends(admin_user)):
+    cat = {"id": f"vcat_{uuid.uuid4().hex[:8]}", "name": body.name, "desc": body.desc or "",
+           "icon": body.icon or "Car", "active": bool(body.active), "order": body.order or 50}
+    await db.vehicle_categories.insert_one({**cat})
+    if body.vehicle_ids is not None:
+        await _assign_vehicles_to_category(cat["id"], body.vehicle_ids)
+    return {"ok": True, "id": cat["id"]}
+
+
+@api.put("/admin/vehicle-categories/{category_id}")
+async def admin_update_vehicle_category(category_id: str, body: VehicleCategoryBody, admin: dict = Depends(admin_user)):
+    upd = {"name": body.name, "desc": body.desc or "", "icon": body.icon or "Car",
+           "active": bool(body.active), "order": body.order or 50}
+    res = await db.vehicle_categories.update_one({"id": category_id}, {"$set": upd})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Category not found")
+    if body.vehicle_ids is not None:
+        await _assign_vehicles_to_category(category_id, body.vehicle_ids)
+    return {"ok": True}
+
+
+@api.delete("/admin/vehicle-categories/{category_id}")
+async def admin_delete_vehicle_category(category_id: str, admin: dict = Depends(admin_user)):
+    await db.vehicle_categories.delete_one({"id": category_id})
+    await db.vehicles.update_many({"category_id": category_id}, {"$set": {"category_id": None}})
     return {"ok": True}
 
 

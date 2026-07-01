@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 34 — Vehicle Dealer Categorization + Progressive Job Visibility validated end-to-end on preview URL. Backend pytest: 9/9 pass in /app/backend/tests/test_vehicle_categories_and_job_visibility.py covering GET /api/vehicle-categories (4 seed cats + counts + owned), GET /api/vehicle-categories/{cat_bikes|other|404}, admin CRUD /api/admin/vehicle-categories (create with vehicle assignment → verified via player detail listing + admin list category_id → edit renames+drops vehicle → deleted category returns 404 publicly and vehicle becomes uncategorized → 404 on unknown update), non-admin 401/403 guard, PUT /api/admin/jobs/{cleaner}/visibility {false} removes cleaner from /api/jobs/sectors/sector_trades detail and drops sector_trades.job_count by 1 (2→1), non-admin toggle 401/403, unknown job 404, restore path works. Frontend: /vehicles renders vehicle-category-browser with 4 seed cards (vehicle-category-cat_bikes/economy/utility/luxury) each showing name/desc/'N models'/browse-models-*; opening cat_bikes shows category-vehicles list with 3 buy-vehicle-* buttons and back-to-categories returns to browser. Admin ▸ City Infrastructure ▸ Vehicle Categories renders 4 admin-vcat-* cards with edit/delete, vcat-new opens vcat-editor with all fields (vcat-name/icon/desc/order/active/vehicle-picker with 8 vcat-vehicle-cb-* checkboxes) + vcat-save; editing cat_bikes preloads name 'Bikes & Scooters' and 3 checked assignments. Admin ▸ City Infrastructure ▸ Job Sectors shows job-visibility-panel with 19 job-visibility-toggle-* buttons; cleaner toggles Visible→Hidden→Visible correctly and API-verified end-to-end: after hide, cleaner disappears from shiftplayer's /api/jobs/sectors/sector_trades listing and trades.job_count drops 2→1; after restore, it comes back. Guard scripts (verify_economy.py + verify_markets.py) still print ALL PASSED. Final state restored: cleaner Visible, all 4 seed categories intact with original assignments (3/2/2/1 models).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_flows": [
+    "GET /api/vehicle-categories → 4 seed categories with vehicle_count + owned vehicles; 'other' catch-all appended only when uncat > 0 (currently 0 uncategorized in seed so no 'Other Vehicles' card, expected)",
+    "GET /api/vehicle-categories/cat_bikes → listings all have category_id='cat_bikes'",
+    "GET /api/vehicle-categories/other → listings all have category_id∉seed set; GET /api/vehicle-categories/nope → 404",
+    "Admin CRUD: POST creates vcat_* id, PUT reassigns vehicles (helper clears old + sets new), DELETE nulls vehicles and public detail returns 404; PUT unknown id → 404; non-admin GET → 401/403",
+    "PUT /api/admin/jobs/cleaner/visibility {visible:false} → cleaner removed from /api/jobs/sectors/sector_trades; sector_trades.job_count 2→1; visible:true restores both; unknown job → 404; non-admin → 401/403",
+    "UI Player /vehicles: vehicle-category-browser, 4 vehicle-category-<id> cards, 4 browse-models-<id>, category-vehicles list, back-to-categories, buy-vehicle-<id> buttons all present and functional",
+    "UI Admin Vehicle Categories: admin-vcat-cat_bikes/economy/utility/luxury cards, 4 vcat-edit-*, 4 vcat-del-*, vcat-new opens vcat-editor with vcat-name/icon/desc/order/active/vehicle-picker/save + 8 vcat-vehicle-cb-* checkboxes; edit cat_bikes preloads 3 checked assignments",
+    "UI Admin Job Sectors: job-visibility-panel with 19 job-visibility-toggle-<jobid>; cleaner toggle button text swaps Visible↔Hidden on click and persists via PUT /api/admin/jobs/cleaner/visibility",
+    "python3 /app/tests/verify_economy.py → exit 0, ALL ECONOMY TESTS PASSED",
+    "python3 /app/tests/verify_markets.py → exit 0, ALL MARKET/UNDERWORLD CHECKS PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_vehicle_categories_and_job_visibility.py",
+    "/app/test_reports/pytest/iter34.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/economy.py list_vehicle_categories: counts include ALL vehicles including those with category_id set to an INACTIVE category id (they end up in the 'other' catch-all as expected), but if you deactivate a category (active:false via admin PUT), the vehicles still carry that category_id — GET /api/vehicle-categories/{inactive_id} returns 404 while the vehicles bucket into 'other'. This is consistent but could surprise admins editing existing categories; consider auto-clearing category_id on the vehicles when a category is deactivated (or at least a warning in the admin UI).",
+    "routes/admin.py admin_delete_vehicle_category correctly nulls category_id on affected vehicles — good. However admin_update_vehicle_category updates category doc even when body.vehicle_ids is None; that's the intended 'metadata-only edit' path but the JSDoc/testids ('vcat-vehicle-picker' visible in editor) suggest the picker is always sent. Confirm frontend always posts vehicle_ids (empty list included) so a user unchecking every checkbox actually clears assignments.",
+    "routes/player.py list_job_sectors + job_sector_detail filter jobs by 'visible_in_listings' TRUE (defaulting to True on missing key) — correct. Hidden jobs remain in db.jobs and are still fetchable by id (e.g. promotion path), so the requirement 'hiding must not block promotion' is honored. No mitigations needed.",
+    "seed_data VEHICLE_CATEGORY_MAP places every seeded vehicle into a category; there is no truly-uncategorized vehicle in fresh DB, so the 'Other Vehicles' virtual card in /vehicles will never render in a clean seed. This matches the task's 'may be uncategorized' note but is worth documenting in the UI copy so admins know how to force-render Other Vehicles (create an unassigned vehicle or delete a category)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_vehicle_categories_and_job_visibility.py (new pytest file, 9 tests)"
+  ],
+  "success_rate": { "backend": "100% (9/9 pytest)", "frontend": "100% (player /vehicles + admin Vehicle Categories + admin Job Sectors visibility)" },
+  "test_credentials": "admin@kaeldor.com/admin123, shiftplayer@kaeldor.com/demo123, mara@kaeldor.com/demo123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Test transiently created a TEST_cat_<uuid6> vehicle category with one seed vehicle assigned, then edited (dropped vehicle) and deleted the category. Original category assignment was RESTORED via PUT with the original vehicle_ids list, and cleaner.visible_in_listings restored to true. Final DB state matches pre-test: 4 seed vehicle categories (cat_bikes/economy/utility/luxury) with 3/2/2/1 models assigned, cleaner Visible, sector_trades.job_count = 2.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reusable test file: /app/backend/tests/test_vehicle_categories_and_job_visibility.py. Run with 'pytest backend/tests/test_vehicle_categories_and_job_visibility.py -o addopts= -v' (pytest.ini enables xdist; -o addopts= forces serial to avoid races). The Admin sub-tabs 'Vehicle Categories' and 'Job Sectors' live under MAIN tab 'City Infrastructure' (NOT Gameplay Tuning / NOT a group named 'Content'). The player Vehicle Dealer route is /vehicles. Cleaner's sector is sector_trades. Do NOT expect an 'Other Vehicles' card in a clean seed — every seeded vehicle is categorized. To force the 'other' card to render, temporarily delete a category (its vehicles become uncategorized and bucket into Other) — the CRUD test does this cleanup automatically. When toggling job visibility from the UI, DO NOT rely on /logout URL to switch users — the app auto-refreshes to the current session; use the browser LogOut button (top-right) or clear cookies. For end-to-end 'hide then verify player view' the fastest path is the direct API call as done in the pytest test."
+}
