@@ -74,3 +74,31 @@ new economics.
   ONLY if some job isn't assigned to any active sector, so no job is ever unreachable.
 - Admin CRUD: GET/POST/PUT/DELETE `/admin/job-sectors`. Migration `migrate_job_sectors()` inserts missing
   seed sectors by id into existing DBs.
+
+## Admin Dashboard Overhaul — grouped nav + customizable layout (2026-07-01)
+The flat ~27-tab bar is now organised into **6 Main Tab groups**, each with its own sub-tabs and a
+**Dashboard Summary** metrics strip:
+- **Overview** — Dashboard (StatsView). Summary: Players, Employed, Businesses, Active Workers, Market Value, Total Debt.
+- **Economy** — Economy Sandbox, Businesses, Items, Housing, Vehicles.
+- **Gameplay Tuning** — Tuning, Config, Actions, Courses, Jobs, Events.
+- **Player Management** — Players, Emp Roles/Traits, Staffing, Training, Staff Events, NPC Archetypes, Personality, Rel. Actions, Gifts, Social Events.
+- **City Infrastructure** — City Shops, Job Sectors, Locations.
+- **Underworld & Finance** — Illegal actions.
+
+### Metrics endpoint
+`GET /api/admin/overview` returns city-wide counters (players, employed, businesses, hiring, active
+workers = NPC + player employees, market value = Σ net_worth, cash/bank/debt totals, avg net worth,
+avg suspicion, and content counts). Each group's summary strip renders a relevant subset; large money
+is shown compact (e.g. `$3.77M`).
+
+### How an admin customizes the layout
+1. Click **Customize** (top-right of the tab row). Drag handles appear on each main tab and a panel
+   opens with show/hide toggles.
+2. **Reorder**: drag a main tab by its ⋮⋮ handle to a new position (powered by @dnd-kit).
+3. **Show/Hide**: click a toggle in the customize panel to hide/show a group. *Overview cannot be hidden.*
+4. **Reset**: click **Reset** to restore the default order and show all groups.
+5. Click **Done** to exit customize mode.
+
+The layout (order + hidden list) is **saved per admin account** in the backend via
+`PUT /api/admin/layout` (stored on `users.admin_layout`) and reloaded on next visit via
+`GET /api/admin/layout`, so it follows the admin across devices/sessions.

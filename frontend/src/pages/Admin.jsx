@@ -934,7 +934,7 @@ function SummaryCard({ label, value, icon: Icon }) {
                 <Icon className="w-4 h-4 text-neon-cyan" />
             </div>
             <div className="min-w-0">
-                <div className="text-[10px] uppercase font-mono text-muted-foreground tracking-wider truncate">{label}</div>
+                <div className="text-[10px] uppercase font-mono text-muted-foreground tracking-wider leading-tight">{label}</div>
                 <div className="font-display font-bold text-white tnum text-lg leading-tight">{value}</div>
             </div>
         </Panel>

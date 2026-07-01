@@ -256,8 +256,9 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - Backend: JOB_SECTORS seed + CONTENT_MAP; GET /jobs/sectors, GET /jobs/sectors/{id} (unassigned handling); admin CRUD /admin/job-sectors; migrate_job_sectors(). Frontend JobCenter.jsx (JobCard reused) + Admin JobSectorsPanel (job-assignment checkbox picker).
 - Verified: testing_agent iteration_29 backend 100% (12/12) + frontend 100% (5/5), 0 bugs. (Created /app/backend/tests/test_job_sectors.py.)
 
-## NEXT (in progress): Admin Dashboard Overhaul — Categorization & Layout Control
-- Group ~25 flat admin tabs into ~5 logical Main Tabs (Economy, Gameplay Tuning, Player Management, City Infrastructure, Underworld/Finance).
-- Admin-customizable ordering of main tabs (settings panel or drag-and-drop), persisted.
-- Per-tab Dashboard Summary (key metrics: total market value, active workers city-wide, etc.).
-- Keep gritty neon-cyan dark aesthetic. Update docs/ADMIN_SANDBOX.md with layout-customization instructions.
+## 2026-07-01 — Admin Dashboard Overhaul: grouped nav + drag-reorder + summaries (COMPLETE ✓)
+- ~27 flat admin tabs regrouped into 6 Main Tab groups (Overview, Economy, Gameplay Tuning, Player Management, City Infrastructure, Underworld & Finance), each with sub-tabs + a Dashboard Summary metrics strip.
+- Drag-and-drop reorder of main tabs (@dnd-kit) in a "Customize" mode + show/hide toggles (Overview locked) + Reset. Layout persisted per-admin in backend (users.admin_layout via GET/PUT /admin/layout).
+- New GET /admin/overview returns city-wide metrics (players, employed, active workers, market value=Σnet_worth, cash/bank/debt, content counts); compact money format ($3.77M) in summary cards.
+- Backend curl-verified; testing_agent iteration_30 frontend 100%, 0 bugs (real DnD reorder + reload persistence + regression of City Shops/Job Sectors panels confirmed). Docs: docs/ADMIN_SANDBOX.md updated with layout-customization instructions.
+- Backlog: Admin.jsx now ~1095 lines — consider splitting into src/pages/admin/ modules (P2 refactor).
