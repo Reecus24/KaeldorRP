@@ -189,6 +189,8 @@ def coverage_intervals(opening, worker_schedules):
     o, c = opening_bounds(opening)
     ivals = []
     for sch in worker_schedules:
+        if not sch:
+            continue
         s, e = shift_bounds(sch)
         s = max(o, s)
         e = min(c, e)
@@ -233,7 +235,9 @@ def covered_hours_in_range(opening, worker_schedules, g_start, g_end):
 
 
 def worker_shift_hours(schedule, opening):
-    """A worker's paid shift length per day, clipped to the opening window."""
+    """A worker's paid shift length per day, clipped to the opening window. 0 if unscheduled."""
+    if not schedule:
+        return 0.0
     o, c = opening_bounds(opening)
     s, e = shift_bounds(schedule)
     s = max(o, s)
@@ -242,7 +246,9 @@ def worker_shift_hours(schedule, opening):
 
 
 def worker_hours_in_range(schedule, opening, g_start, g_end, clocked_out_until=None):
-    """A single worker's paid hours in [g_start,g_end], clipped to the opening window."""
+    """A single worker's paid hours in [g_start,g_end], clipped to the opening window. 0 if unscheduled."""
+    if not schedule:
+        return 0.0
     o, c = opening_bounds(opening)
     s, e = shift_bounds(schedule)
     s = max(o, s)
@@ -253,7 +259,7 @@ def worker_hours_in_range(schedule, opening, g_start, g_end, clocked_out_until=N
 
 
 def first_uncovered_shift(opening, worker_schedules):
-    """Largest uncovered interval within opening (full opening if nothing is staffed)."""
+    """Largest 0-coverage gap within opening; None if the window is already fully covered."""
     o, c = opening_bounds(opening)
     merged = coverage_intervals(opening, worker_schedules)
     if not merged:
@@ -267,13 +273,47 @@ def first_uncovered_shift(opening, worker_schedules):
     if cursor < c:
         gaps.append((cursor, c))
     if not gaps:
-        return make_shift(o, c)  # already fully covered -> overlap the full window
+        return None  # already fully covered — do NOT overlap (would waste wages)
     best = max(gaps, key=lambda g: g[1] - g[0])
     return make_shift(best[0], best[1])
 
 
+def peak_concurrent(schedules):
+    """Max number of shifts overlapping at any instant (touching shifts do not overlap)."""
+    events = []
+    for sch in schedules:
+        if not sch:
+            continue
+        s, e = shift_bounds(sch)
+        if e > s:
+            events.append((s, 1))
+            events.append((e, -1))
+    events.sort(key=lambda x: (x[0], x[1]))
+    cur = peak = 0
+    for _, d in events:
+        cur += d
+        peak = max(peak, cur)
+    return peak
+
+
+def find_overlapping(proposed, named_schedules):
+    """Return the name of a worker whose shift intersects `proposed`, else None."""
+    if not proposed:
+        return None
+    ps, pe = shift_bounds(proposed)
+    for name, sch in named_schedules:
+        if not sch:
+            continue
+        s, e = shift_bounds(sch)
+        if s < pe and ps < e:
+            return name
+    return None
+
+
 def on_shift_now(schedule, opening, g_now, clocked_out_until=None):
     """True if the worker's shift covers the current game hour and the business is open."""
+    if not schedule:
+        return False
     if not is_open_now(opening, g_now):
         return False
     o, c = opening_bounds(opening)

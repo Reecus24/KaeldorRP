@@ -129,7 +129,7 @@ async def gather_workers(db, b, cfg, traits_map=None):
             prod *= (1 + traits_map.get(t, {}).get("effects", {}).get("revenue", 0))
         workers.append({
             "kind": "npc", "id": e["id"], "name": e["name"], "role": e.get("role"),
-            "wage_per_hour": npc_hourly_wage(e), "schedule": e.get("schedule") or employment.make_schedule("early"),
+            "wage_per_hour": npc_hourly_wage(e), "schedule": e.get("schedule"),
             "clocked_out_until": None, "productivity": round(clamp(prod, 0.2, 1.9), 3),
             "is_player": False, "emp": e,
         })
@@ -279,20 +279,26 @@ async def business_metrics(db, b):
     o_h, c_h = employment.opening_bounds(opening)
     roster = []
     for e in npcs:
-        sh = e.get("schedule") or {}
-        s_h, e_h = employment.shift_bounds(sh)
+        sh = e.get("schedule")
+        scheduled = bool(sh)
+        s_h, e_h = employment.shift_bounds(sh) if scheduled else (None, None)
         roster.append({
             "id": e["id"], "kind": "npc", "name": e["name"], "role": e.get("role"),
-            "shift_start": employment.float_to_hhmm(s_h), "shift_end": employment.float_to_hhmm(e_h),
+            "scheduled": scheduled,
+            "shift_start": employment.float_to_hhmm(s_h) if scheduled else None,
+            "shift_end": employment.float_to_hhmm(e_h) if scheduled else None,
             "hourly_wage": npc_hourly_wage(e), "shift_hours": employment.worker_shift_hours(sh, opening),
             "on_shift": employment.on_shift_now(sh, opening, g_now),
         })
     for pe in pemps:
-        sh = pe.get("schedule") or {}
-        s_h, e_h = employment.shift_bounds(sh)
+        sh = pe.get("schedule")
+        scheduled = bool(sh)
+        s_h, e_h = employment.shift_bounds(sh) if scheduled else (None, None)
         roster.append({
             "id": pe["id"], "kind": "player", "name": pe.get("employee_name") or "Player", "role": pe.get("role"),
-            "shift_start": employment.float_to_hhmm(s_h), "shift_end": employment.float_to_hhmm(e_h),
+            "scheduled": scheduled,
+            "shift_start": employment.float_to_hhmm(s_h) if scheduled else None,
+            "shift_end": employment.float_to_hhmm(e_h) if scheduled else None,
             "hourly_wage": pe.get("wage_per_hour") or round(pe.get("wage_per_shift", 60) / 4.0, 2),
             "shift_hours": employment.worker_shift_hours(sh, opening),
             "on_shift": employment.on_shift_now(sh, opening, g_now, parse_dt(pe.get("clocked_out_until"))),
@@ -307,6 +313,7 @@ async def business_metrics(db, b):
     return {
         "staffing": staffing, "coverage": coverage, "active_coverage": coverage,
         "base_slots": base_slots, "max_staff_slots": max_slots, "staff_count": staff_count,
+        "concurrent_slots": max_slots,
         "max_hire_slots": base_slots * 3 + max(0, b.get("level", 1) - 1),
         "slots_free": max(0, (base_slots * 3 + max(0, b.get("level", 1) - 1)) - staff_count),
         "employee_count": len(npcs), "sick_count": len(sick), "applicant_count": applicants,

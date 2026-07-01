@@ -1506,11 +1506,15 @@ async def biz_employees(biz_id: str, user: dict = Depends(current_user)):
     opening = b.get("opening_hours")
     for e in emps:
         e["projection"] = employment.npc_employee_projection(e, cfg, tmap, b)
-        sh = e.get("schedule") or {}
-        s_h, e_h = employment.shift_bounds(sh)
+        sh = e.get("schedule")
         e["hourly_wage"] = employee_engine.npc_hourly_wage(e)
-        e["shift_start"] = employment.float_to_hhmm(s_h)
-        e["shift_end"] = employment.float_to_hhmm(e_h)
+        if sh:
+            s_h, e_h = employment.shift_bounds(sh)
+            e["shift_start"] = employment.float_to_hhmm(s_h)
+            e["shift_end"] = employment.float_to_hhmm(e_h)
+        else:
+            e["shift_start"] = None
+            e["shift_end"] = None
         e["shift_hours"] = employment.worker_shift_hours(sh, opening)
     return {"employees": emps, "metrics": await employee_engine.business_metrics(db, b)}
 
@@ -1527,8 +1531,10 @@ async def set_opening_hours(biz_id: str, body: OpeningHoursBody, user: dict = De
         raise HTTPException(status_code=400, detail="Opening time must be before closing time (00:00–24:00).")
     opening = {"open": employment.float_to_hhmm(o), "close": ("24:00" if c >= 24 else employment.float_to_hhmm(c))}
     await db.businesses.update_one({"id": biz_id}, {"$set": {"opening_hours": opening}})
-    # clamp any worker shifts that now fall outside the new opening window
+    # clamp any worker shifts that now fall outside the new opening window (skip unscheduled)
     for e in await db.employees.find({"business_id": biz_id, "status": {"$in": ["active", "sick"]}}, {"_id": 0, "id": 1, "schedule": 1}).to_list(300):
+        if not e.get("schedule"):
+            continue
         s, e2 = employment.shift_bounds(e.get("schedule"))
         ns, ne = max(o, s), min(c, e2)
         if ne <= ns:
@@ -1551,8 +1557,21 @@ async def set_employee_shift(biz_id: str, emp_id: str, body: ShiftBody, user: di
         raise HTTPException(status_code=400, detail="Shift start must be before shift end.")
     if s < o - 1e-6 or e > c + 1e-6:
         raise HTTPException(status_code=400, detail=f"Shift must be within opening hours ({employment.float_to_hhmm(o)}–{employment.float_to_hhmm(c)}).")
-    await db.employees.update_one({"id": emp_id}, {"$set": {"schedule": employment.make_shift(s, e)}})
-    return {"ok": True, "schedule": employment.make_shift(s, e)}
+    proposed = employment.make_shift(s, e)
+    # concurrency limit: no more than `concurrent_slots` workers active in the same hour
+    reqs = await employee_engine.get_staffing(db, b)
+    concurrent_slots = max(1, sum(r.get("recommended", 1) for r in reqs)) + (b.get("level", 1) - 1)
+    others = []
+    for o_e in await db.employees.find({"business_id": biz_id, "status": {"$in": ["active", "sick"]}, "id": {"$ne": emp_id}}, {"_id": 0, "name": 1, "schedule": 1}).to_list(300):
+        others.append((o_e["name"], o_e.get("schedule")))
+    for pe in await db.player_employment.find({"business_id": biz_id, "status": "active"}, {"_id": 0, "employee_name": 1, "schedule": 1}).to_list(100):
+        others.append((pe.get("employee_name") or "A player employee", pe.get("schedule")))
+    peak = employment.peak_concurrent([sch for _, sch in others] + [proposed])
+    if peak > concurrent_slots:
+        clash = employment.find_overlapping(proposed, others) or "another worker"
+        raise HTTPException(status_code=400, detail=f"Shift overlaps with {clash} — only {concurrent_slots} worker(s) can be active at the same time. Upgrade to add a slot, or pick non-overlapping hours.")
+    await db.employees.update_one({"id": emp_id}, {"$set": {"schedule": proposed}})
+    return {"ok": True, "schedule": proposed}
 
 
 @api.get("/businesses/{biz_id}/applicants")
@@ -1590,7 +1609,10 @@ async def hire_applicant(biz_id: str, emp_id: str, user: dict = Depends(current_
     await db.employees.update_one({"id": emp_id}, {"$set": {
         "status": "active", "hire_date": now_utc().isoformat(), "last_paid": now_utc().isoformat(),
         "wage_per_hour": wph, "schedule": shift}})
-    await add_event(db, p["id"], f"You hired {emp['name']} as {emp['role'].replace('_', ' ')}.", "business", "success", biz_id)
+    if shift:
+        await add_event(db, p["id"], f"You hired {emp['name']} as {emp['role'].replace('_', ' ')} ({shift['label']}).", "business", "success", biz_id)
+    else:
+        await add_event(db, p["id"], f"You hired {emp['name']} as {emp['role'].replace('_', ' ')}. Opening hours are already covered — assign a shift in the Schedule tab (they cost $0 until scheduled).", "business", "info", biz_id)
     return {"ok": True}
 
 

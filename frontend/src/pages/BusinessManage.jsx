@@ -382,6 +382,7 @@ function ScheduleTab({ id, m, reload }) {
                         <span className={fullyCovered ? "text-neon-green" : "text-neon-yellow"} data-testid="coverage-indicator">
                             Coverage: {covered}/{openHours}h {fullyCovered ? "✓" : `— ${Math.round((openHours - covered) * 10) / 10}h uncovered!`}
                         </span>
+                        <span className="text-muted-foreground" data-testid="concurrent-slots">Max {m.concurrent_slots ?? 1} on shift at once</span>
                         <span className="text-neon-red" data-testid="daily-wages">Daily Wages: {money(m.daily_wage_total || 0)}</span>
                     </div>
                 </div>
@@ -392,6 +393,7 @@ function ScheduleTab({ id, m, reload }) {
                         <div className="absolute inset-y-0 bg-neon-cyan/10 border-x border-neon-cyan/30"
                             style={{ left: `${(openH / 24) * 100}%`, width: `${((closeH - openH) / 24) * 100}%` }} />
                         {roster.map((w, i) => {
+                            if (!w.shift_start) return null;
                             const s = parseHM(w.shift_start), e = w.shift_end === "24:00" ? 24 : parseHM(w.shift_end);
                             return (
                                 <div key={w.id} className="absolute rounded-sm text-[9px] font-mono text-black flex items-center justify-center px-1 overflow-hidden"
@@ -417,15 +419,16 @@ function ScheduleTab({ id, m, reload }) {
                                 <span className="text-white text-sm">{w.name}</span>
                                 <Pill tone={w.kind === "npc" ? "cyan" : "purple"} className="capitalize !text-[9px]">{(w.role || "").replace(/_/g, " ")}</Pill>
                                 {w.on_shift && <Pill tone="green" className="!text-[9px]">On shift</Pill>}
+                                {!w.scheduled && <Pill tone="red" className="!text-[9px]" data-testid={`unscheduled-${w.id}`}>Unscheduled · $0</Pill>}
                             </div>
                             {w.kind === "npc" ? (
                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                    <select defaultValue={w.shift_start} onChange={(e) => saveShift(w.id, e.target.value, w.shift_end)} disabled={busy === w.id} data-testid={`shift-start-${w.id}`}
+                                    <select value={w.shift_start || opening.open} onChange={(e) => saveShift(w.id, e.target.value, w.shift_end || opening.close)} disabled={busy === w.id} data-testid={`shift-start-${w.id}`}
                                         className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-neon-cyan/50">
                                         {shiftOpts.slice(0, -1).map((h) => <option key={h} value={h} className="bg-[#0d0d12]">{h}</option>)}
                                     </select>
                                     <span className="text-muted-foreground text-xs">–</span>
-                                    <select defaultValue={w.shift_end} onChange={(e) => saveShift(w.id, w.shift_start, e.target.value)} disabled={busy === w.id} data-testid={`shift-end-${w.id}`}
+                                    <select value={w.shift_end || opening.close} onChange={(e) => saveShift(w.id, w.shift_start || opening.open, e.target.value)} disabled={busy === w.id} data-testid={`shift-end-${w.id}`}
                                         className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-neon-cyan/50">
                                         {shiftOpts.slice(1).map((h) => <option key={h} value={h} className="bg-[#0d0d12]">{h}</option>)}
                                     </select>
@@ -433,7 +436,7 @@ function ScheduleTab({ id, m, reload }) {
                                 </div>
                             ) : (
                                 <div className="text-[11px] font-mono text-muted-foreground">
-                                    {w.shift_start}–{w.shift_end} · ${w.hourly_wage}/hr <span className="text-neon-purple/70">(player — adjust via Player Hiring)</span>
+                                    {w.scheduled ? `${w.shift_start}–${w.shift_end}` : "no shift"} · ${w.hourly_wage}/hr <span className="text-neon-purple/70">(player — adjust via Player Hiring)</span>
                                 </div>
                             )}
                         </div>

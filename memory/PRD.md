@@ -168,3 +168,10 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - Applicants UI now shows hourly wage ($/hr) instead of $/day (fallback daily_wage/8). Raise event message also $/hr.
 - Wage-raise requests rate-limited: 7 in-game-day cooldown per NPC (`last_raise_request`, falls back to hire_date). Event roll frequency changed from `0.04*gh+0.015` (per-poll spam) to `0.05*gh` (elapsed-time based) — no more per-tick spam.
 - Overstaffing allowed: `max_hire_slots = base_slots*3 + (level-1)`. Production stays coverage-capped (overlap doesn't multiply); wages = Σ(hourly×shift_hours). Verified: 3 NPCs on 1-slot kiosk (08-12/12-16/16-20), covered 12/12h, net ~$218, 4th hire rejected. UI "Staff: X/max_hire_slots hired".
+
+## 2026-07-01 — P0 wage/scheduling bug fixes
+- ROOT CAUSE of "more staff = less money": auto-hire (`first_uncovered_shift`) returned the FULL opening window (overlap) when already covered → extra worker added 12h of wages with 0 extra coverage. Also unscheduled workers defaulted to a paid 08–16 shift (shift_bounds default) — a wage leak.
+- FIX: `first_uncovered_shift` returns None when fully covered; hire stores schedule=null (unscheduled = $0). Helpers (`worker_shift_hours`, `worker_hours_in_range`, `on_shift_now`, `coverage_intervals`) now treat null schedule as 0/absent. `gather_workers` no longer defaults NPC schedule.
+- OVERLAP GUARD (BUG 1): PATCH /employees/{id}/shift validates `peak_concurrent(all shifts) <= concurrent_slots` (= base_slots + level-1); rejects with "Shift overlaps with {name} — only N worker(s) can be active at the same time." Added `peak_concurrent`, `find_overlapping` helpers; metrics exposes `concurrent_slots`.
+- Wage formula confirmed correct: wages = Σ(hourly × clipped shift_hours); production = pph × union_covered_hours × sat × level_mult (coverage-based, not headcount). Verified E2E: shrink NPC1 to 6h halves net; hiring NPC2 into uncovered hours RAISES net; overlap rejected; 3rd hire while covered = unscheduled $0 (net unchanged).
+- Frontend Schedule tab: unscheduled workers show "Unscheduled · $0" pill + no timeline block; "Max N on shift at once" indicator.
