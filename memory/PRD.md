@@ -5,6 +5,15 @@ Browser-based **persistent, real-time life-simulation RPG** ("Kaeldor RPG"). A l
 
 **Hard design rule:** NO action points, NO daily action limits, NO "end turn". Always playable. Balance comes from real-time action durations, fatigue, money, risk, cooldowns, health, stress, consequences, and opportunity cost. Offline time counts; jobs/education/business/legal/recovery continue while offline.
 
+## Session Update — 2026-07-01 (Underworld Overhaul + Financial Sandbox)
+**Underworld gatekeeping:** the tab is fully locked until the player has a TRUSTED criminal contact. Meet a Shady Contact via Socials 3.0 (new `go_to_streets` "Prowl the Backstreets" location action), unlock at Relationship≥40 & Trust≥30 (`UW_MIN_SCORE`/`UW_MIN_TRUST`). Gated: `/illegal-actions`, `/illegal-actions/commit`, `/market/crypto`, crypto trades. New `GET /underworld/status`.
+**Crime risk profiles:** crimes now expose live effective `bust_risk` (caught → fine+jail+suspicion) vs `fail_chance` (job flops → $0, NO jail), computed to mirror `_resolve_illegal` (street smarts lowers both; suspicion raises bust; bust+fail capped 0.95). Underworld crime cards render Fail vs Bust as two distinct panels.
+**Financial markets (`market_engine.py`):** geometric-random-walk prices advancing lazily on read by real elapsed time (1 game hr=1 real hr), clamped [0.1×,12×] base. Stocks (KAEL/NOVA/HELX/ORB) traded in Bank (open); Crypto (BTK/ETK/KLD/DGZ) traded in Underworld (gated). `p.portfolio={asset_id:{qty,avg_cost}}`, valued into net worth as `investments`. Endpoints: `/market/stocks|crypto|portfolio|buy|sell`. Shared `MarketPanel.jsx` UI with sparklines + positions/P&L.
+**Admin Sandbox:** Tuning tab gains Stock Market + Crypto Market sections (`stock_drift`, `stock_volatility`, `crypto_drift`, `crypto_volatility`).
+**Docs/tests:** `/app/docs/UNDERWORLD_MARKETS.md`; new `/app/tests/verify_markets.py` (price bounds, drift direction, crime math) PASS; `verify_economy.py` still green.
+**Verification:** testing_agent iteration_23 — backend 15/15 pytest PASS + frontend 8/8 PASS, zero console errors.
+
+
 ## Session Update — 2026-07-01 (Phase 4: Inventory & Equipment + Active Perks panel)
 **Equipment system:** players have 5 slots — outfit, accessory, phone, computer, work_gear (`p.equipment = {slot: item_id}`). Equippable items carry `slot` + `equip` bonus dict; aggregated into `p.equip_bonus` (floors→max, *_mult→product, rest→sum) via `_recompute_equip_bonus` on equip/unequip. Endpoints: `GET /equipment`, `POST /inventory/{id}/equip`, `POST /equipment/{slot}/unequip`. `GET /inventory` now returns `usable`(consumable only)/`equippable`/`equipped` flags; `use` restricted to consumables.
 **Passive bonuses wired into formulas:** `work_effectiveness`→effectiveness() (cap raised to 1.25, also lifts pay+XP+tips), `tip_rate`→job tips, `social_success`→social interaction chance, `energy_drain_mult`/`health_regen`/`*_floor` (mood/social_status/reputation)→decay_needs(). All additive/floor — no infinite stacking.
