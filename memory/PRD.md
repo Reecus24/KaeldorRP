@@ -182,3 +182,12 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - Added /app/tests/verify_economy.py (8 assertions incl. live engine _day_rates) — ALL PASS. Run: `python3 /app/tests/verify_economy.py`.
 - Grep audit: 0 hits for ×24, ×8 production, or daily_wage in calc path. Remaining daily_wage = NPC generation attribute + hourly-rate derivation (compliant); market `wage_day` = hours×rate display value; `backup_wage_day` = legacy field $unset cleanup.
 - No economy regression: all 10 L1 market estimates within ±1% of targets.
+
+## 2026-07-01 — Master Audit (Priorities 1–5) COMPLETE
+- P1 Admin Sandbox: config.tuning + business_types economics, live via get_config→apply_tuning→TUNE. Endpoints GET/PUT admin/config, admin/business-economy(/{type}), admin/players(/{id}). Admin UI: Economy Sandbox, Tuning, editable Players.
+- P2 Player Stats linked: Legal Standing & Social Status gate high-tier jobs (meets_requirements +min_legal_reputation/min_social_status/max_suspicion), Suspicion → hiring penalty + jail risk, Reputation+Social → job tips. Doc PLAYER_STATS_LOGIC.md.
+- P3 Social overhaul: ask_loan→debt, ask_favor→non-cash, networking→leads/+4 rep. Doc SOCIAL_SYSTEM_LOGIC.md.
+- P4 UI audit: Job Center requirements chip row, Daily Summary taxes+savings, net-after-tax shift events. Doc UI_AUDIT_NOTES.md.
+- P5 Creative: Income Tax (tunable brackets), Savings Interest, Skill Decay. Doc CREATIVE_ENHANCEMENTS.md.
+- Verified: verify_economy.py PASSES; testing_agent iteration_19 backend 11/11, frontend 100%, 0 issues.
+- Docs source-of-truth: /app/docs/{ECONOMY,PLAYER_STATS,SOCIAL_SYSTEM,ADMIN_SANDBOX,CREATIVE_ENHANCEMENTS,UI_AUDIT_NOTES,MASTER_AUDIT_COMPLETE}.md
