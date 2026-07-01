@@ -275,7 +275,7 @@ BUSINESS_TYPES = [
      "product": {"name": "Snack & Drink Combo", "price": 12.0},
      "recipe": [{"id": "snacks", "name": "Snacks", "qty": 1, "cost": 4.0},
                 {"id": "drinks", "name": "Drinks", "qty": 1, "cost": 2.5}],
-     "production_per_worker_hour": 10.0, "daily_demand": 200,
+     "production_per_worker_hour": 10.0, "daily_demand": 220,
      "requirements": {}, "max_level": 5, "legal_risk": 0.02,
      "desc": "Snacks and drinks on a busy corner. Easy entry into business."},
     {"id": "delivery_service", "name": "Delivery Service", "category": "logistics", "purchase_price": 9000,

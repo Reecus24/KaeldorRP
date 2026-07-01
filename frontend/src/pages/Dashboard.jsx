@@ -23,6 +23,19 @@ export default function Dashboard() {
 
     const nextXp = 250 * player.level;
     const xpPct = Math.min(100, (player.xp / nextXp) * 100);
+    const nwb = state?.net_worth_breakdown;
+    const nwInfo = nwb ? (
+        <div className="space-y-0.5" data-testid="networth-breakdown">
+            <div className="font-bold mb-1">Net worth = what you'd have if you cashed out</div>
+            <div className="flex justify-between gap-4"><span>Cash</span><span>{money(nwb.cash)}</span></div>
+            <div className="flex justify-between gap-4"><span>Bank</span><span>{money(nwb.bank)}</span></div>
+            <div className="flex justify-between gap-4"><span>− Debt</span><span>-{money(nwb.debt)}</span></div>
+            <div className="flex justify-between gap-4"><span>Vehicles (resale)</span><span>{money(nwb.vehicles)}</span></div>
+            <div className="flex justify-between gap-4"><span>Property (est.)</span><span>{money(nwb.property)}</span></div>
+            <div className="flex justify-between gap-4"><span>Businesses</span><span>{money(nwb.business)}</span></div>
+            <div className="flex justify-between gap-4 border-t border-white/15 mt-1 pt-1 font-bold"><span>Total</span><span>{money(nwb.total)}</span></div>
+        </div>
+    ) : "Cash + Bank − Debt + Vehicles + Property + Business value.";
 
     return (
         <div className="space-y-6">
@@ -35,7 +48,7 @@ export default function Dashboard() {
 
             {/* Money tiles */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <StatTile label="Net Worth" value={money(state?.net_worth)} accent="#00FF66" testid="tile-networth" />
+                <StatTile label="Net Worth" value={money(state?.net_worth)} accent="#00FF66" testid="tile-networth" info={nwInfo} />
                 <StatTile label="Cash" value={money(player.cash)} accent="#00F3FF" testid="tile-cash" />
                 <StatTile label="Bank" value={money(player.bank)} accent="#00F3FF" testid="tile-bank" />
                 <StatTile label="Debt" value={money(player.debt)} accent={player.debt > 0 ? "#FF0055" : "#9CA3AF"} testid="tile-debt" />

@@ -56,6 +56,22 @@ async def get_staffing(db, b):
     return (doc or {}).get("requirements", [])
 
 
+def _distribute_slots(reqs, max_slots):
+    """Spread the business's staff slots across its roles so per-role targets sum to max_slots.
+    Extra slots unlocked by upgrades go to the roles with the largest base need first."""
+    rec = [r.get("recommended", 1) for r in reqs]
+    if not rec:
+        return rec
+    extra = max(0, max_slots - sum(rec))
+    order = sorted(range(len(rec)), key=lambda i: -rec[i])
+    i = 0
+    while extra > 0:
+        rec[order[i % len(order)]] += 1
+        extra -= 1
+        i += 1
+    return rec
+
+
 async def _traits_map(db):
     return {t["id"]: t for t in await db.employee_traits.find({}, {"_id": 0}).to_list(100)}
 
@@ -72,8 +88,33 @@ def unit_price(b):
     return (b.get("product") or {}).get("price", 0)
 
 
+def marketing_demand_mult(b):
+    """Marketing brings more customers: +25% demand per level."""
+    return 1 + 0.25 * b.get("marketing_level", 0)
+
+
+def marketing_price_mult(b):
+    """Brand strength lets the business charge a premium: +10% price per level.
+    This stays visible even when the business is capacity-bound (already sold out)."""
+    return 1 + 0.10 * b.get("marketing_level", 0)
+
+
+def reputation_mult(b):
+    """REPUTATION = market reach. Scales customer DEMAND from 0.5x (unknown) to 1.0x (famous)."""
+    return round(0.5 + 0.5 * (b.get("reputation", 50) / 100.0), 4)
+
+
+def satisfaction_mult(b):
+    """SATISFACTION = team morale/efficiency. Scales PRODUCTION output from 0.65x to 1.0x."""
+    return round(0.65 + 0.35 * (b.get("satisfaction", 60) / 100.0), 4)
+
+
+def effective_price(b):
+    return round(unit_price(b) * marketing_price_mult(b), 4)
+
+
 def margin_per_unit(b):
-    return round(unit_price(b) - material_cost_per_unit(b), 4)
+    return round(effective_price(b) - material_cost_per_unit(b), 4)
 
 
 async def gather_workers(db, b, cfg, traits_map=None):
@@ -111,19 +152,19 @@ async def gather_workers(db, b, cfg, traits_map=None):
     return workers
 
 
-def _day_rates(b, workers):
+def _day_rates(b, workers, upgrade_penalty=1.0):
     """Steady-state per-day P&L forecast (transparent; independent of tick size)."""
     pph = b.get("production_per_worker_hour", 0)
-    mkt = 1 + 0.06 * b.get("marketing_level", 0)
-    rep = 0.5 + 0.5 * (b.get("reputation", 50) / 100.0)
+    mkt = marketing_demand_mult(b)
+    rep = reputation_mult(b)
     lvl = 1 + 0.6 * (b.get("level", 1) - 1)
     demand_day = b.get("daily_demand", 0) * mkt * rep * lvl
     prod_hours_day = sum(w["productivity"] * employment.schedule_hours_per_day(w["schedule"]) for w in workers)
-    capacity_day = pph * prod_hours_day
+    capacity_day = pph * prod_hours_day * satisfaction_mult(b)
     sold_day = min(capacity_day, demand_day)
     mc = material_cost_per_unit(b)
-    price = unit_price(b)
-    rev_day = round(sold_day * price, 2)
+    eprice = effective_price(b)
+    rev_day = round(sold_day * eprice * upgrade_penalty, 2)
     material_day = round(sold_day * mc, 2)
     wages_day = round(sum(w["wage_per_hour"] * employment.schedule_hours_per_day(w["schedule"]) for w in workers), 2)
     net_day = round(rev_day - material_day - wages_day, 2)
@@ -131,7 +172,7 @@ def _day_rates(b, workers):
         "demand_day": round(demand_day, 1), "capacity_day": round(capacity_day, 1),
         "produced_day": round(sold_day, 1), "sold_day": round(sold_day, 1),
         "rev_day": rev_day, "material_day": material_day,
-        "wages_day": wages_day, "net_day": net_day,
+        "wages_day": wages_day, "net_day": net_day, "effective_price": eprice,
     }
 
 
@@ -199,9 +240,12 @@ async def business_metrics(db, b):
         if employment.emp_on_shift(pe, g_now):
             p_active_by_role[r] = p_active_by_role.get(r, 0) + 1
 
+    base_slots = max(1, sum(r.get("recommended", 1) for r in reqs))
+    max_slots = base_slots + (b.get("level", 1) - 1)
+    scaled_rec = _distribute_slots(reqs, max_slots)
     staffing, active_ratios = [], []
-    for r in reqs:
-        rec = r.get("recommended", 1)
+    for idx, r in enumerate(reqs):
+        rec = scaled_rec[idx]
         assigned = npc_by_role.get(r["role"], 0) + p_by_role.get(r["role"], 0)
         active = npc_active_by_role.get(r["role"], 0) + p_active_by_role.get(r["role"], 0)
         if active > 0:
@@ -217,9 +261,6 @@ async def business_metrics(db, b):
         })
         active_ratios.append(min(1, active / rec) if rec else 1)
     coverage = round(sum(active_ratios) / len(active_ratios), 2) if active_ratios else 1.0
-
-    base_slots = max(1, sum(r.get("recommended", 1) for r in reqs))
-    max_slots = base_slots + (b.get("level", 1) - 1)
     staff_count = len(npcs) + len(sick) + len(pemps)
 
     allp = npcs + sick
@@ -240,9 +281,15 @@ async def business_metrics(db, b):
         "exp_day": round(b.get("material_day", 0) + b.get("wages_day", 0), 2),
         "net_day": round(b.get("net_day", 0), 2),
         "demand_day": round(b.get("demand_day", 0), 1), "produced_day": round(b.get("produced_day", 0), 1),
-        "sold_day": round(b.get("sold_day", 0), 1),
+        "sold_day": round(b.get("sold_day", 0), 1), "capacity_day": round(b.get("capacity_day", 0), 1),
+        "reputation": round(b.get("reputation", 50)),
+        "reputation_demand_mult": reputation_mult(b), "satisfaction_production_mult": satisfaction_mult(b),
         "product": b.get("product") or {}, "recipe": _recipe(b),
         "material_cost_per_unit": material_cost_per_unit(b), "margin_per_unit": margin_per_unit(b),
+        "effective_price": effective_price(b), "base_price": unit_price(b),
+        "marketing_level": b.get("marketing_level", 0),
+        "marketing_demand_pct": round((marketing_demand_mult(b) - 1) * 100),
+        "marketing_price_pct": round((marketing_price_mult(b) - 1) * 100),
         "products_in_stock": round(b.get("products", 0), 1), "materials": mat_view,
         "auto_restock": b.get("auto_restock", True), "restock_target": b.get("restock_target", b.get("daily_demand", 0)),
     }
@@ -440,6 +487,27 @@ async def resolve_business(db, cfg, now, b):
 
     workers = await gather_workers(db, b, cfg, traits_map)
 
+    # --- business activity timers (upgrade / marketing campaign) ---
+    upgrade_active = False
+    act = b.get("activity")
+    if act and not act.get("completed"):
+        ends = parse_dt(act.get("ends_at"))
+        if ends and now >= ends:
+            t = act.get("type")
+            if t == "upgrade" and b.get("level", 1) < b.get("max_level", 1):
+                b["level"] = b.get("level", 1) + 1
+                b["reputation"] = clamp(b.get("reputation", 50) + 4)
+                await add_event(db, b["player_id"], f"Upgrade complete — {b['name']} is now level {b['level']} (+1 staff slot).", "business", "success", bid)
+                await add_notification(db, b["player_id"], "business", "Upgrade complete", f"{b['name']} reached level {b['level']}. A new staff slot is unlocked.", "success", f"/businesses/{bid}")
+            elif t == "marketing":
+                b["marketing_level"] = b.get("marketing_level", 0) + 1
+                b["reputation"] = clamp(b.get("reputation", 50) + 8)
+                await add_event(db, b["player_id"], f"Marketing campaign live — {b['name']} demand & pricing boosted (marketing L{b['marketing_level']}).", "business", "success", bid)
+                await add_notification(db, b["player_id"], "business", "Marketing campaign live", f"{b['name']}'s campaign rolled out. Revenue is up.", "success", f"/businesses/{bid}")
+            b["activity"] = None
+        elif act.get("type") == "upgrade":
+            upgrade_active = True
+
     # --- actual cash flow for the elapsed window ---
     material_spend = 0.0
     revenue = 0.0
@@ -458,7 +526,7 @@ async def resolve_business(db, cfg, now, b):
             wages += wg
             if w["is_player"]:
                 player_bookings.append((w["emp"], wg, hrs, w["productivity"]))
-        capacity = b.get("production_per_worker_hour", 0) * labor_hours
+        capacity = b.get("production_per_worker_hour", 0) * labor_hours * satisfaction_mult(b)
         # restock enough materials to cover this window's production (+buffer), auto if enabled
         if b.get("auto_restock", True) and capacity > 0:
             material_spend += _auto_restock(b, capacity, None)
@@ -467,14 +535,14 @@ async def resolve_business(db, cfg, now, b):
             _consume(b, produced)
             b["products"] = round(b.get("products", 0) + produced, 3)
         # sell to demand
-        mkt = 1 + 0.06 * b.get("marketing_level", 0)
-        rep = 0.5 + 0.5 * (b.get("reputation", 50) / 100.0)
+        mkt = marketing_demand_mult(b)
+        rep = reputation_mult(b)
         lvl = 1 + 0.6 * (b.get("level", 1) - 1)
         demand_units = b.get("daily_demand", 0) * mkt * rep * lvl * gh / 24.0
         sold = min(b.get("products", 0), demand_units)
         if sold > 0:
             b["products"] = round(b.get("products", 0) - sold, 3)
-            revenue = round(sold * unit_price(b), 2)
+            revenue = round(sold * effective_price(b) * (0.5 if upgrade_active else 1.0), 2)
             b["cash"] = round(b.get("cash", 0) + revenue, 2)
         # pay wages from business cash; shortfall becomes business debt (no bankruptcy)
         if wages > 0:
@@ -505,18 +573,24 @@ async def resolve_business(db, cfg, now, b):
                                          "net": rev_share, "productivity": prod, "at": now.isoformat()}}})
 
     # --- steady-state per-day forecast for the UI ---
-    rates = _day_rates(b, workers)
+    rates = _day_rates(b, workers, upgrade_penalty=0.5 if upgrade_active else 1.0)
     b.update({k: rates[k] for k in ("demand_day", "capacity_day", "produced_day", "sold_day",
                                     "rev_day", "material_day", "wages_day", "net_day")})
     b["exp_day"] = round(rates["material_day"] + rates["wages_day"], 2)
 
     # satisfaction + reputation drift from how well demand is met
-    fill = rates["sold_day"] / rates["demand_day"] if rates["demand_day"] > 0 else 1.0
-    avg_prod = (sum(w["productivity"] for w in workers) / len(workers)) if workers else 0.6
-    sat_target = clamp(45 + 40 * fill + (avg_prod - 0.8) * 30)
+    # SATISFACTION = team morale/efficiency: driven by shift coverage and worker quality (drives production)
+    needed = max(1, sum(r.get("recommended", 1) for r in reqs))
+    coverage_ratio = min(1.0, len(workers) / needed)
+    avg_prod = (sum(w["productivity"] for w in workers) / len(workers)) if workers else 0.5
+    sat_target = clamp(35 + 35 * coverage_ratio + 40 * avg_prod)
+    # REPUTATION = market reach: grows while you keep shelves stocked, fades on stock-outs (drives demand)
+    met_demand = rates["sold_day"] >= rates["demand_day"] - 0.5
+    in_stock = 1.0 if (b.get("products", 0) > 0.5 or met_demand) else 0.4
+    rep_target = clamp(40 + 45 * in_stock)
     if gh > 0:
         b["satisfaction"] = clamp(b["satisfaction"] + (sat_target - b["satisfaction"]) * min(1, 0.05 * gh))
-        b["reputation"] = clamp(b.get("reputation", 50) + (b["satisfaction"] - b.get("reputation", 50)) * min(1, 0.03 * gh))
+        b["reputation"] = clamp(b.get("reputation", 50) + (rep_target - b.get("reputation", 50)) * min(1, 0.015 * gh))
         if revenue or wages or material_spend:
             b["revenue_total"] = round(b.get("revenue_total", 0) + max(revenue, 0), 2)
             hist = b.get("history", [])

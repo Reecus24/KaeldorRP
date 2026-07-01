@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import {
     Boxes, ArrowLeft, Users, UserPlus, GraduationCap, ScrollText, LineChart, LayoutGrid,
     TrendingUp, TrendingDown, AlertTriangle, Megaphone, ArrowUpCircle, Smile, Gauge,
-    Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck, ClipboardList, Save, Plus, Trash2,
+    Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck,
 } from "lucide-react";
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -274,79 +274,6 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
     );
 }
 
-function RosterPlan({ bizId, onSaved }) {
-    const [plan, setPlan] = useState(null);
-    const [avail, setAvail] = useState([]);
-    const [addRole, setAddRole] = useState("");
-    const [busy, setBusy] = useState(false);
-    const load = useCallback(() => api.get(`/businesses/${bizId}/roster-plan`).then(({ data }) => { setPlan(data.plan); setAvail(data.available_roles); }), [bizId]);
-    useEffect(() => { load(); }, [load]);
-
-    const upd = (i, key, val) => setPlan((p) => p.map((r, j) => j === i ? { ...r, [key]: val } : r));
-    const removeRow = (i) => setPlan((p) => p.filter((_, j) => j !== i));
-    const add = () => {
-        if (!addRole || plan.some((r) => r.role === addRole)) return;
-        const rd = avail.find((a) => a.role === addRole);
-        setPlan((p) => [...p, { role: addRole, recommended: 1, wage: 15, schedule: "early", open: true, _label: rd?.label }]);
-        setAddRole("");
-    };
-    const save = async () => {
-        setBusy(true);
-        try {
-            await api.put(`/businesses/${bizId}/roster-plan`, { plan: plan.map((r) => ({ role: r.role, recommended: Number(r.recommended), wage: r.wage ? Number(r.wage) : null, schedule: r.schedule, open: !!r.open })) });
-            toast.success("Roster plan saved");
-            await load(); onSaved && onSaved();
-        } catch (e) { toast.error(errMessage(e)); }
-        setBusy(false);
-    };
-    if (!plan) return <Spinner />;
-    const labelFor = (role) => avail.find((a) => a.role === role)?.label || role.replace(/_/g, " ");
-    const addable = avail.filter((a) => !plan.some((r) => r.role === a.role));
-
-    return (
-        <div className="space-y-4">
-            <Panel className="p-5" data-testid="roster-plan-editor">
-                <div className="flex items-center gap-1.5 mb-1">
-                    <span className="font-display font-bold text-white">Roster Plan & Job Listings</span>
-                    <InfoTip text="Define the roles your business needs (drives staffing coverage), the suggested wage and default shift for offers, and whether the role is openly advertised to applicants." />
-                </div>
-                <p className="text-[11px] text-muted-foreground mb-4">Set how many of each role you want, the suggested $/h and default shift used when you make an offer, and whether the role is shown as 'hiring' in the Job Market.</p>
-                <div className="space-y-2">
-                    {plan.length === 0 && <div className="text-sm text-muted-foreground">No roles defined. Add one below.</div>}
-                    {plan.map((r, i) => (
-                        <div key={r.role} className="flex items-center gap-2 flex-wrap border-b border-white/5 pb-2" data-testid={`roster-row-${r.role}`}>
-                            <span className="capitalize text-white text-sm w-32 shrink-0">{labelFor(r.role)}</span>
-                            <label className="text-[10px] text-muted-foreground flex items-center gap-1">Need
-                                <input type="number" min="0" max="8" value={r.recommended} onChange={(e) => upd(i, "recommended", e.target.value)} data-testid={`roster-need-${r.role}`}
-                                    className="w-14 bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono" /></label>
-                            <label className="text-[10px] text-muted-foreground flex items-center gap-1">$/h
-                                <input type="number" min="1" value={r.wage ?? ""} onChange={(e) => upd(i, "wage", e.target.value)} data-testid={`roster-wage-${r.role}`}
-                                    className="w-16 bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono" /></label>
-                            <select value={r.schedule || "early"} onChange={(e) => upd(i, "schedule", e.target.value)} data-testid={`roster-sched-${r.role}`}
-                                className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-[11px] text-white">
-                                {Object.entries(SHIFT_PRESETS).map(([k, v]) => <option key={k} value={k} className="bg-[#0d0d12]">{v.label}</option>)}
-                            </select>
-                            <label className="text-[10px] text-muted-foreground flex items-center gap-1 cursor-pointer" data-testid={`roster-open-${r.role}`}>
-                                <input type="checkbox" checked={!!r.open} onChange={(e) => upd(i, "open", e.target.checked)} className="accent-neon-cyan" /> Hiring
-                            </label>
-                            <button onClick={() => removeRow(i)} className="text-muted-foreground hover:text-neon-red ml-auto" data-testid={`roster-remove-${r.role}`}><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                    ))}
-                </div>
-                <div className="flex items-center gap-2 mt-4">
-                    <select value={addRole} onChange={(e) => setAddRole(e.target.value)} data-testid="roster-add-select"
-                        className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white">
-                        <option value="" className="bg-[#0d0d12]">+ Add role…</option>
-                        {addable.map((a) => <option key={a.role} value={a.role} className="bg-[#0d0d12]">{a.label}</option>)}
-                    </select>
-                    <KButton variant="ghost" onClick={add} disabled={!addRole} data-testid="roster-add-button"><Plus className="w-3.5 h-3.5" /> Add</KButton>
-                    <KButton variant="green" className="ml-auto" loading={busy} onClick={save} data-testid="roster-save-button"><Save className="w-3.5 h-3.5" /> Save Plan</KButton>
-                </div>
-            </Panel>
-        </div>
-    );
-}
-
 export default function BusinessManage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -459,7 +386,6 @@ export default function BusinessManage() {
                 <Tab active={tab === "employees"} onClick={() => setTab("employees")} icon={Users} testid="tab-employees">Employees ({m.employee_count})</Tab>
                 <Tab active={tab === "applicants"} onClick={() => setTab("applicants")} icon={UserPlus} testid="tab-applicants">Applicants ({m.applicant_count})</Tab>
                 <Tab active={tab === "hiring"} onClick={() => setTab("hiring")} icon={Users} testid="tab-hiring">Player Hiring</Tab>
-                <Tab active={tab === "roster"} onClick={() => setTab("roster")} icon={ClipboardList} testid="tab-roster">Roster Plan</Tab>
                 <Tab active={tab === "training"} onClick={() => setTab("training")} icon={GraduationCap} testid="tab-training">Training</Tab>
                 <Tab active={tab === "events"} onClick={() => setTab("events")} icon={ScrollText} testid="tab-events">Events</Tab>
             </div>
@@ -469,11 +395,12 @@ export default function BusinessManage() {
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                         <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#00FF66" : "#FF0055"} sub="rev − materials − wages" />
-                        <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00F3FF" sub={`${Math.round(m.sold_day)} sold × ${money2(m.product?.price || 0)}`} />
+                        <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00F3FF" sub={`${Math.round(m.sold_day)} sold × ${money2(m.effective_price ?? m.product?.price ?? 0)}`} />
                         <Tile label="Materials / day" value={money(m.material_day)} accent="#FFC300" sub={`${money2(m.material_cost_per_unit)}/unit`} />
                         <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#FF8A00" />
                         <Tile label="Products in stock" value={Math.round(m.products_in_stock)} accent="#B026FF" sub={`${Math.round(m.demand_day)}/day demand`} />
                         <Tile label="Uncollected cash" value={money(b.cash)} accent="#00FF66" />
+                        <Tile label="Staff slots" value={`${m.staff_count ?? 0}/${m.max_staff_slots ?? 0}`} accent="#00F3FF" sub="upgrade for +1 slot" />
                         <Tile label="Business debt" value={money(b.debt)} accent={b.debt > 0 ? "#FF0055" : "#9CA3AF"} />
                         <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" sub={`Satisfaction ${m.satisfaction}%`} />
                     </div>
@@ -546,7 +473,7 @@ export default function BusinessManage() {
                                 Staffing
                                 <InfoTip text="Workers (NPC and player employees alike) produce the goods during their scheduled shifts. Only workers on shift right now count toward 'active'. Same wage & productivity math for everyone." testid="staffing-info" />
                             </div>
-                            <div className="text-[11px] font-mono text-muted-foreground">Active {Math.round((m.active_coverage ?? 0) * 100)}% · Roster {Math.round((m.roster_coverage ?? 1) * 100)}%</div>
+                            <div className="text-[11px] font-mono text-muted-foreground" data-testid="active-staff-count">Active Staff: {m.staff_count ?? 0}/{m.max_staff_slots ?? 0} slots · {Math.round((m.active_coverage ?? 0) * 100)}% covered</div>
                         </div>
                         <div className="space-y-2 mt-2">
                             {m.staffing.length === 0 && <div className="text-sm text-muted-foreground">No specific staffing needed.</div>}
@@ -557,10 +484,10 @@ export default function BusinessManage() {
                                         <div className="min-w-0">
                                             <span className="capitalize text-white text-sm">{s.role.replace(/_/g, " ")}</span>
                                             <div className="text-[11px] font-mono">
-                                                <span className="text-muted-foreground">Roster {s.roster_filled}/{s.recommended} · </span>
+                                                <span className="text-muted-foreground">Assigned {s.assigned}/{s.recommended} · </span>
                                                 <span className={activeOk ? "text-neon-green" : "text-neon-yellow"} data-testid={`staffing-active-${s.role}`}>Active {s.active_working}/{s.recommended}</span>
                                             </div>
-                                            <div className="text-[10px] text-muted-foreground">{s.status}{s.npc_have ? ` · ${s.npc_have} NPC` : ""}{s.player_roster ? ` · ${s.player_roster} player` : ""}</div>
+                                            <div className="text-[10px] text-muted-foreground">{s.status}{s.npc_have ? ` · ${s.npc_have} NPC` : ""}{s.player_have ? ` · ${s.player_have} player` : ""}</div>
                                         </div>
                                     </div>
                                 );
@@ -569,30 +496,29 @@ export default function BusinessManage() {
                     </Panel>
 
                     <Panel className="p-4" data-testid="biz-actions">
-                        <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
                                 <div className="font-display font-bold text-white text-sm mb-0.5">Collect Profit</div>
                                 <p className="text-[11px] text-muted-foreground mb-3 flex-1">Move the business's uncollected cash into your wallet. Instant.</p>
                                 <KButton variant="green" disabled={b.cash <= 0} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(b.cash)}</KButton>
                             </div>
-                            <div className="border border-white/10 rounded-sm p-3 flex flex-col">
-                                <div className="font-display font-bold text-white text-sm mb-0.5">Upgrade · Lvl {costs.upgrade_from_level} → {costs.upgrade_to_level}</div>
-                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">{costs.can_upgrade ? `+25% production capacity & demand per level, +4 reputation. Instant.` : "This business is already at its maximum level."}</p>
-                                <KButton variant="primary" disabled={!costs.can_upgrade} loading={busy === "upgrade"} onClick={() => run(() => api.post(`/businesses/${id}/upgrade`), "Upgraded", "upgrade")} data-testid="ov-upgrade"><ArrowUpCircle className="w-3.5 h-3.5" /> {costs.can_upgrade ? `Upgrade · ${money(costs.upgrade_cost)}` : "Max level"}</KButton>
+                            <div className="border border-neon-purple/40 rounded-sm p-3 flex flex-col bg-neon-purple/5">
+                                <div className="font-display font-bold text-white text-sm mb-0.5 flex items-center gap-1.5">Marketing · Lvl {costs.marketing_level}
+                                    <InfoTip text="Marketing builds your brand: +25% customer demand AND a +12% price premium per level. The price premium raises revenue immediately — even when you're already selling out." testid="marketing-info" /></div>
+                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">Each level: +{costs.marketing_demand_boost_pct}% demand, +{costs.marketing_price_boost_pct}% price, +{costs.marketing_reputation_gain} reputation. Takes ~{costs.marketing_duration_days} in-game days to roll out.</p>
+                                <KButton className="border border-neon-purple text-neon-purple hover:bg-neon-purple hover:text-white disabled:opacity-40" disabled={costs.activity_in_progress} loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign launched", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> {costs.activity?.type === "marketing" ? "Campaign running…" : costs.activity_in_progress ? "Busy…" : `Run Marketing · ${money(costs.marketing_cost)} · ${costs.marketing_duration_days}d`}</KButton>
                             </div>
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
-                                <div className="font-display font-bold text-white text-sm mb-0.5">Marketing · Level {costs.marketing_level} → {costs.marketing_next_level}</div>
-                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">+{costs.marketing_revenue_boost_pct}% demand and +{costs.marketing_reputation_gain} reputation. Instant, permanent demand boost.</p>
-                                <KButton className="border border-neon-purple text-neon-purple hover:bg-neon-purple hover:text-white" loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign run", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> Run Marketing · {money(costs.marketing_cost)}</KButton>
+                                <div className="font-display font-bold text-white text-sm mb-0.5 flex items-center gap-1.5">Upgrade — +1 Staff Slot
+                                    <InfoTip text="Each upgrade adds one staff slot so you can hire another worker, and raises production capacity & demand by ~25% plus +4 reputation. Construction takes ~7 in-game days and cuts income 50% until done." testid="upgrade-info" /></div>
+                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">{costs.can_upgrade ? `Level ${costs.upgrade_from_level} → ${costs.upgrade_to_level}: +1 staff slot, +25% capacity & demand. Takes ~${costs.upgrade_duration_days} in-game days (income −50% during build).` : "This business is already at its maximum level."}</p>
+                                <KButton variant="primary" disabled={!costs.can_upgrade || costs.activity_in_progress} loading={busy === "upgrade"} onClick={() => run(() => api.post(`/businesses/${id}/upgrade`), "Upgrade started", "upgrade")} data-testid="ov-upgrade"><ArrowUpCircle className="w-3.5 h-3.5" /> {costs.activity?.type === "upgrade" ? "Upgrading…" : !costs.can_upgrade ? "Max level" : costs.activity_in_progress ? "Busy…" : `Upgrade · ${money(costs.upgrade_cost)} · ${costs.upgrade_duration_days}d`}</KButton>
                             </div>
-                            <div className="border border-white/10 rounded-sm p-3 flex flex-col">
-                                <div className="font-display font-bold text-white text-sm mb-0.5">Rename / Sell</div>
-                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">Rename this business, or permanently sell it. Est. sale payout <span className="text-neon-green">{money(costs.sell_value)}</span>.</p>
-                                <div className="flex gap-2">
-                                    <KButton variant="ghost" className="flex-1" onClick={() => { setNameInput(b.name); setRenaming(true); }} data-testid="ov-rename">Rename</KButton>
-                                    <KButton variant="ghost" className="flex-1" onClick={() => setConfirmSell(true)} data-testid="ov-sell">Sell · ~{money(costs.sell_value)}</KButton>
-                                </div>
-                            </div>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-white/10 flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] uppercase tracking-wider text-muted-foreground mr-1">More</span>
+                            <KButton variant="ghost" className="!py-1 !px-2.5 !text-[11px]" onClick={() => { setNameInput(b.name); setRenaming(true); }} data-testid="ov-rename">Rename</KButton>
+                            <KButton variant="ghost" className="!py-1 !px-2.5 !text-[11px] text-neon-red/80 hover:text-neon-red" onClick={() => setConfirmSell(true)} data-testid="ov-sell">Sell · ~{money(costs.sell_value)}</KButton>
                         </div>
                     </Panel>
                     {b.debt > 0 && (
@@ -770,8 +696,6 @@ export default function BusinessManage() {
 
             {/* PLAYER HIRING */}
             {tab === "hiring" && <PlayerHiring bizId={id} hiringOpen={b.hiring_open} onReloadDetail={loadAll} roles={(m.staffing || []).map((s) => s.role)} />}
-
-            {tab === "roster" && <RosterPlan bizId={id} onSaved={loadAll} />}
 
             {/* EVENTS */}
             {tab === "events" && (

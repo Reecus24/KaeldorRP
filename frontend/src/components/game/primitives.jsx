@@ -118,10 +118,12 @@ export function Money({ value, className, testid }) {
     );
 }
 
-export function StatTile({ label, value, accent = "#00F3FF", testid, sub }) {
+export function StatTile({ label, value, accent = "#00F3FF", testid, sub, info }) {
     return (
         <Panel className="p-4" data-testid={testid}>
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">{label}</div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-1">
+                {label}{info && <InfoTip text={info} testid={testid ? `${testid}-info` : undefined} />}
+            </div>
             <div className="font-display font-bold text-xl mt-1" style={{ color: accent }}>
                 {value}
             </div>

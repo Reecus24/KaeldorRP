@@ -264,19 +264,32 @@ async def save_player(p):
     await db.players.update_one({"id": p["id"]}, {"$set": p})
 
 
-async def compute_net_worth(p):
-    nw = p["cash"] + p["bank"] - p["debt"]
+async def net_worth_parts(p):
+    """Transparent net-worth breakdown so the UI can explain where the number comes from."""
+    cash = round(p["cash"], 2)
+    bank = round(p["bank"], 2)
+    debt = round(p["debt"], 2)
+    vehicles = 0.0
     for v in p.get("vehicles", []):
         spec = v.get("spec", {})
-        nw += spec.get("price", 0) * spec.get("resale", 0.5) * (v.get("condition", 100) / 100.0)
-    if p.get("housing", {}).get("owned"):
+        vehicles += spec.get("price", 0) * spec.get("resale", 0.5) * (v.get("condition", 100) / 100.0)
+    prop = 0.0
+    if (p.get("housing") or {}).get("owned"):
         hd = await db.housing.find_one({"id": p["housing"]["id"]}, {"_id": 0})
         if hd:
-            nw += hd.get("buy_price", 0) * 0.8
+            prop = hd.get("buy_price", 0) * 0.8
+    business = 0.0
     bizs = await db.businesses.find({"player_id": p["id"], "bankrupt": {"$ne": True}}, {"_id": 0}).to_list(100)
     for b in bizs:
-        nw += b.get("cash", 0) - b.get("debt", 0) + b.get("purchase_price", 0) * 0.5
-    return round(nw, 2)
+        business += b.get("cash", 0) - b.get("debt", 0) + b.get("purchase_price", 0) * 0.5
+    parts = {"cash": cash, "bank": bank, "debt": debt,
+             "vehicles": round(vehicles, 2), "property": round(prop, 2), "business": round(business, 2)}
+    parts["total"] = round(cash + bank - debt + vehicles + prop + business, 2)
+    return parts
+
+
+async def compute_net_worth(p):
+    return (await net_worth_parts(p))["total"]
 
 
 async def estimate_income_per_day(p):
@@ -423,6 +436,7 @@ async def game_state(user: dict = Depends(current_user)):
         "activity": serialize_activity(p),
         "confinement": confine_remaining(p),
         "net_worth": p["net_worth"],
+        "net_worth_breakdown": await net_worth_parts(p),
         "time_scale": cfg["time_scale"],
         "effectiveness": round(effectiveness(p), 2),
         "game_time": game_now(cfg).isoformat(),
@@ -693,17 +707,50 @@ async def shop_buy(body: BuyBody, user: dict = Depends(current_user)):
     if p["cash"] + p["bank"] < total:
         raise HTTPException(status_code=400, detail="Not enough money")
     charge(p, total)
-    cfg = await get_config(db)
-    for _ in range(qty):
-        eff = dict(it.get("effects", {}))
-        skill_eff = {k: v for k, v in eff.items() if k in SKILLS}
-        for k in skill_eff:
-            eff.pop(k)
-            add_skill_xp(p, k, skill_eff[k], cfg)
-        apply_effects(p, eff)
     p.setdefault("inventory", {})
     p["inventory"][body.item_id] = p["inventory"].get(body.item_id, 0) + qty
-    await add_event(db, p["id"], f"Bought {qty}x {it['name']} for ${total}.", "shop", "info")
+    await add_event(db, p["id"], f"Bought {qty}x {it['name']} for ${total} — added to your inventory.", "shop", "info")
+    await save_player(p)
+    return {"ok": True}
+
+
+@api.get("/inventory")
+async def get_inventory(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    inv = p.get("inventory") or {}
+    items = await db.items.find({"id": {"$in": list(inv.keys())}}, {"_id": 0}).to_list(200) if inv else []
+    by_id = {it["id"]: it for it in items}
+    out = []
+    for iid, qty in inv.items():
+        it = by_id.get(iid)
+        if not it or qty <= 0:
+            continue
+        out.append({**it, "qty": qty, "usable": it.get("category") != "gear"})
+    return sorted(out, key=lambda x: x["name"])
+
+
+@api.post("/inventory/{item_id}/use")
+async def use_item(item_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    inv = p.setdefault("inventory", {})
+    if inv.get(item_id, 0) <= 0:
+        raise HTTPException(status_code=400, detail="You don't have that item")
+    it = await db.items.find_one({"id": item_id}, {"_id": 0})
+    if not it:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if it.get("category") == "gear":
+        raise HTTPException(status_code=400, detail="Gear is passive equipment — it works just by owning it.")
+    cfg = await get_config(db)
+    eff = dict(it.get("effects", {}))
+    skill_eff = {k: v for k, v in eff.items() if k in SKILLS}
+    for k in skill_eff:
+        eff.pop(k)
+        add_skill_xp(p, k, skill_eff[k], cfg)
+    apply_effects(p, eff)
+    inv[item_id] = inv.get(item_id, 0) - 1
+    if inv[item_id] <= 0:
+        inv.pop(item_id, None)
+    await add_event(db, p["id"], f"You used {it['name']}.", "shop", "success")
     await save_player(p)
     return {"ok": True}
 
@@ -808,14 +855,22 @@ async def rent_house(house_id: str, user: dict = Depends(current_user)):
     h = await db.housing.find_one({"id": house_id}, {"_id": 0})
     if not h:
         raise HTTPException(status_code=404, detail="Housing not found")
-    if p["cash"] + p["bank"] < h.get("deposit", 0):
+    cur = p.get("housing") or {}
+    if cur.get("id") == house_id and not cur.get("owned"):
+        raise HTTPException(status_code=400, detail="You already rent this place")
+    deposit = h.get("deposit", 0)
+    refund = round(cur.get("deposit_paid", 0), 2) if (cur and not cur.get("owned")) else 0.0
+    if p["cash"] + p["bank"] + refund < deposit:
         raise HTTPException(status_code=400, detail="Cannot afford the deposit")
-    charge(p, h.get("deposit", 0))
-    p["housing"] = {"id": house_id, "owned": False, "since": now_utc().isoformat()}
-    await add_event(db, p["id"], f"You moved into {h['name']} (renting).", "housing", "success")
+    if refund > 0:
+        add_money(p, refund)
+        await add_event(db, p["id"], f"Deposit refunded from your old place: +${round(refund)}.", "housing", "success")
+    charge(p, deposit)
+    p["housing"] = {"id": house_id, "owned": False, "since": now_utc().isoformat(), "deposit_paid": deposit}
+    await add_event(db, p["id"], f"You moved into {h['name']} (renting). Deposit ${round(deposit)} paid.", "housing", "success")
     await save_player(p)
     await social_engine.ensure_landlord(db, p, h)
-    return {"ok": True}
+    return {"ok": True, "refunded": refund}
 
 
 @api.post("/housing/{house_id}/buy")
@@ -829,11 +884,52 @@ async def buy_house(house_id: str, user: dict = Depends(current_user)):
     if p["cash"] + p["bank"] < h["buy_price"]:
         raise HTTPException(status_code=400, detail="Cannot afford to buy this property")
     charge(p, h["buy_price"])
+    cur = p.get("housing") or {}
+    refund = round(cur.get("deposit_paid", 0), 2) if (cur and not cur.get("owned")) else 0.0
+    if refund > 0:
+        add_money(p, refund)
+        await add_event(db, p["id"], f"Deposit refunded from your old rental: +${round(refund)}.", "housing", "success")
     p["housing"] = {"id": house_id, "owned": True, "since": now_utc().isoformat()}
     p["social_status"] = clamp(p["social_status"] + h.get("social_status", 0) * 0.2)
     await add_event(db, p["id"], f"You bought {h['name']}! No more rent.", "housing", "success")
     await save_player(p)
-    return {"ok": True}
+    return {"ok": True, "refunded": refund}
+
+
+@api.post("/housing/move-out")
+async def move_out(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    cur = p.get("housing") or {}
+    if not cur.get("id"):
+        raise HTTPException(status_code=400, detail="You have no home to move out of")
+    if cur.get("owned"):
+        raise HTTPException(status_code=400, detail="You own this property — sell it instead")
+    refund = round(cur.get("deposit_paid", 0), 2)
+    if refund > 0:
+        add_money(p, refund)
+        await add_event(db, p["id"], f"You moved out. Deposit refunded: +${round(refund)}.", "housing", "success")
+    else:
+        await add_event(db, p["id"], "You moved out and are between homes.", "housing", "info")
+    p["housing"] = {}
+    await save_player(p)
+    return {"ok": True, "refunded": refund}
+
+
+@api.post("/housing/sell")
+async def sell_property(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    cur = p.get("housing") or {}
+    if not cur.get("owned"):
+        raise HTTPException(status_code=400, detail="You don't own a property to sell")
+    h = await db.housing.find_one({"id": cur["id"]}, {"_id": 0})
+    if not h:
+        raise HTTPException(status_code=404, detail="Property not found")
+    value = round(h.get("buy_price", 0) * 0.6)
+    add_money(p, value)
+    p["housing"] = {}
+    await add_event(db, p["id"], f"You sold {h['name']} for ${value} (60% of purchase price).", "housing", "success")
+    await save_player(p)
+    return {"ok": True, "value": value}
 
 
 # ============================ VEHICLES ============================
@@ -991,16 +1087,22 @@ async def upgrade_business(biz_id: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail="This business is bankrupt")
     if b["level"] >= b["max_level"]:
         raise HTTPException(status_code=400, detail="Already at max level")
+    if b.get("activity"):
+        raise HTTPException(status_code=400, detail=f"A {b['activity']['type']} is already in progress here")
     cost = round(b["purchase_price"] * 0.4 * b["level"])
     if p["cash"] + p["bank"] < cost:
         raise HTTPException(status_code=400, detail=f"Upgrade costs ${cost}")
     charge(p, cost)
-    b["level"] += 1
-    b["reputation"] = clamp(b["reputation"] + 4)
-    await db.businesses.update_one({"id": biz_id}, {"$set": b})
-    await add_event(db, p["id"], f"Upgraded {b['name']} to level {b['level']}.", "business", "success")
+    cfg = await get_config(db)
+    now = now_utc()
+    dur_days = 7
+    ends = now + timedelta(seconds=real_seconds(dur_days * 1440, cfg["time_scale"]))
+    activity = {"type": "upgrade", "started_at": now.isoformat(), "ends_at": ends.isoformat(),
+                "duration_days": dur_days, "completed": False}
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"activity": activity}})
+    await add_event(db, p["id"], f"Started upgrading {b['name']} (~{dur_days} in-game days). Income is cut 50% during construction; +1 level & staff slot when it's done.", "business", "info", biz_id)
     await save_player(p)
-    return {"ok": True, "cost": cost}
+    return {"ok": True, "cost": cost, "activity": activity}
 
 
 @api.post("/businesses/{biz_id}/marketing")
@@ -1009,16 +1111,22 @@ async def marketing_business(biz_id: str, user: dict = Depends(current_user)):
     b = await _get_owned_business(p, biz_id)
     if b.get("bankrupt"):
         raise HTTPException(status_code=400, detail="This business is bankrupt")
+    if b.get("activity"):
+        raise HTTPException(status_code=400, detail=f"A {b['activity']['type']} is already in progress here")
     cost = round(b["purchase_price"] * 0.12 * (b.get("marketing_level", 0) + 1))
     if p["cash"] + p["bank"] < cost:
         raise HTTPException(status_code=400, detail=f"Marketing campaign costs ${cost}")
     charge(p, cost)
-    b["marketing_level"] = b.get("marketing_level", 0) + 1
-    b["reputation"] = clamp(b["reputation"] + 8)
-    await db.businesses.update_one({"id": biz_id}, {"$set": b})
-    await add_event(db, p["id"], f"Ran a marketing campaign for {b['name']}. Reputation up!", "business", "success")
+    cfg = await get_config(db)
+    now = now_utc()
+    dur_days = 3
+    ends = now + timedelta(seconds=real_seconds(dur_days * 1440, cfg["time_scale"]))
+    activity = {"type": "marketing", "started_at": now.isoformat(), "ends_at": ends.isoformat(),
+                "duration_days": dur_days, "completed": False}
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"activity": activity}})
+    await add_event(db, p["id"], f"Launched a marketing campaign for {b['name']} (~{dur_days} in-game days to roll out). The demand & price boost applies when it completes.", "business", "info", biz_id)
     await save_player(p)
-    return {"ok": True, "cost": cost}
+    return {"ok": True, "cost": cost, "activity": activity}
 
 
 @api.post("/businesses/{biz_id}/collect")
@@ -1364,13 +1472,17 @@ async def business_detail(biz_id: str, user: dict = Depends(current_user)):
     mkt = b.get("marketing_level", 0)
     rep = b.get("reputation", 50)
     can_upgrade = lvl < b.get("max_level", 1)
+    activity = b.get("activity")
     costs = {
         "upgrade_cost": round(pp * 0.4 * lvl) if can_upgrade else None,
         "upgrade_from_level": lvl, "upgrade_to_level": lvl + 1 if can_upgrade else lvl,
         "upgrade_adds_slot": can_upgrade, "upgrade_reputation_gain": 4, "can_upgrade": can_upgrade,
+        "upgrade_duration_days": 7,
         "marketing_cost": round(pp * 0.12 * (mkt + 1)),
         "marketing_level": mkt, "marketing_next_level": mkt + 1,
-        "marketing_revenue_boost_pct": 6, "marketing_reputation_gain": 8,
+        "marketing_demand_boost_pct": 25, "marketing_price_boost_pct": 12, "marketing_reputation_gain": 8,
+        "marketing_duration_days": 3,
+        "activity_in_progress": bool(activity), "activity": activity,
         "sell_value": max(0, round(pp * 0.5 * lvl * (0.6 + 0.4 * rep / 100) - b.get("debt", 0) + b.get("cash", 0))),
     }
     return {"business": b, "metrics": await employee_engine.business_metrics(db, b), "costs": costs}
@@ -1655,18 +1767,6 @@ class BackupBody(BaseModel):
     enabled: bool
 
 
-class RosterPlanItem(BaseModel):
-    role: str
-    recommended: int = 1
-    wage: Optional[float] = None
-    schedule: Optional[str] = None
-    open: bool = True
-
-
-class RosterPlanBody(BaseModel):
-    plan: list[RosterPlanItem]
-
-
 class TrainingOfferBody(BaseModel):
     option_id: str
     skill: Optional[str] = None
@@ -1683,18 +1783,15 @@ class WageBody(BaseModel):
 async def _staffing_roles(b):
     reqs = await employee_engine.get_staffing(db, b)
     roles_doc = {r["id"]: r for r in await db.employee_roles.find({}, {"_id": 0}).to_list(100)}
-    plan_by_role = {x["role"]: x for x in (b.get("roster_plan") or [])}
     out = []
     for r in reqs:
         rd = roles_doc.get(r["role"], {})
-        pl = plan_by_role.get(r["role"], {})
-        sched_key = pl.get("schedule", "early")
-        sp = employment.SHIFT_PRESETS.get(sched_key, employment.SHIFT_PRESETS["early"])
+        sp = employment.SHIFT_PRESETS["early"]
         out.append({"role": r["role"], "label": rd.get("label", r["role"].replace("_", " ").title()),
                     "desc": rd.get("desc", ""), "recommended": r.get("recommended", 1),
-                    "suggested_wage": pl.get("wage"), "schedule_preset": sched_key,
+                    "suggested_wage": None, "schedule_preset": "early",
                     "schedule_label": sp["label"], "schedule_start": sp["start"], "schedule_end": sp["end"],
-                    "open": pl.get("open", True) if b.get("roster_plan") else True})
+                    "open": True})
     return out
 
 
@@ -2060,42 +2157,6 @@ async def toggle_backup(biz_id: str, body: BackupBody, user: dict = Depends(curr
         backup.pop(body.role, None)
     await db.businesses.update_one({"id": biz_id}, {"$set": {"backup_roles": backup}})
     return {"ok": True, "backup_roles": backup}
-
-
-# ---- Phase 2: Roster / job-listings editor ----
-@api.get("/businesses/{biz_id}/roster-plan")
-async def get_roster_plan(biz_id: str, user: dict = Depends(current_user)):
-    p = await get_state(user)
-    b = await _get_owned_business(p, biz_id)
-    roles_doc = {r["id"]: r for r in await db.employee_roles.find({}, {"_id": 0}).to_list(100)}
-    plan = b.get("roster_plan")
-    if not plan:
-        reqs = await employee_engine.get_staffing(db, b)
-        plan = [{"role": r["role"], "recommended": r.get("recommended", 1),
-                 "wage": round((roles_doc.get(r["role"], {}).get("wage_min", 80) + roles_doc.get(r["role"], {}).get("wage_max", 120)) / 2.0 / 8.0, 2),
-                 "schedule": "early", "open": True} for r in reqs]
-    available = [{"role": rid, "label": rd.get("label", rid.replace("_", " ").title()),
-                  "desc": rd.get("desc", "")} for rid, rd in roles_doc.items()]
-    return {"plan": plan, "available_roles": available}
-
-
-@api.put("/businesses/{biz_id}/roster-plan")
-async def set_roster_plan(biz_id: str, body: RosterPlanBody, user: dict = Depends(current_user)):
-    p = await get_state(user)
-    b = await _get_owned_business(p, biz_id)
-    valid = {r["id"] for r in await db.employee_roles.find({}, {"_id": 0, "id": 1}).to_list(100)}
-    plan = []
-    seen = set()
-    for it in body.plan:
-        if it.role not in valid or it.role in seen:
-            continue
-        seen.add(it.role)
-        plan.append({"role": it.role, "recommended": max(0, min(8, it.recommended)),
-                     "wage": round(max(1.0, it.wage), 2) if it.wage else None,
-                     "schedule": it.schedule if it.schedule in employment.SHIFT_PRESETS else "early",
-                     "open": bool(it.open)})
-    await db.businesses.update_one({"id": biz_id}, {"$set": {"roster_plan": plan}})
-    return {"ok": True, "plan": plan}
 
 
 # ---- Phase 2: internal training for player employees (owner offers -> player accepts/declines) ----
@@ -2503,6 +2564,13 @@ async def migrate_business_supply_chain():
             "production_per_worker_hour": t.get("production_per_worker_hour"),
             "daily_demand": t.get("daily_demand")},
             "$unset": {"rent_per_day": "", "base_revenue_per_day": "", "base_expenses_per_day": ""}})
+    # Refresh the economic definition on ALL existing businesses from seed so re-balances take effect
+    # (runtime state — cash/level/reputation/materials/products — is preserved).
+    for tid, t in seed_types.items():
+        await db.businesses.update_many({"type_id": tid}, {"$set": {
+            "product": t.get("product") or {}, "recipe": t.get("recipe") or [],
+            "production_per_worker_hour": t.get("production_per_worker_hour", 0),
+            "daily_demand": t.get("daily_demand", 0)}})
     now_iso = now_utc().isoformat()
     async for b in db.businesses.find({"recipe": {"$exists": False}}, {"_id": 0}):
         t = seed_types.get(b.get("type_id")) or {}

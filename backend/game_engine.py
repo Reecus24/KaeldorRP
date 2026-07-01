@@ -467,7 +467,9 @@ async def resolve_player(db, p):
 
     # housing for recurring costs
     housing_doc = None
-    hid = p.get("housing", {}).get("id")
+    if p.get("housing") is None:
+        p["housing"] = {}
+    hid = (p.get("housing") or {}).get("id")
     if hid:
         housing_doc = await db.housing.find_one({"id": hid}, {"_id": 0})
     if gh > 0:
