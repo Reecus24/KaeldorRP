@@ -5,6 +5,14 @@ Browser-based **persistent, real-time life-simulation RPG** ("Kaeldor RPG"). A l
 
 **Hard design rule:** NO action points, NO daily action limits, NO "end turn". Always playable. Balance comes from real-time action durations, fatigue, money, risk, cooldowns, health, stress, consequences, and opportunity cost. Offline time counts; jobs/education/business/legal/recovery continue while offline.
 
+## Session Update — 2026-07-01 (Inventory Refactor & Asset Consolidation)
+**New "Inventory" sidebar tab** (`/inventory`, Backpack icon) is now the central hub for physical assets: Equipment (5 slots), Items (consumables use / equippables equip), and Your Garage (owned vehicles + sell). Pure frontend re-org — backend endpoints unchanged (`/inventory`, `/equipment`, `/vehicles`, `/vehicles/{id}/sell`).
+**Shop** is now purchase-only (category-grouped buy cards → "Buy to Inventory"); inventory/equipment panels removed.
+**Vehicle Dealer** is now purchase-only ("For Sale" only); "Your Garage" owned-vehicles section removed (moved to Inventory).
+**Docs:** `/app/docs/UI_AUDIT_NOTES.md` updated.
+**Verification:** testing_agent iteration_26 — frontend 7/7 PASS (new tab, buy→appears in Inventory, equip/unequip, consumable use, vehicle buy→sell), zero console errors.
+
+
 ## Session Update — 2026-07-01 (NPC Filter System for Dynamic Locations)
 **NPC categorization:** every archetype now carries `tags` (Criminal/Wealthy/Corporate/Fitness/Social/Drifter) + numeric attributes `social_status`, `legal_standing`, `wealth` (0-100), defined via `ARCHETYPE_META` in seed_data.py.
 **Location filters:** locations gain `include_filtered`, `category_whitelist`, `min_attrs`, `max_attrs`, `filter_weight`. `social_engine.location_pool()` builds the encounter pool = manual NPCs (ALWAYS included, BYPASS filters — dynamic override) + archetypes passing `_archetype_passes()` (whitelist tag match + min/max attribute thresholds) when `include_filtered`. Rolled by normalized weight on visit.
