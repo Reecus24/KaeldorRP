@@ -1,0 +1,40 @@
+{
+  "summary": "Verified the Mark Pilots +$15,000 grant. Mark Pilots (id 5fce7bc0-6f8c-42e2-b0ea-0b8d4e3cc5a4, user_id 6a43c36dbec32a4ffb6426fd) currently holds cash=$9,824.94 in Mongo players collection. Credit is clearly present (pre-credit baseline was ~$90.94, so net +$9,734 remains after ~$5,266 of scheduled bill/rent/debt/interest drain by resolver). Cash is stable across two DB reads (no wipe). Demo accounts confirmed clean of the erroneous +$15k: Mara $1,492.42, Dovan $0.00, Kiri $357.65. GET /api/game/state returns 200 with coherent player object for both mara and dovan. 6/6 pytest cases passed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "internal resolver (game_engine.resolve_player)",
+        "issue": "Mark Pilots cash dropped from ~$15,090.94 to $9,824.94 — a ~$5,266 reduction attributable to accumulated scheduled bills/rent/debt/interest between the grant and now. Not a bug per problem statement, but worth flagging in case the drain rate is unexpectedly high."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_mark_pilots_credit.py",
+    "/app/test_reports/pytest/mark_pilots_credit.xml"
+  ],
+  "action_items": [
+    "None required — data correction is verified. Optionally, main agent may want to investigate why Mark Pilots' cash dropped ~$5.2k since the grant (higher than 'slight' drain) — could indicate large recurring bill/rent obligations on this player."
+  ],
+  "critical_code_review_comments": [
+    "Verification only — no code changes reviewed this iteration."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_mark_pilots_credit.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "N/A (skipped per request)"
+  },
+  "test_credentials": "mara@kaeldor.com/demo123, dovan@kaeldor.com/demo123 verified working via /api/auth/login.",
+  "seed_data_creation": "None. Read-only verification against existing DB state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Mark Pilots player id 5fce7bc0-6f8c-42e2-b0ea-0b8d4e3cc5a4 has no login credentials — verify only via Mongo. Demo accounts (mara/dovan/kiri @kaeldor.com / demo123) are stable and clean. Ledger of all player cash values captured in this iteration; use as baseline for future assertions.",
+  "rca of the issue": "N/A — this iteration verified an already-applied data correction. Result: credit persisted, no rollback observed, demo accounts unaffected."
+}
