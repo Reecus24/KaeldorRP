@@ -1578,8 +1578,8 @@ async def hire_applicant(biz_id: str, emp_id: str, user: dict = Depends(current_
         raise HTTPException(status_code=404, detail="Applicant not found")
     b = await _get_owned_business(p, biz_id)
     m = await employee_engine.business_metrics(db, b)
-    if m["staff_count"] >= m["max_staff_slots"]:
-        raise HTTPException(status_code=400, detail=f"No free staff slots ({m['staff_count']}/{m['max_staff_slots']}). Upgrade the business to add a slot.")
+    if m["staff_count"] >= m["max_hire_slots"]:
+        raise HTTPException(status_code=400, detail=f"Staff limit reached ({m['staff_count']}/{m['max_hire_slots']}). You can hire up to {m['max_hire_slots']} workers to cover shifts.")
     sched_key = (emp.get("schedule") or {}).get("preset") or "early"
     wph = emp.get("wage_per_hour") or round(emp.get("daily_wage", 90) / 8.0, 2)
     # default shift: cover the largest currently-uncovered slice of opening hours
@@ -1635,7 +1635,7 @@ async def give_raise(emp_id: str, user: dict = Depends(current_user)):
     await db.employees.update_one({"id": emp_id}, {"$set": {
         "daily_wage": new_wage, "wage_per_hour": round(new_wage / 8.0, 2), "wants_raise": False,
         "morale": clamp(emp.get("morale", 60) + 10), "loyalty": clamp(emp.get("loyalty", 50) + 6)}})
-    await add_event(db, p["id"], f"You gave {emp['name']} a raise to ${new_wage}/day.", "business", "success", biz["id"])
+    await add_event(db, p["id"], f"You gave {emp['name']} a raise to ${round(new_wage / 8.0, 2)}/hr.", "business", "success", biz["id"])
     return {"ok": True}
 
 

@@ -652,7 +652,7 @@ export default function BusinessManage() {
                                 Staffing
                                 <InfoTip text="Workers (NPC and player employees alike) produce the goods during their scheduled shifts. Only workers on shift right now count toward 'active'. Same wage & productivity math for everyone." testid="staffing-info" />
                             </div>
-                            <div className="text-[11px] font-mono text-muted-foreground" data-testid="active-staff-count">Active Staff: {m.staff_count ?? 0}/{m.max_staff_slots ?? 0} slots · {Math.round((m.active_coverage ?? 0) * 100)}% covered</div>
+                            <div className="text-[11px] font-mono text-muted-foreground" data-testid="active-staff-count">Staff: {m.staff_count ?? 0}/{m.max_hire_slots ?? 0} hired · {Math.round((m.active_coverage ?? 0) * 100)}% covered</div>
                         </div>
                         <div className="space-y-2 mt-2">
                             {m.staffing.length === 0 && <div className="text-sm text-muted-foreground">No specific staffing needed.</div>}
@@ -829,7 +829,7 @@ export default function BusinessManage() {
                                         <span className="font-display font-bold text-white">{a.name}</span>
                                         <Pill tone="cyan" className="capitalize">{a.role.replace(/_/g, " ")}</Pill>
                                     </div>
-                                    <div className="text-[11px] text-muted-foreground font-mono mt-1">Age {a.age} · Skill {a.skill}/10 · Reliability {a.reliability} · Wants <span className="text-neon-yellow">${a.daily_wage}/day</span></div>
+                                    <div className="text-[11px] text-muted-foreground font-mono mt-1">Age {a.age} · Skill {a.skill}/10 · Reliability {a.reliability} · Wants <span className="text-neon-yellow">${a.wage_per_hour ?? Math.round((a.daily_wage || 0) / 8 * 100) / 100}/hr</span></div>
                                     <div className="mt-2"><TraitPills traits={a.traits} /></div>
                                 </div>
                                 <div className="flex flex-col gap-2 w-28">

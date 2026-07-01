@@ -307,7 +307,8 @@ async def business_metrics(db, b):
     return {
         "staffing": staffing, "coverage": coverage, "active_coverage": coverage,
         "base_slots": base_slots, "max_staff_slots": max_slots, "staff_count": staff_count,
-        "slots_free": max(0, max_slots - staff_count),
+        "max_hire_slots": base_slots * 3 + max(0, b.get("level", 1) - 1),
+        "slots_free": max(0, (base_slots * 3 + max(0, b.get("level", 1) - 1)) - staff_count),
         "employee_count": len(npcs), "sick_count": len(sick), "applicant_count": applicants,
         "player_employee_count": len(pemps),
         # opening hours + shift coverage
@@ -389,7 +390,7 @@ async def _generate_applicants(db, p, cfg, now, b, reqs, current_count):
         b["last_applicant_at"] = now.isoformat()
 
 
-async def _roll_event(db, b, active, has_manager, traits_map, changed):
+async def _roll_event(db, b, active, has_manager, traits_map, changed, g_now=None):
     templates = await db.employee_events.find({}, {"_id": 0}).to_list(100)
     if not templates:
         return
@@ -405,6 +406,20 @@ async def _roll_event(db, b, active, has_manager, traits_map, changed):
     kind = tpl.get("kind")
     if kind == "manager_save" and not has_manager:
         return
+    # Wage-raise requests are rate-limited: at most once per 7 in-game days per NPC.
+    if kind == "raise_request":
+        if not active:
+            return
+        e = random.choice(active)
+        base = parse_dt(e.get("last_raise_request")) or parse_dt(e.get("hire_date"))
+        if g_now and base and (g_now - base) < timedelta(days=7):
+            return  # still on cooldown — no event, no spam
+        e["wants_raise"] = True
+        e["last_raise_request"] = (g_now or now_utc()).isoformat()
+        changed.append(e)
+        msg = tpl.get("message", "").replace("{name}", e["name"])
+        await add_event(db, b["player_id"], f"[{b['name']}] {msg}", "business", tpl.get("severity", "info"), b["id"])
+        return
     ef = tpl.get("effects", {})
     if "reputation" in ef:
         b["reputation"] = clamp(b.get("reputation", 50) + ef["reputation"])
@@ -417,11 +432,6 @@ async def _roll_event(db, b, active, has_manager, traits_map, changed):
         for e in random.sample(active, min(2, len(active))):
             e["morale"] = clamp(e.get("morale", 60) - 8)
             changed.append(e)
-    elif kind == "raise_request" and active:
-        e = random.choice(active)
-        e["wants_raise"] = True
-        changed.append(e)
-        name = e["name"]
     elif kind == "exp_boost" and active:
         e = random.choice(active)
         e["skill"] = min(10, round(e.get("skill", 3) + 1, 1))
@@ -503,8 +513,8 @@ async def _npc_lifecycle(db, b, cfg, gh, now, traits_map, net_positive):
             active.remove(e)
             continue
         changed.append(e)
-    if random.random() < min(0.5, 0.04 * gh + 0.015):
-        await _roll_event(db, b, active, has_manager, traits_map, changed)
+    if random.random() < min(0.4, 0.05 * gh):
+        await _roll_event(db, b, active, has_manager, traits_map, changed, g_now=game_now(cfg, now))
     seen = {e["id"]: e for e in changed}
     for e in seen.values():
         await db.employees.update_one({"id": e["id"]}, {"$set": e})

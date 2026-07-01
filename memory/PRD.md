@@ -163,3 +163,8 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - metrics adds: opening_hours, is_open_now, open_hours, covered_hours, coverage_hours_pct, roster[], daily_wage_total; staffing status now includes "Closed".
 - Frontend: new **Schedule tab** in BusinessManage (24h timeline, opening-hours editor, per-NPC shift dropdowns, coverage indicator, daily wages). Employees tab shows $/hr + shift range. Player employees read-only (edit via Player Hiring).
 - Verified: testing_agent iteration_18 — backend 9/10 (1 skip covered E2E), frontend 100%, no issues.
+
+## 2026-07-01 — Scheduling follow-up fixes
+- Applicants UI now shows hourly wage ($/hr) instead of $/day (fallback daily_wage/8). Raise event message also $/hr.
+- Wage-raise requests rate-limited: 7 in-game-day cooldown per NPC (`last_raise_request`, falls back to hire_date). Event roll frequency changed from `0.04*gh+0.015` (per-poll spam) to `0.05*gh` (elapsed-time based) — no more per-tick spam.
+- Overstaffing allowed: `max_hire_slots = base_slots*3 + (level-1)`. Production stays coverage-capped (overlap doesn't multiply); wages = Σ(hourly×shift_hours). Verified: 3 NPCs on 1-slot kiosk (08-12/12-16/16-20), covered 12/12h, net ~$218, 4th hire rejected. UI "Staff: X/max_hire_slots hired".
