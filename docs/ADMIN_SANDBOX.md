@@ -139,3 +139,31 @@ The layout (order + hidden list) is **saved per admin account** in the backend v
   - **Suspicion Gain Multiplier** (`tuning.suspicion_gain_mult`, default 1.0): multiplies the suspicion
     gained from illegal acts (bust/fail/success) in `game_engine._resolve_illegal`.
 - Changes persist to `game_config.tuning` and apply live from `TUNE` on the next resolve tick.
+
+## Financial Markets — refresh cadence & management (2026-07-01)
+**How often prices refresh.** Stock & crypto prices follow a **lazy, real-time geometric random walk**
+(`market_engine`). Prices advance whenever the market is read, in proportion to the **real hours
+elapsed** since each asset's `last_update` (throttled to a 36-second minimum step). They do NOT wait for
+the 24h day rollover — but because per-minute movement is tiny at default volatility, changes look
+gradual over minutes and only become large over hours.
+
+**Why Sandbox tuning "looked" like it had no effect.** The drift/volatility knobs
+(`stock_drift`, `stock_volatility`, `crypto_drift`, `crypto_volatility` in Gameplay Tuning ▸ Tuning) ARE
+correctly persisted to `game_config` and consumed by the engine — verified: volatility 0.5 moved prices
+30–1000% in one step. The confusion was that a full step only materialises after real time passes, so a
+tester editing a value and refreshing within seconds saw almost no change.
+
+**New: Admin ▸ Underworld & Finance ▸ Markets panel.**
+- Shows every live asset (symbol, name, current price, base-price anchor) grouped into Stocks / Crypto,
+  plus the active drift/volatility values.
+- **Set** — directly overwrite an asset's live `price` and/or `base_price` (the random-walk anchor and the
+  ±band centre). `PUT /api/admin/market/{asset_id}`.
+- **Re-roll Now** — force an immediate full one-hour price step on all assets so tuning changes are
+  visible instantly instead of waiting for real hours. `POST /api/admin/market/refresh`.
+- These edits hit the same `market_assets` collection the player market reads, so changes are live
+  immediately (verified: admin set KAEL→250, player market showed ~250).
+
+## Action Card gains display (2026-07-01)
+Home & Needs action cards now render BOTH stat effects (`effects`) and skill gains (`skill_xp`, shown as
+cyan "+N Skill XP" chips) via `ActionCard.jsx`, so players see exactly what each action improves
+(e.g. Gym Workout → +16 Fitness XP). Data already existed on the action docs; it was simply not rendered.

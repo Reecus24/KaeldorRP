@@ -1,4 +1,5 @@
 from core import *  # noqa: F401,F403
+import market_engine
 
 
 
@@ -445,6 +446,46 @@ async def admin_set_job_visibility(job_id: str, body: dict, admin: dict = Depend
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"ok": True, "visible_in_listings": visible}
+
+
+@api.get("/admin/market")
+async def admin_market(admin: dict = Depends(admin_user)):
+    assets = await db.market_assets.find(
+        {}, {"_id": 0, "id": 1, "symbol": 1, "name": 1, "kind": 1, "price": 1, "base_price": 1}).to_list(100)
+    assets.sort(key=lambda a: (a.get("kind", ""), a.get("symbol", "")))
+    cfg = await get_config(db)
+    t = cfg.get("tuning", {})
+    return {"assets": assets,
+            "tuning": {k: t.get(k) for k in ["stock_drift", "stock_volatility", "crypto_drift", "crypto_volatility"]}}
+
+
+@api.post("/admin/market/refresh")
+async def admin_market_refresh(admin: dict = Depends(admin_user)):
+    """Force an immediate price step for every asset so admins see tuning changes take effect now."""
+    cfg = await get_config(db)
+    n = await market_engine.force_advance(db, cfg)
+    return {"ok": True, "advanced": n}
+
+
+@api.put("/admin/market/{asset_id}")
+async def admin_update_market_asset(asset_id: str, body: dict, admin: dict = Depends(admin_user)):
+    """Directly set an asset's live price and/or base_price (the random-walk anchor)."""
+    upd = {}
+    if body.get("price") is not None:
+        pr = round(max(0.01, float(body["price"])), 6)
+        upd["price"] = pr
+        upd["prev_price"] = pr
+    if body.get("base_price") is not None:
+        upd["base_price"] = round(max(0.01, float(body["base_price"])), 6)
+    if not upd:
+        raise HTTPException(status_code=400, detail="Provide price and/or base_price")
+    upd["last_update"] = market_engine._now().isoformat()
+    res = await db.market_assets.update_one({"id": asset_id}, {"$set": upd})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if "price" in upd:
+        await db.market_assets.update_one({"id": asset_id}, {"$push": {"history": {"$each": [upd["price"]], "$slice": -40}}})
+    return {"ok": True}
 
 
 

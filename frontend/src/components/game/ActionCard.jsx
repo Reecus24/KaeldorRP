@@ -1,6 +1,6 @@
 import { KButton } from "@/components/game/controls";
 import { Panel, Pill, RiskBadge, Money } from "@/components/game/primitives";
-import { realDurationLabel, fmtDuration } from "@/lib/helpers";
+import { realDurationLabel, fmtDuration, SKILL_LABELS } from "@/lib/helpers";
 import { useGame } from "@/context/GameContext";
 import { Clock, Coins, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -10,8 +10,6 @@ const POSITIVE_GOOD = ["energy", "mood", "health", "reputation", "legal_reputati
 function effectChips(effects) {
     const entries = Object.entries(effects || {}).filter(([, v]) => v);
     return entries.slice(0, 6).map(([k, v]) => {
-        const goodWhenPositive = POSITIVE_GOOD.includes(k) || ["fatigue", "stress", "hunger", "criminal_suspicion"].indexOf(k) === -1;
-        // hunger/fatigue/stress/suspicion: negative is good
         const inverse = ["fatigue", "stress", "hunger", "criminal_suspicion"].includes(k);
         const good = inverse ? v < 0 : v > 0;
         return (
@@ -24,6 +22,14 @@ function effectChips(effects) {
             </span>
         );
     });
+}
+
+function skillChips(skillXp) {
+    return Object.entries(skillXp || {}).filter(([, v]) => v).slice(0, 4).map(([k, v]) => (
+        <span key={`sk-${k}`} className="font-mono text-[10px] px-1.5 py-0.5 rounded-sm border text-neon-cyan border-neon-cyan/30">
+            +{Math.round(v)} {SKILL_LABELS[k] || k.replace("_", " ")} XP
+        </span>
+    ));
 }
 
 export default function ActionCard({ action, onStart, blocked, loading, ctaLabel = "Start", variant = "primary" }) {
@@ -41,7 +47,10 @@ export default function ActionCard({ action, onStart, blocked, loading, ctaLabel
             </div>
             <p className="text-[11px] text-muted-foreground mb-3 flex-1">{action.result_text || action.desc}</p>
 
-            <div className="flex flex-wrap gap-1 mb-3">{effectChips(action.effects || action.skill_xp_display)}</div>
+            <div className="flex flex-wrap gap-1 mb-3" data-testid={`action-gains-${action.id}`}>
+                {effectChips(action.effects)}
+                {skillChips(action.skill_xp)}
+            </div>
 
             <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-mono mb-3">
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {realDurationLabel(action.duration_minutes, ts)}</span>

@@ -72,3 +72,9 @@ linked stats). Status + action per tab.
   ("Withdraw an active application instead of dismissing it."), **404** if not found.
 - Verified: curl (dismiss rejected → 200 + gone from list; re-dismiss → 404; dismiss pending → 400) and
   UI screenshot (x visible on rejected card, click removes it with "Application dismissed" toast).
+
+## Action Card gains + Admin Markets panel (2026-07-01)
+- `ActionCard.jsx`: added `skillChips()` — renders `action.skill_xp` as cyan "+N <Skill> XP" chips next to
+  the existing stat `effects` chips. data-testid `action-gains-<actionId>` wraps the chip row.
+- Admin `MarketsPanel` (Underworld & Finance ▸ Markets): per-asset price/base editors (`market-price-<id>`,
+  `market-base-<id>`, `market-save-<id>`), drift/volatility readout, `market-reroll` button.

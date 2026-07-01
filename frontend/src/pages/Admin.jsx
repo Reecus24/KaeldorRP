@@ -1134,6 +1134,76 @@ function JobShiftsPanel() {
 }
 
 
+function MarketsPanel() {
+    const [data, setData] = useState(null);
+    const [edits, setEdits] = useState({});
+    const [busy, setBusy] = useState(false);
+    const load = useCallback(() => api.get("/admin/market").then(({ data }) => { setData(data); setEdits({}); }).catch(() => setData({ assets: [], tuning: {} })), []);
+    useEffect(() => { load(); }, [load]);
+
+    const setEdit = (id, k, v) => setEdits((e) => ({ ...e, [id]: { ...(e[id] || {}), [k]: v } }));
+    const saveAsset = async (a) => {
+        const e = edits[a.id] || {};
+        const body = {};
+        if (e.price !== undefined && e.price !== "") body.price = Number(e.price);
+        if (e.base_price !== undefined && e.base_price !== "") body.base_price = Number(e.base_price);
+        if (!Object.keys(body).length) return;
+        setBusy(true);
+        try { await api.put(`/admin/market/${a.id}`, body); toast.success(`${a.symbol} updated`); await load(); }
+        catch (err) { toast.error(errMessage(err)); }
+        setBusy(false);
+    };
+    const reroll = async () => {
+        setBusy(true);
+        try { const { data } = await api.post("/admin/market/refresh"); toast.success(`Re-rolled ${data.advanced} assets`); await load(); }
+        catch (err) { toast.error(errMessage(err)); }
+        setBusy(false);
+    };
+
+    if (!data) return <Spinner />;
+    const t = data.tuning || {};
+    const groups = [["stock", "Stocks"], ["crypto", "Crypto"]];
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+                <p className="text-sm text-muted-foreground max-w-2xl">Live market assets. Prices follow a per-real-hour random walk driven by the drift/volatility below (set those in Gameplay Tuning ▸ Tuning). Because movement scales with elapsed real time, changes look gradual — hit <strong className="text-white">Re-roll Now</strong> to apply a full step instantly, or set a price directly.</p>
+                <KButton variant="primary" loading={busy} onClick={reroll} data-testid="market-reroll"><Radio className="w-4 h-4" /> Re-roll Now</KButton>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
+                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Stock drift/hr</span><div className="text-neon-cyan">{t.stock_drift}</div></div>
+                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Stock vol/hr</span><div className="text-neon-cyan">{t.stock_volatility}</div></div>
+                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Crypto drift/hr</span><div className="text-neon-purple">{t.crypto_drift}</div></div>
+                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Crypto vol/hr</span><div className="text-neon-purple">{t.crypto_volatility}</div></div>
+            </div>
+
+            {groups.map(([kind, label]) => (
+                <div key={kind}>
+                    <div className="text-[10px] uppercase tracking-wider text-neon-cyan/80 mb-1.5">{label}</div>
+                    <div className="space-y-1.5">
+                        {data.assets.filter((a) => a.kind === kind).map((a) => (
+                            <div key={a.id} className="flex items-center gap-2 p-2 border border-white/10 rounded-sm flex-wrap" data-testid={`market-asset-${a.id}`}>
+                                <div className="min-w-0 flex-1">
+                                    <span className="font-display font-bold text-white text-sm">{a.symbol}</span>
+                                    <span className="ml-2 text-[11px] text-muted-foreground">{a.name}</span>
+                                </div>
+                                <label className="text-[10px] text-muted-foreground flex flex-col">Price
+                                    <input type="number" defaultValue={a.price} onChange={(e) => setEdit(a.id, "price", e.target.value)}
+                                        className="bg-black/40 border border-white/15 rounded-sm px-2 py-1 text-xs text-white w-28" data-testid={`market-price-${a.id}`} /></label>
+                                <label className="text-[10px] text-muted-foreground flex flex-col">Base (anchor)
+                                    <input type="number" defaultValue={a.base_price} onChange={(e) => setEdit(a.id, "base_price", e.target.value)}
+                                        className="bg-black/40 border border-white/15 rounded-sm px-2 py-1 text-xs text-white w-28" data-testid={`market-base-${a.id}`} /></label>
+                                <KButton variant="green" loading={busy} onClick={() => saveAsset(a)} data-testid={`market-save-${a.id}`}>Set</KButton>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+
 const ADMIN_GROUPS = [
     { key: "overview", label: "Overview", icon: LayoutDashboard, locked: true,
       children: [{ key: "stats", label: "Dashboard" }, { key: "feed", label: "Live Feed" }] },
@@ -1154,7 +1224,7 @@ const ADMIN_GROUPS = [
     { key: "city", label: "City Infrastructure", icon: Building2,
       children: [{ key: "cityshops", label: "City Shops" }, { key: "jobsectors", label: "Job Sectors" }, { key: "vehiclecats", label: "Vehicle Categories" }, { key: "locations", label: "Locations" }] },
     { key: "underworld", label: "Underworld & Finance", icon: Skull,
-      children: [{ key: "illegal_actions", label: "Illegal" }] },
+      children: [{ key: "illegal_actions", label: "Illegal" }, { key: "markets", label: "Markets" }] },
 ];
 
 const cmoney = (n) => {
@@ -1218,6 +1288,7 @@ function renderAdminLeaf(key, ctx = {}) {
         case "jobsectors": return <JobSectorsPanel />;
         case "vehiclecats": return <VehicleCategoriesPanel />;
         case "jobshifts": return <JobShiftsPanel />;
+        case "markets": return <MarketsPanel />;
         case "players": return <PlayersTable focus={ctx.focusPlayer} onFocusHandled={ctx.onFocusHandled} />;
         default: return <ContentEditor ctype={key} />;
     }

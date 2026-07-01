@@ -6,7 +6,7 @@ volatility/drift pulled live from the Admin Sandbox (game_config.tuning). No sch
 """
 import math
 import random
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 HISTORY_LEN = 40
 MIN_STEP_HOURS = 0.01  # ignore near-instant refreshes
@@ -84,6 +84,21 @@ async def price_map(db):
     """asset_id -> current price (no advance), for valuing portfolios cheaply."""
     assets = await db.market_assets.find({}, {"_id": 0, "id": 1, "price": 1, "kind": 1, "symbol": 1, "name": 1}).to_list(100)
     return {a["id"]: a for a in assets}
+
+
+async def force_advance(db, cfg):
+    """Admin: advance every asset by a full one-hour step immediately (ignores the MIN_STEP gate)
+    so tuning changes produce visible movement right away instead of waiting for real hours."""
+    assets = await db.market_assets.find({}, {"_id": 0}).to_list(100)
+    for a in assets:
+        a["last_update"] = (_now() - timedelta(hours=1)).isoformat()  # backdate → full step
+        _advance(a, cfg)
+        await db.market_assets.update_one(
+            {"id": a["id"]},
+            {"$set": {"price": a["price"], "prev_price": a["prev_price"],
+                      "history": a["history"], "last_update": a["last_update"]}})
+    return len(assets)
+
 
 
 async def portfolio_view(db, p):
