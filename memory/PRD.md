@@ -152,3 +152,14 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - Phase D: Dashboard Life Inbox / relationship-driven events.
 - Logic Audit P1 (`/app/memory/LOGIC_AUDIT.md`): housing deposit refund, house selling, suspicion decay, natural health regen, clinic bill, sleep stress-relief.
 - Phase 5 (P2): custom business products (admin data models).
+
+## 2026-07-01 — Business Hours & Staff Scheduling (MAJOR: replaced fixed-8h model; fixes P0 "Ghost Workers")
+- Each business now has `opening_hours {open,close}` (per type in seed_data; migrated onto existing businesses). Business only produces & sells while OPEN.
+- Production is COVERAGE-based: capacity = production_per_worker_hour × covered_opening_hours × satisfaction_mult × (1+0.6·(level−1)). Covered hours = union of worker shifts clipped to opening (capped at opening length). Overlapping shifts add wages but NOT capacity.
+- Wages are per-worker per-hour: wage = hourly_wage × worker_hours_in_range (clipped to opening).
+- On hire, NPC auto-gets `first_uncovered_shift` (full opening if unstaffed, else largest gap). Migration re-slotted existing NPCs into equal non-overlapping blocks.
+- Rebalanced production_per_worker_hour for all 10 types → L1 net/day targets within ±1% (kiosk 220, delivery 450, bistro/gym/pet_shop 500, clothing/auto_repair 800, online_shop 300, cleaning_co 350, real_estate 1100).
+- New endpoints: PATCH /businesses/{id}/opening-hours, PATCH /businesses/{id}/employees/{emp_id}/shift (validate within opening, start<end).
+- metrics adds: opening_hours, is_open_now, open_hours, covered_hours, coverage_hours_pct, roster[], daily_wage_total; staffing status now includes "Closed".
+- Frontend: new **Schedule tab** in BusinessManage (24h timeline, opening-hours editor, per-NPC shift dropdowns, coverage indicator, daily wages). Employees tab shows $/hr + shift range. Player employees read-only (edit via Player Hiring).
+- Verified: testing_agent iteration_18 — backend 9/10 (1 skip covered E2E), frontend 100%, no issues.
