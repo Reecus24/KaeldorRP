@@ -27,10 +27,10 @@ function Tab({ active, onClick, icon: Icon, children, testid }) {
     );
 }
 
-function Tile({ label, value, accent = "#fff", sub, info }) {
+function Tile({ label, value, accent = "#fff", sub, info, testid }) {
     return (
-        <Panel className="p-3">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">{label}{info && <InfoTip text={info} />}</div>
+        <Panel className="p-3" data-testid={testid}>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">{label}{info && <InfoTip text={info} testid={testid ? `${testid}-info` : undefined} />}</div>
             <div className="font-display font-bold text-lg" style={{ color: accent }}>{value}</div>
             {sub && <div className="text-[10px] text-muted-foreground">{sub}</div>}
         </Panel>
@@ -437,8 +437,8 @@ export default function BusinessManage() {
                         <Tile label="Uncollected cash" value={money(b.cash)} accent="#00FF66" />
                         <Tile label="Staff slots" value={`${m.staff_count ?? 0}/${m.max_staff_slots ?? 0}`} accent="#00F3FF" sub="upgrade for +1 slot" />
                         <Tile label="Business debt" value={money(b.debt)} accent={b.debt > 0 ? "#FF0055" : "#9CA3AF"} />
-                        <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" info="Reputation acts as a multiplier for market demand. Higher reputation attracts more customers." sub={`Demand ×${(m.reputation_demand_mult ?? 1).toFixed(2)}`} />
-                        <Tile label="Satisfaction" value={`${m.satisfaction}%`} accent="#00F3FF" info="Staff satisfaction determines work efficiency. Unhappy workers produce or sell at a slower pace." sub={`Output ×${(m.satisfaction_production_mult ?? 1).toFixed(2)}`} />
+                        <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" testid="reputation" info="Reputation acts as a multiplier for market demand. Higher reputation attracts more customers." sub={`Demand ×${(m.reputation_demand_mult ?? 1).toFixed(2)}`} />
+                        <Tile label="Satisfaction" value={`${m.satisfaction}%`} accent="#00F3FF" testid="satisfaction" info="Staff satisfaction determines work efficiency. Unhappy workers produce or sell at a slower pace." sub={`Output ×${(m.satisfaction_production_mult ?? 1).toFixed(2)}`} />
                     </div>
 
                     {/* SUPPLY CHAIN — transparent P&L */}

@@ -5,6 +5,17 @@ Browser-based **persistent, real-time life-simulation RPG** ("Kaeldor RPG"). A l
 
 **Hard design rule:** NO action points, NO daily action limits, NO "end turn". Always playable. Balance comes from real-time action durations, fatigue, money, risk, cooldowns, health, stress, consequences, and opportunity cost. Offline time counts; jobs/education/business/legal/recovery continue while offline.
 
+## Session Update — 2026-07-01 (Business overhaul + P1 features)
+**Economy rebalance (targets = L1 net/day, 1 NPC worker, ±15%):** kiosk~$220, online_shop~$300, cleaning_co~$350, delivery~$450, bistro/pet_shop/gym~$500, auto_repair/clothing~$800, real_estate~$1100. Achieved by tuning `production_per_worker_hour` only (prices/material costs unchanged). Verified: market estimates within ±20% of targets.
+**Reputation vs Satisfaction (de-duplicated):** Reputation = market reach → multiplies DEMAND (0.5–1.0×), rises with marketing/upgrades & staying in stock. Satisfaction = team morale → multiplies PRODUCTION (0.85–1.0×), driven by shift coverage + worker quality. Starting satisfaction=80. Tooltips added.
+**Marketing** = brand: +25% demand AND +10% price premium per level (premium stays visible even when capacity-bound). Marketing button restyled cyan (was purple).
+**Activity timers:** `business.activity={type,started_at,ends_at,duration_days,completed}`. Upgrade=7 in-game days (−50% income during build → +1 level & staff slot). Marketing=3 days (boost applies on completion). One activity at a time (2nd → HTTP 400). Progress banner + disabled buttons in UI.
+**Staff slots:** max_staff_slots = base_slots + level−1; per-role targets scaled so they sum to slots ("Active Staff: X/Y"). Roster terminology/endpoints removed.
+**P1 features:** Housing deposit refund on move-out + on switching rentals; property resale at 60% (POST /housing/sell, /housing/move-out); Shop items go to INVENTORY only, explicit "Use" applies effect (gear not consumable); passive health regen (~0.8/gh) + suspicion decay (~1.5/gh) + sleep −20 stress; NET worth breakdown tooltip (Header + Dashboard) = "Cash + Bank − Debt + 50% Asset Resell Value" (property valued at 50%).
+**UI cleanup:** OwnedBusinesses cards show only info + "Manage Business" (no Upgrade/Marketing/Sell/Collect). "Production" → "Sales Capacity" label for retail (kiosk/clothing/pet_shop/online_shop). Context-aware P&L footer. Effective price shown in P&L. UI is 100% English.
+**Verification:** testing_agent iteration_16 (backend 100%) + iteration_17 (frontend 100%, backend estimates 100%).
+
+
 ## User Choices (v1)
 - Auth: JWT email + password (Google login deferred).
 - Priorities (fully): core loop, economy, education & skills, legal/illegal paths. Business: **basic foundation** only (buy/run, income/expenses/debt/reputation/bankruptcy); deep employees/marketing/expansion deferred.
