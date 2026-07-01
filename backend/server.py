@@ -724,6 +724,8 @@ async def shop_buy(body: BuyBody, user: dict = Depends(current_user)):
 async def get_inventory(user: dict = Depends(current_user)):
     p = await get_state(user)
     inv = p.get("inventory") or {}
+    equipment = p.get("equipment") or {}
+    equipped_ids = {v for v in equipment.values() if v}
     items = await db.items.find({"id": {"$in": list(inv.keys())}}, {"_id": 0}).to_list(200) if inv else []
     by_id = {it["id"]: it for it in items}
     out = []
@@ -731,8 +733,81 @@ async def get_inventory(user: dict = Depends(current_user)):
         it = by_id.get(iid)
         if not it or qty <= 0:
             continue
-        out.append({**it, "qty": qty, "usable": it.get("category") != "gear"})
+        out.append({**it, "qty": qty,
+                    "usable": it.get("category") == "consumable",
+                    "equippable": bool(it.get("slot")),
+                    "equipped": iid in equipped_ids})
     return sorted(out, key=lambda x: x["name"])
+
+
+EQUIP_SLOTS = {
+    "outfit": {"label": "Outfit"},
+    "accessory": {"label": "Accessory"},
+    "phone": {"label": "Phone"},
+    "computer": {"label": "Computer"},
+    "work_gear": {"label": "Work / Fitness Gear"},
+}
+
+
+async def _recompute_equip_bonus(p):
+    """Aggregate passive bonuses from all equipped items: floors take max, *_mult multiply, rest sum."""
+    equipment = p.get("equipment") or {}
+    ids = [iid for iid in equipment.values() if iid]
+    bonus = {}
+    if ids:
+        items = await db.items.find({"id": {"$in": ids}}, {"_id": 0}).to_list(50)
+        for it in items:
+            for k, v in (it.get("equip") or {}).items():
+                if k.endswith("_floor"):
+                    bonus[k] = max(bonus.get(k, 0), v)
+                elif k.endswith("_mult"):
+                    bonus[k] = round(bonus.get(k, 1.0) * v, 4)
+                else:
+                    bonus[k] = round(bonus.get(k, 0) + v, 4)
+    p["equip_bonus"] = bonus
+    return bonus
+
+
+@api.get("/equipment")
+async def get_equipment(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    eq = p.get("equipment") or {}
+    ids = [i for i in eq.values() if i]
+    items = await db.items.find({"id": {"$in": ids}}, {"_id": 0}).to_list(50) if ids else []
+    by_id = {it["id"]: it for it in items}
+    slots = [{"slot": sid, "label": meta["label"], "item": by_id.get(eq.get(sid))}
+             for sid, meta in EQUIP_SLOTS.items()]
+    return {"slots": slots, "bonuses": p.get("equip_bonus") or {}}
+
+
+@api.post("/inventory/{item_id}/equip")
+async def equip_item(item_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    inv = p.get("inventory") or {}
+    if inv.get(item_id, 0) <= 0:
+        raise HTTPException(status_code=400, detail="You don't own that item")
+    it = await db.items.find_one({"id": item_id}, {"_id": 0})
+    if not it or not it.get("slot"):
+        raise HTTPException(status_code=400, detail="That item can't be equipped")
+    p.setdefault("equipment", {})[it["slot"]] = item_id
+    await _recompute_equip_bonus(p)
+    await add_event(db, p["id"], f"You equipped {it['name']}.", "shop", "info")
+    await save_player(p)
+    return {"ok": True, "equipped": True, "slot": it["slot"]}
+
+
+@api.post("/equipment/{slot}/unequip")
+async def unequip_slot(slot: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    eq = p.get("equipment") or {}
+    iid = eq.pop(slot, None)
+    if iid:
+        p["equipment"] = eq
+        await _recompute_equip_bonus(p)
+        it = await db.items.find_one({"id": iid}, {"_id": 0})
+        await add_event(db, p["id"], f"You unequipped {(it or {}).get('name', 'an item')}.", "shop", "info")
+        await save_player(p)
+    return {"ok": True}
 
 
 @api.post("/inventory/{item_id}/use")
@@ -744,8 +819,8 @@ async def use_item(item_id: str, user: dict = Depends(current_user)):
     it = await db.items.find_one({"id": item_id}, {"_id": 0})
     if not it:
         raise HTTPException(status_code=404, detail="Item not found")
-    if it.get("category") == "gear":
-        raise HTTPException(status_code=400, detail="Gear is passive equipment — it works just by owning it.")
+    if it.get("category") != "consumable":
+        raise HTTPException(status_code=400, detail="This item is equipment — equip it instead of using it.")
     cfg = await get_config(db)
     eff = dict(it.get("effects", {}))
     skill_eff = {k: v for k, v in eff.items() if k in SKILLS}

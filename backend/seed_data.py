@@ -203,6 +203,7 @@ COURSES = [
 ]
 
 ITEMS = [
+    # --- Consumables (instant effect, consumed on use) ---
     {"id": "energy_drink", "name": "Energy Drink", "category": "consumable", "price": 5,
      "effects": {"energy": 18, "fatigue": -6, "health": -2}, "desc": "Cheap caffeine boost."},
     {"id": "protein_bar", "name": "Protein Bar", "category": "consumable", "price": 4,
@@ -211,14 +212,35 @@ ITEMS = [
      "effects": {"energy": 12, "mood": 4}, "desc": "Liquid motivation."},
     {"id": "painkillers", "name": "Painkillers", "category": "consumable", "price": 12,
      "effects": {"health": 10, "stress": -5}, "desc": "Ease the aches."},
-    {"id": "nice_clothes", "name": "Nice Outfit", "category": "wearable", "price": 120,
-     "effects": {"mood": 8, "social_status": 6, "reputation": 4}, "desc": "Dress to impress."},
-    {"id": "smartphone", "name": "Smartphone", "category": "gear", "price": 250,
-     "effects": {"mood": 6, "technology": 0}, "desc": "Stay connected. Required to send SMS to other players."},
-    {"id": "laptop", "name": "Laptop", "category": "gear", "price": 600,
-     "effects": {"mood": 5, "technology": 0}, "desc": "Work, browse and write email. Required to send email to other players."},
-    {"id": "gift", "name": "Gift Box", "category": "social", "price": 40,
-     "effects": {"mood": 6}, "desc": "For friends and contacts."},
+    {"id": "first_aid_kit", "name": "First Aid Kit", "category": "consumable", "price": 45,
+     "effects": {"health": 35}, "desc": "Patch yourself up fast."},
+    {"id": "sleeping_pills", "name": "Sleeping Pills", "category": "consumable", "price": 20,
+     "effects": {"fatigue": -30, "stress": -10, "energy": 10}, "desc": "A deep, restful night."},
+    # --- Apparel (slot: outfit) ---
+    {"id": "nice_clothes", "name": "Nice Outfit", "category": "apparel", "price": 120, "slot": "outfit",
+     "equip": {"social_status_floor": 12, "social_success": 0.05, "tip_rate": 0.03},
+     "desc": "Dress to impress. Equip for a passive social standing & tips boost."},
+    {"id": "business_suit", "name": "Business Suit", "category": "apparel", "price": 480, "slot": "outfit",
+     "equip": {"social_status_floor": 22, "reputation_floor": 45, "social_success": 0.08, "tip_rate": 0.05},
+     "desc": "Sharp tailoring that commands respect in any room."},
+    # --- Accessory (slot: accessory) ---
+    {"id": "luxury_watch", "name": "Luxury Watch", "category": "accessory", "price": 900, "slot": "accessory",
+     "equip": {"social_status_floor": 18, "reputation_floor": 35, "social_success": 0.04},
+     "desc": "A status symbol on your wrist — equip to raise your standing."},
+    # --- Devices (slots: phone / computer) ---
+    {"id": "smartphone", "name": "Smartphone", "category": "device", "price": 250, "slot": "phone",
+     "equip": {"mood_floor": 20},
+     "desc": "Stay connected. Required to send SMS to other players. Equip to keep your spirits up."},
+    {"id": "laptop", "name": "Laptop", "category": "device", "price": 600, "slot": "computer",
+     "equip": {"work_effectiveness": 0.05, "mood_floor": 15},
+     "desc": "Work, browse and write email. Required to send email. Equip for a work performance boost."},
+    # --- Work / Fitness gear (slot: work_gear) ---
+    {"id": "toolbelt", "name": "Pro Toolbelt", "category": "gear", "price": 320, "slot": "work_gear",
+     "equip": {"work_effectiveness": 0.09},
+     "desc": "The right tools make every shift more productive."},
+    {"id": "athletic_gear", "name": "Athletic Gear", "category": "gear", "price": 240, "slot": "work_gear",
+     "equip": {"energy_drain_mult": 0.85, "health_regen": 0.6, "work_effectiveness": 0.03},
+     "desc": "Stay in shape — slower energy drain and faster recovery when equipped."},
 ]
 
 HOUSING = [

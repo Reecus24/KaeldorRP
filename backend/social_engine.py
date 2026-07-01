@@ -338,6 +338,7 @@ async def _apply_interaction(db, p, cfg, c, a, gift, eff=1.0):
     for t in c.get("traits", []):
         chance += traits_map.get(t, {}).get("effects", {}).get("success_mod", 0)
     chance += (p.get("reputation", 50) - 50) / 500.0
+    chance += p.get("equip_bonus", {}).get("social_success", 0.0)  # equipped outfit/accessory
     chance = max(0.05, min(0.98, chance)) * (0.85 + 0.15 * eff)
     success = random.random() < chance
     block = a.get("on_success" if success else "on_fail", {}) or {}

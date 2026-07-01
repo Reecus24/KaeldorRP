@@ -1,0 +1,31 @@
+{
+  "summary": "Full backend+frontend verification of Phase 4 (Inventory & Equipment) and 'Active Perks' panel on Business Manage. Backend: 7/7 pytest assertions PASS (test_inventory_equipment.py) — GET /api/shop/items lists all new items (energy_drink, first_aid_kit, sleeping_pills, nice_clothes, business_suit, luxury_watch, toolbelt, athletic_gear) and legacy 'gift' is REMOVED; GET /api/equipment returns exactly the 5 slots {outfit, accessory, phone, computer, work_gear} plus bonuses; GET /api/inventory correctly flags each item with usable/equippable/equipped; POST /api/inventory/nice_clothes/equip → outfit slot filled + aggregate bonuses {social_status_floor≥12, social_success≥0.05, tip_rate≥0.03}; POST /api/equipment/outfit/unequip → slot empties + bonuses drop; slot replacement (nice_clothes then business_suit into 'outfit') works — only business_suit ends equipped; POST /api/inventory/nice_clothes/use returns 400 with 'equip it instead' message (equipment gating); POST /api/inventory/energy_drink/use decrements qty by 1; dovan has no wage/material social perks. Frontend (live https://grind-nation.preview.emergentagent.com, mara@kaeldor.com/demo123 + dovan@kaeldor.com/demo123): /shop renders data-testid='equipment-panel' with all 5 equip-slot-<id> tiles; category headings CONSUMABLES/APPAREL/ACCESSORIES/DEVICES/WORK & FITNESS GEAR present; buy-energy_drink → inv-item-energy_drink appears with use-energy_drink button and NO equip button; equippable items (nice_clothes, business_suit) show equip-<id> and NO use-<id> button; clicking equip-nice_clothes fills outfit slot with 'Nice Outfit' + bonus pills (Social status ≥12, +5% social success, +3% tips), inventory card gets equipped-tag-nice_clothes, 'Active passive bonuses' summary shows aggregated pills, and unequip-outfit becomes present; then equipping business_suit REPLACES nice_clothes in the outfit slot (equipped-tag-business_suit appears, equipped-tag-nice_clothes disappears, slot now shows business_suit + its bonus pills). Dovan's /businesses/{kiosk} Overview shows data-testid='active-perks-panel' with data-testid='active-perks-empty' hint text 'No active perks yet. Meet a Manager or Wholesaler (Social ▸ Meet People), then use Talk Business to unlock permanent wage / material discounts.'; pnl-footer still renders (P&L intact); Messages page still gated by device ownership (mara has both, page loads). Zero console errors on Shop, Dashboard, Messages, BusinessManage.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_inventory_equipment.py",
+    "/app/test_reports/pytest/inventory_equipment.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py _recompute_equip_bonus correctly aggregates: floors take max, *_mult multiply, rest sum — verified via nice_clothes → business_suit replacement (bonuses reset when slot swaps).",
+    "/api/inventory/{item_id}/use enforces category=='consumable' with a clear 400 message ('This item is equipment — equip it instead of using it.') — good UX gating.",
+    "Shop.jsx conditionally renders Equip vs Use button based on backend equippable/usable flags (verified: no cross-buttons appear). Equipped state is source-of-truth from GET /api/equipment.",
+    "BusinessManage.jsx ActivePerks empty-state hint copy is user-friendly and points players to the exact flow to unlock perks (Social ▸ Meet People + Talk Business).",
+    "Minor code hygiene (not blocking): server.py is 2932 lines — exceeds the 700-line guideline; consider splitting inventory/equipment/shop endpoints into a router module in a future pass."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_inventory_equipment.py"
+  ],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (all 7 review items verified)"},
+  "test_credentials": "mara@kaeldor.com / demo123 (used for shop/equipment); dovan@kaeldor.com / demo123 (used for Active Perks empty-state).",
+  "seed_data_creation": "None — used existing demo players. Mara purchased energy_drink and business_suit during the run (increments only, no destructive changes).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file /app/backend/tests/test_inventory_equipment.py is idempotent: it auto-unequips the outfit slot before re-equipping and only buys items when missing/affordable. Run with REACT_APP_BACKEND_URL env exported (or use the value from /app/frontend/.env). All Phase 4 testids on live UI: equipment-panel, equip-slot-{outfit|accessory|phone|computer|work_gear}, inv-item-<id>, buy-<id>, use-<id> (consumables only), equip-<id> (equippables only), equipped-tag-<id>, unequip-<slot>, active-perks-panel, active-perks-empty. Mara currently has Business Suit equipped in the outfit slot after this run (was Nice Outfit before) — if you need her back to Nice Outfit, either unequip via UI or POST /api/equipment/outfit/unequip then POST /api/inventory/nice_clothes/equip.",
+  "rca of the issue": "N/A — no issues found. All 7 review items pass end-to-end."
+}

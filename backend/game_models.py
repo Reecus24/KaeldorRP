@@ -80,6 +80,8 @@ def new_player(user_id, name, background):
         "vehicles": [],
         "education": [],
         "inventory": {},
+        "equipment": {},
+        "equip_bonus": {},
         "current_activity": None,
         "status": "free",
         "jail_until": None,

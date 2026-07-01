@@ -148,7 +148,8 @@ def effectiveness(p):
         score *= 0.8
     if p["stress"] > 80:
         score *= 0.85
-    return max(0.3, min(1.1, score))
+    score += p.get("equip_bonus", {}).get("work_effectiveness", 0.0)  # equipped work/fitness gear
+    return max(0.3, min(1.25, score))
 
 
 def charge(p, amount):
@@ -209,9 +210,10 @@ def apply_effects(p, effects, mult=1.0):
 
 def decay_needs(p, gh, cfg, resting):
     d = cfg.get("decay", {})
+    eb = p.get("equip_bonus", {})
     p["hunger"] = clamp(p["hunger"] + d.get("hunger", 3.2) * gh)
     if not resting:
-        p["energy"] = clamp(p["energy"] - d.get("energy_awake", 2.4) * gh)
+        p["energy"] = clamp(p["energy"] - d.get("energy_awake", 2.4) * gh * eb.get("energy_drain_mult", 1.0))
         p["fatigue"] = clamp(p["fatigue"] + d.get("fatigue_awake", 1.8) * gh)
         p["stress"] = clamp(p["stress"] - d.get("stress_relax", 1.2) * gh)
     # derived health/mood pressure
@@ -228,15 +230,20 @@ def decay_needs(p, gh, cfg, resting):
     # criminal suspicion cools down while not committing crimes (~1.5/game-hour)
     if p.get("criminal_suspicion", 0) > 0:
         p["criminal_suspicion"] = clamp(p["criminal_suspicion"] - 1.5 * gh)
-    # slow passive health regen when reasonably fed/rested/calm
+    # slow passive health regen when reasonably fed/rested/calm (+ equipped fitness gear)
     if p["health"] < 100 and p["hunger"] < 80 and p["fatigue"] < 85 and p["stress"] < 85:
-        p["health"] = clamp(p["health"] + 0.8 * gh)
+        p["health"] = clamp(p["health"] + (0.8 + eb.get("health_regen", 0.0)) * gh)
     # mood drifts toward baseline (modified by housing handled elsewhere)
     baseline = d.get("mood_baseline", 60.0)
     if p["mood"] < baseline:
         p["mood"] = clamp(p["mood"] + 0.5 * gh)
     elif p["mood"] > baseline + 20:
         p["mood"] = clamp(p["mood"] - 0.3 * gh)
+    # equipped-gear passive floors: stat won't fall below the floor while the item is worn
+    for stat, key in (("mood", "mood_floor"), ("social_status", "social_status_floor"), ("reputation", "reputation_floor")):
+        fl = eb.get(key)
+        if fl:
+            p[stat] = clamp(max(p.get(stat, 0.0), fl))
 
 
 def weighted_event(events, scope):
@@ -291,7 +298,8 @@ async def complete_activity(db, p, cfg):
         # REPUTATION + SOCIAL STATUS tip for customer-facing work (see PLAYER_STATS_LOGIC.md)
         tip = 0.0
         if payload.get("category") in ("retail", "food", "logistics", "office", "management", "trade"):
-            tip_rate = clamp((p["reputation"] - 50) / 100.0 * 0.15 + (p.get("social_status", 10) - 10) / 100.0 * 0.05, 0.0, 0.20)
+            tip_rate = clamp((p["reputation"] - 50) / 100.0 * 0.15 + (p.get("social_status", 10) - 10) / 100.0 * 0.05
+                             + p.get("equip_bonus", {}).get("tip_rate", 0.0), 0.0, 0.25)
             tip = round(base_pay * tip_rate, 2)
         pay = round(base_pay + tip, 2)
         # INCOME TAX withheld on wages (progressive, admin-tunable) — links Economy + Bank + Legal Standing.

@@ -10,12 +10,45 @@ import { cn } from "@/lib/utils";
 import {
     Boxes, ArrowLeft, Users, UserPlus, GraduationCap, ScrollText, LineChart, LayoutGrid,
     TrendingUp, TrendingDown, AlertTriangle, Megaphone, ArrowUpCircle, Smile, Gauge,
-    Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck, Hammer,
+    Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck, Hammer, Handshake,
 } from "lucide-react";
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
 const SEV = { success: "text-neon-green", info: "text-neon-cyan/90", warning: "text-neon-yellow", danger: "text-neon-red" };
+
+function ActivePerks({ perks }) {
+    const wage = Math.round((perks?.wage_discount || 0) * 100);
+    const material = Math.round((perks?.material_discount || 0) * 100);
+    const any = wage > 0 || material > 0;
+    return (
+        <Panel className="p-4 border-neon-green/20" data-testid="active-perks-panel">
+            <div className="flex items-center gap-1.5 mb-2">
+                <Handshake className="w-4 h-4 text-neon-green" />
+                <span className="font-display font-bold text-white">Active Perks</span>
+                <InfoTip text="Permanent discounts unlocked by networking with a Manager (staff wages) or Wholesaler (materials) in Social ▸ Talk Business. They apply to ALL your businesses and are already reflected in the numbers above." testid="perks-info" />
+            </div>
+            {any ? (
+                <div className="flex flex-wrap gap-2" data-testid="active-perks-list">
+                    {wage > 0 && (
+                        <span className="font-mono text-xs px-2 py-1 rounded-sm border text-neon-green border-neon-green/40" data-testid="perk-wage">
+                            −{wage}% staff wages
+                        </span>
+                    )}
+                    {material > 0 && (
+                        <span className="font-mono text-xs px-2 py-1 rounded-sm border text-neon-green border-neon-green/40" data-testid="perk-material">
+                            −{material}% material cost
+                        </span>
+                    )}
+                </div>
+            ) : (
+                <div className="text-[11px] text-muted-foreground" data-testid="active-perks-empty">
+                    No active perks yet. Meet a Manager or Wholesaler (Social ▸ Meet People), then use Talk Business to unlock permanent wage / material discounts.
+                </div>
+            )}
+        </Panel>
+    );
+}
 
 function Tab({ active, onClick, icon: Icon, children, testid }) {
     return (
@@ -450,7 +483,7 @@ function ScheduleTab({ id, m, reload }) {
 export default function BusinessManage() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { act, tick } = useGame();
+    const { act, tick, player } = useGame();
     const [detail, setDetail] = useState(null);
     const [employees, setEmployees] = useState([]);
     const [applicants, setApplicants] = useState([]);
@@ -584,6 +617,8 @@ export default function BusinessManage() {
                         <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" testid="reputation" info="Reputation acts as a multiplier for market demand. Higher reputation attracts more customers." sub={`Demand ×${(m.reputation_demand_mult ?? 1).toFixed(2)}`} />
                         <Tile label="Satisfaction" value={`${m.satisfaction}%`} accent="#00F3FF" testid="satisfaction" info="Staff satisfaction determines work efficiency. Unhappy workers produce or sell at a slower pace." sub={`Output ×${(m.satisfaction_production_mult ?? 1).toFixed(2)}`} />
                     </div>
+
+                    <ActivePerks perks={player?.social_perks} />
 
                     {/* SUPPLY CHAIN — transparent P&L */}
                     <Panel className="p-5" data-testid="supply-chain-panel">
