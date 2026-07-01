@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 13 verifies the two large user changes: (1) COMPLETE Hygiene removal and (2) transparent Supply-Chain business rewrite. Backend pytest test_supply_chain_hygiene.py — 9 passed / 2 skipped (buy-fresh-kiosk skipped because Kiri lacks cash and there's no admin add-cash endpoint; NPC projection skipped because Dovan's kiosk currently has 0 NPC employees). UI verified on BusinessManage for Dovan's Street Kiosk: Supply Chain panel renders Recipe (1× Snacks $1.50, 1× Drinks $1.00, Materials/unit $2.50, Margin/unit $3.50), Sells 'Snack & Drink Combo @ $6.00/unit', Daily P&L 'Sold 47 × $6.00 = +$282 − Materials $118 − Wages $180 = Net/day -$15' (arithmetic consistent, tiny -$1 rounding). All 8 tiles render (Net/day, Revenue/day, Materials/day, Wages/day, Products in stock, Uncollected cash, Business debt, Reputation). Inventory & Restock section shows Snacks:200 / Drinks:199 / Finished:0 pills, Auto-restock toggle checked, target 30, Buy-Materials-to-Target button works. Rename modal opens and rename persists (title updates to 'Dovan Kiosk UI Test' then restored). Finances tab renders Revenue/Materials/Wages/Net tiles. Staffing shows 'Cashier Roster 1/1 · Active 1/1' — no 'NPC backup' toggle. Top stat strip on Dashboard shows Energy/Fatigue/Hunger/Mood/Stress/Health (NO hygiene bar). HomeNeeds page has no hygiene/shower text. Shop has no hygiene items (Energy Drink/Protein Bar/Coffee/Painkillers/Apparel/Gear only). GET /api/game/state has no 'hygiene' field on player. GET /api/actions has no shower action and no action with hygiene effect. Mara's /current-job page shows ON SHIFT card at Dovan's Street Kiosk, Cashier, Early Shift 08:00-16:00, with Clock Out Early button; GET /api/jobs/employment returns her employment with wage_per_hour=22.5, on_shift=true, today={hours,wage,revenue,net}. Player projection has all 6 required fields (units_per_hour=8.0, margin_per_unit=3.5, productivity=0.736, rev_per_hour=20.61, wage_per_hour=22.5, net_per_hour=-1.89). Zero console errors on Mara's flow.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "BusinessManage (Dovan session)", "issues": ["8 transient 404 network errors observed in the browser console on first BusinessManage load — probably missing static asset(s) (favicon/icon). Did not reproduce on Mara's session. Non-blocking but worth checking the response URLs (couldn't be captured because the earlier script only recorded message text)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_supply_chain_hygiene.py",
+    "/app/test_reports/pytest/iteration_13.xml"
+  ],
+  "action_items": [
+    "(INFO) None blocking. Optionally investigate 8 asset 404s on BusinessManage first-load (likely icon file). Also, seed Kiri with more cash OR add an admin cash-adjust endpoint so QA can exercise the 'buy a fresh business — no instant bankruptcy' flow via a real HTTP POST (structural equivalent is already verified on the existing Dovan kiosk which has bankrupt=false, debt=0, seeded materials, products=0, valid recipe)."
+  ],
+  "critical_code_review_comments": [
+    "Supply-chain P&L arithmetic on the UI shows Net -$15 while rev(282)-mats(118)-wages(180) = -16 — a $1 discrepancy from rounding intermediate values. Consider computing net from rounded components consistently so the tile matches the breakdown exactly.",
+    "Rename endpoint validation: /api/businesses/{id}/rename correctly returns 400 for name < 2 chars. Consider also stripping unicode zero-width chars and normalizing whitespace to avoid ' ' (space-only) sneaking in as a 1-char stripped result — currently handled by .strip() and 2<=len(name)<=40 (verified good).",
+    "buy_materials pulls from business cash first and falls back to owner cash+bank via charge(p, from_owner). Path was smoke-tested only (no state assertion on owner delta) — worth an integration test that asserts owner cash decrement equals from_owner.",
+    "GET /api/businesses/{id}/player-employees returns 'employee_name' (not 'player_name' or 'name'). Frontend/BE contract is fine, but downstream tests / dashboards should align on the field name to avoid mismatches (adjusted our test accordingly).",
+    "GET /api/jobs/employment returns {employments:[...], applications:[...]} — the docstring / spec should reflect that clients must dereference .employments. Non-blocking, cosmetic."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_supply_chain_hygiene.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9 executed, 2 skipped due to seed/data gaps)", "frontend": "100% on all critical supply-chain, rename, restock, hygiene-removal, and player-employment flows"},
+  "test_credentials": "admin@kaeldor.com/admin123; dovan/mara/kiri @kaeldor.com / demo123",
+  "seed_data_creation": "No new persistent test data created. The rename test writes a temporary name and restores 'Dovan's Street Kiosk' before finishing. Buy-materials test may top up Snacks/Drinks stock on the kiosk (harmless).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && export REACT_APP_BACKEND_URL=https://grind-nation.preview.emergentagent.com && python -m pytest tests/test_supply_chain_hygiene.py -v -o addopts='' . NOTE: /app/backend/pytest.ini forces xdist by default; overriding addopts='' avoids '-n auto' when running JUnit XML. Field names in the player-employees API: use 'employee_name' (not name/player_name). /api/jobs/employment shape: {employments:[...], applications:[...]}. Dovan's kiosk id: 249566f3664b40a9b9934c150c713de2. To exercise 'buy fresh — no instant bankruptcy' as a live POST test, either seed Kiri with $50k cash or use a mongo update.",
+  "rca of the issue": "No defects found. The user's two big changes are correctly implemented end-to-end: hygiene is fully removed at DB/API/UI, and businesses have moved to a transparent supply-chain P&L with new endpoints (rename, buy-materials, restock-settings) and unified worker projections carrying units_per_hour/margin_per_unit. Slightly-negative net on Dovan's kiosk (-$15/day) is the expected/documented outcome given Mara's wage ($22.5/h) > her margin output (~$20.6/h) — this is transparent economics, not a bug."
+}

@@ -910,16 +910,24 @@ async def buy_business(type_id: str, user: dict = Depends(current_user)):
     if p["cash"] + p["bank"] < t["purchase_price"]:
         raise HTTPException(status_code=400, detail="Cannot afford this business")
     charge(p, t["purchase_price"])
+    now = now_utc()
+    recipe = t.get("recipe") or []
+    restock_target = t.get("daily_demand", 0)
+    materials = {r["id"]: round(restock_target * r.get("qty", 1), 3) for r in recipe}  # starting inventory
     biz = {
         "id": uuid.uuid4().hex, "player_id": p["id"], "type_id": type_id, "name": t["name"],
         "category": t.get("category", ""), "purchase_price": t["purchase_price"],
-        "rent_per_day": t.get("rent_per_day", 0), "base_revenue_per_day": t.get("base_revenue_per_day", 0),
-        "base_expenses_per_day": t.get("base_expenses_per_day", 0), "max_level": t.get("max_level", 5),
-        "level": 1, "marketing_level": 0, "security_level": 0, "reputation": 50.0,
-        "cash": 0.0, "debt": 0.0, "revenue_total": 0.0, "last_net_day": 0.0,
-        "bankrupt": False, "history": [], "created_at": now_utc().isoformat(),
-        "satisfaction": 60.0, "last_applicant_at": now_utc().isoformat(),
-        "rev_day": 0.0, "exp_day": 0.0, "wages_day": 0.0, "coverage": 0.35, "morale_avg": 0,
+        "max_level": t.get("max_level", 5), "level": 1, "marketing_level": 0, "reputation": 50.0,
+        # supply chain
+        "product": t.get("product") or {}, "recipe": recipe,
+        "production_per_worker_hour": t.get("production_per_worker_hour", 0),
+        "daily_demand": t.get("daily_demand", 0), "materials": materials, "products": 0.0,
+        "restock_target": restock_target, "auto_restock": True,
+        "cash": 0.0, "debt": 0.0, "revenue_total": 0.0,
+        "rev_day": 0.0, "material_day": 0.0, "wages_day": 0.0, "net_day": 0.0, "exp_day": 0.0,
+        "demand_day": 0.0, "produced_day": 0.0, "sold_day": 0.0,
+        "bankrupt": False, "history": [], "created_at": now.isoformat(), "last_resolved_at": now.isoformat(),
+        "satisfaction": 60.0, "last_applicant_at": now.isoformat(), "morale_avg": 0, "hiring_open": False,
     }
     await db.businesses.insert_one({**biz})
     cfg = await get_config(db)
@@ -1022,6 +1030,82 @@ async def sell_business(biz_id: str, user: dict = Depends(current_user)):
     await add_event(db, p["id"], f"Sold {b['name']} for ${value}.", "business", "info")
     await save_player(p)
     return {"ok": True, "value": value}
+
+
+class RenameBody(BaseModel):
+    name: str
+
+
+class MaterialsBody(BaseModel):
+    units: Optional[float] = None  # product-equivalent units to top up to (defaults to restock target)
+
+
+class RestockBody(BaseModel):
+    auto_restock: Optional[bool] = None
+    restock_target: Optional[float] = None
+
+
+@api.post("/businesses/{biz_id}/rename")
+async def rename_business(biz_id: str, body: RenameBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    await _get_owned_business(p, biz_id)
+    name = (body.name or "").strip()
+    if not (2 <= len(name) <= 40):
+        raise HTTPException(status_code=400, detail="Name must be 2–40 characters")
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"name": name}})
+    await db.player_employment.update_many({"business_id": biz_id}, {"$set": {"business_name": name}})
+    await db.business_applications.update_many({"business_id": biz_id}, {"$set": {"business_name": name}})
+    return {"ok": True, "name": name}
+
+
+@api.post("/businesses/{biz_id}/restock-settings")
+async def restock_settings(biz_id: str, body: RestockBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    await _get_owned_business(p, biz_id)
+    upd = {}
+    if body.auto_restock is not None:
+        upd["auto_restock"] = bool(body.auto_restock)
+    if body.restock_target is not None:
+        upd["restock_target"] = max(0.0, round(body.restock_target, 1))
+    if upd:
+        await db.businesses.update_one({"id": biz_id}, {"$set": upd})
+    return {"ok": True, **upd}
+
+
+@api.post("/businesses/{biz_id}/buy-materials")
+async def buy_materials(biz_id: str, body: MaterialsBody, user: dict = Depends(current_user)):
+    """Top up ingredient stock to `units` product-equivalents. Paid from business cash;
+    if the business is short, the owner's wallet covers the rest."""
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    recipe = b.get("recipe") or []
+    if not recipe:
+        raise HTTPException(status_code=400, detail="This business has no supply chain")
+    target = body.units if body.units is not None else b.get("restock_target", b.get("daily_demand", 0))
+    target = max(0.0, round(target, 1))
+    materials = b.get("materials") or {}
+    cost = 0.0
+    new_mats = dict(materials)
+    for r in recipe:
+        want = target * r.get("qty", 1)
+        have = materials.get(r["id"], 0)
+        if want > have:
+            cost += (want - have) * r.get("cost", 0)
+            new_mats[r["id"]] = round(want, 3)
+    cost = round(cost, 2)
+    if cost <= 0:
+        return {"ok": True, "cost": 0, "detail": "Already stocked to target"}
+    biz_cash = round(b.get("cash", 0), 2)
+    from_biz = min(biz_cash, cost)
+    from_owner = round(cost - from_biz, 2)
+    if from_owner > 0 and (p["cash"] + p["bank"]) < from_owner:
+        raise HTTPException(status_code=400, detail=f"Need ${cost} to restock (business has ${biz_cash}); you can't cover the rest")
+    if from_owner > 0:
+        charge(p, from_owner)
+        await save_player(p)
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"materials": new_mats, "cash": round(biz_cash - from_biz, 2)}})
+    await add_event(db, p["id"], f"Restocked materials at {b['name']} for ${cost}.", "business", "info", biz_id)
+    return {"ok": True, "cost": cost, "from_business": from_biz, "from_owner": from_owner}
 
 
 # ============================ ILLEGAL / LEGAL ============================
@@ -1264,7 +1348,7 @@ async def biz_employees(biz_id: str, user: dict = Depends(current_user)):
     tmap = {t["id"]: t for t in await db.employee_traits.find({}, {"_id": 0}).to_list(100)}
     emps = await db.employees.find({"business_id": biz_id, "status": {"$in": ["active", "sick"]}}, {"_id": 0}).sort("hire_date", 1).to_list(200)
     for e in emps:
-        e["projection"] = employment.npc_employee_projection(e, cfg, tmap)
+        e["projection"] = employment.npc_employee_projection(e, cfg, tmap, b)
     return {"employees": emps, "metrics": await employee_engine.business_metrics(db, b)}
 
 
@@ -1289,8 +1373,13 @@ async def hire_applicant(biz_id: str, emp_id: str, user: dict = Depends(current_
     emp = await db.employees.find_one({"id": emp_id, "business_id": biz_id, "status": "applicant"}, {"_id": 0})
     if not emp:
         raise HTTPException(status_code=404, detail="Applicant not found")
+    b = await _get_owned_business(p, biz_id)
+    plan_by_role = {x["role"]: x for x in (b.get("roster_plan") or [])}
+    sched_key = (plan_by_role.get(emp["role"], {}) or {}).get("schedule") or emp.get("schedule", {}).get("preset") or "early"
+    wph = emp.get("wage_per_hour") or round(emp.get("daily_wage", 90) / 8.0, 2)
     await db.employees.update_one({"id": emp_id}, {"$set": {
-        "status": "active", "hire_date": now_utc().isoformat(), "last_paid": now_utc().isoformat()}})
+        "status": "active", "hire_date": now_utc().isoformat(), "last_paid": now_utc().isoformat(),
+        "wage_per_hour": wph, "schedule": employment.make_schedule(sched_key)}})
     await add_event(db, p["id"], f"You hired {emp['name']} as {emp['role'].replace('_', ' ')}.", "business", "success", biz_id)
     return {"ok": True}
 
@@ -1334,7 +1423,7 @@ async def give_raise(emp_id: str, user: dict = Depends(current_user)):
     emp, biz = await _get_employee(p, emp_id)
     new_wage = round(emp.get("daily_wage", 80) * 1.12, 2)
     await db.employees.update_one({"id": emp_id}, {"$set": {
-        "daily_wage": new_wage, "wants_raise": False,
+        "daily_wage": new_wage, "wage_per_hour": round(new_wage / 8.0, 2), "wants_raise": False,
         "morale": clamp(emp.get("morale", 60) + 10), "loyalty": clamp(emp.get("loyalty", 50) + 6)}})
     await add_event(db, p["id"], f"You gave {emp['name']} a raise to ${new_wage}/day.", "business", "success", biz["id"])
     return {"ok": True}
@@ -1831,7 +1920,7 @@ async def biz_player_applications(biz_id: str, user: dict = Depends(current_user
         ap = await db.players.find_one({"id": a["applicant_id"]}, {"_id": 0})
         if ap:
             r2 = roles + ([a["role"]] if a.get("role") and a["role"] not in roles else [])
-            a["projection"] = employment.applicant_projection(ap, cfg, r2)
+            a["projection"] = employment.applicant_projection(ap, cfg, r2, b)
     return apps
 
 
@@ -1875,13 +1964,13 @@ async def reject_player(biz_id: str, app_id: str, user: dict = Depends(current_u
 @api.get("/businesses/{biz_id}/player-employees")
 async def biz_player_employees(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
-    await _get_owned_business(p, biz_id)
+    b = await _get_owned_business(p, biz_id)
     cfg = await get_config(db)
     g_now = game_now(cfg, now_utc())
     emps = await db.player_employment.find({"business_id": biz_id, "status": "active"}, {"_id": 0}).to_list(100)
     out = []
     for e in emps:
-        e["projection"] = await employment.player_employee_projection(db, cfg, e)
+        e["projection"] = await employment.player_employee_projection(db, cfg, e, b)
         out.append(decorate_employment_live(e, cfg, g_now))
     return out
 
@@ -2304,17 +2393,22 @@ async def seed_demo_players():
         if d.get("business"):
             t = await db.business_types.find_one({"id": d["business"]}, {"_id": 0})
             if t:
+                recipe = t.get("recipe") or []
+                target = t.get("daily_demand", 0)
+                now = now_utc()
                 biz = {
                     "id": uuid.uuid4().hex, "player_id": p["id"], "type_id": t["id"], "name": f"{d['name'].split()[0]}'s {t['name']}",
                     "category": t.get("category", ""), "purchase_price": t["purchase_price"],
-                    "rent_per_day": t.get("rent_per_day", 0), "base_revenue_per_day": t.get("base_revenue_per_day", 0),
-                    "base_expenses_per_day": t.get("base_expenses_per_day", 0), "max_level": t.get("max_level", 5),
-                    "level": 1, "marketing_level": 0, "security_level": 0, "reputation": 55.0,
-                    "cash": 200.0, "debt": 0.0, "revenue_total": 0.0, "last_net_day": 0.0,
-                    "bankrupt": False, "history": [], "created_at": now_utc().isoformat(),
-                    "satisfaction": 62.0, "last_applicant_at": now_utc().isoformat(),
-                    "rev_day": 0.0, "exp_day": 0.0, "wages_day": 0.0, "coverage": 0.35, "morale_avg": 0,
-                    "hiring_open": True,
+                    "max_level": t.get("max_level", 5), "level": 1, "marketing_level": 0, "reputation": 55.0,
+                    "product": t.get("product") or {}, "recipe": recipe,
+                    "production_per_worker_hour": t.get("production_per_worker_hour", 0),
+                    "daily_demand": target, "materials": {r["id"]: round(target * r.get("qty", 1), 3) for r in recipe},
+                    "products": 0.0, "restock_target": target, "auto_restock": True,
+                    "cash": 200.0, "debt": 0.0, "revenue_total": 0.0,
+                    "rev_day": 0.0, "material_day": 0.0, "wages_day": 0.0, "net_day": 0.0, "exp_day": 0.0,
+                    "demand_day": 0.0, "produced_day": 0.0, "sold_day": 0.0,
+                    "bankrupt": False, "history": [], "created_at": now.isoformat(), "last_resolved_at": now.isoformat(),
+                    "satisfaction": 62.0, "last_applicant_at": now.isoformat(), "morale_avg": 0, "hiring_open": True,
                 }
                 await db.businesses.insert_one({**biz})
     logger.info("Demo players seeded (mara/dovan/kiri @kaeldor.com / demo123)")
@@ -2361,6 +2455,34 @@ async def migrate_player_employment_hourly():
             await db.businesses.update_one({"id": b["id"]}, {"$set": {"history": hist}})
 
 
+async def migrate_business_supply_chain():
+    """Migrate business_types + existing businesses to the supply-chain model, and give NPC
+    employees a schedule + hourly wage so they run through the same worker logic as players."""
+    seed_types = {t["id"]: t for t in CONTENT_MAP["business_types"][1]}
+    for tid, t in seed_types.items():
+        await db.business_types.update_one({"id": tid}, {"$set": {
+            "product": t.get("product"), "recipe": t.get("recipe"),
+            "production_per_worker_hour": t.get("production_per_worker_hour"),
+            "daily_demand": t.get("daily_demand")},
+            "$unset": {"rent_per_day": "", "base_revenue_per_day": "", "base_expenses_per_day": ""}})
+    now_iso = now_utc().isoformat()
+    async for b in db.businesses.find({"recipe": {"$exists": False}}, {"_id": 0}):
+        t = seed_types.get(b.get("type_id")) or {}
+        recipe = t.get("recipe") or []
+        target = t.get("daily_demand", 0)
+        await db.businesses.update_one({"id": b["id"]}, {"$set": {
+            "product": t.get("product") or {}, "recipe": recipe,
+            "production_per_worker_hour": t.get("production_per_worker_hour", 0),
+            "daily_demand": target, "restock_target": target, "auto_restock": True,
+            "materials": {r["id"]: round(target * r.get("qty", 1), 3) for r in recipe},
+            "products": 0.0, "last_resolved_at": now_iso, "bankrupt": False},
+            "$unset": {"rent_per_day": "", "base_revenue_per_day": "", "base_expenses_per_day": "",
+                       "coverage": "", "backup_roles": "", "backup_wage_day": "", "last_net_day": ""}})
+    async for e in db.employees.find({"status": {"$in": ["active", "sick"]}, "schedule": {"$exists": False}}, {"_id": 0, "id": 1, "daily_wage": 1}):
+        await db.employees.update_one({"id": e["id"]}, {"$set": {
+            "schedule": employment.make_schedule("early"), "wage_per_hour": round(e.get("daily_wage", 90) / 8.0, 2)}})
+
+
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
@@ -2379,6 +2501,7 @@ async def startup():
     await seed_content(db)
     await migrate_hours_based_promotions()
     await migrate_player_employment_hourly()
+    await migrate_business_supply_chain()
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@kaeldor.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

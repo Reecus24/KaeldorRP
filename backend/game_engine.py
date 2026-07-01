@@ -413,7 +413,7 @@ async def accrue_businesses(db, p, cfg, gh, now):
     import employee_engine
     businesses = await db.businesses.find({"player_id": p["id"]}, {"_id": 0}).to_list(100)
     for b in businesses:
-        await employee_engine.resolve_business(db, p, cfg, gh, now, b)
+        await employee_engine.resolve_business(db, cfg, now, b)
 
 
 async def release_confinement(db, p):
@@ -474,7 +474,8 @@ async def resolve_player(db, p):
 
     import employment
     await employment.resolve_npc_applications(db, p, cfg, now)
-    await employment.accrue_player_employment(db, p, cfg, gh, now)
+    await employment.resolve_worked_businesses(db, p, cfg, now)
+    await employment.sweep_player_earnings(db, p, cfg, now)
 
     # daily summary at each in-game midnight boundary (report only, no double billing)
     if cfg.get("world_start_real"):

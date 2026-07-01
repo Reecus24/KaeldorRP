@@ -5,6 +5,14 @@ export function money(n) {
     return `${neg ? "-" : ""}$${s}`;
 }
 
+// precise money with cents — for per-unit prices/costs/margins
+export function money2(n) {
+    const v = Number(n || 0);
+    const neg = v < 0;
+    const s = Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `${neg ? "-" : ""}$${s}`;
+}
+
 export function fmtDuration(totalSeconds) {
     let s = Math.max(0, Math.floor(totalSeconds || 0));
     const d = Math.floor(s / 86400);

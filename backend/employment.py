@@ -10,6 +10,7 @@ All time-based resolution is offline-safe (driven from resolve_player).
 import uuid
 import random
 from datetime import timedelta
+from pymongo import ReturnDocument
 from game_models import now_utc, clamp
 from game_engine import (parse_dt, add_event, add_notification, charge, add_money, ledger_add,
                          game_now, effectiveness, add_skill_xp)
@@ -239,170 +240,106 @@ def applicant_snapshot(p, cfg, role=None, reqs=None):
 
 
 # ----------------------------- contribution projection ($/h) -----------------------------
-def employee_work_quality(p, role, reliability=60):
-    """Skill-driven productivity for a player employee. Condition matters only mildly (0.85-1.05),
-    so a competent worker stays productive even when a bit tired — NOT punished by health."""
-    fit = role_fit(p, role)                       # 0.55..1.3  (skill / role fit -> dominant)
-    rel = 0.8 + 0.4 * (reliability / 100)         # 0.8..1.2   (reliability)
-    cond = clamp(0.85 + 0.15 * effectiveness(p), 0.85, 1.05)  # mild condition factor
-    return round(clamp(fit * rel * cond, 0.35, 1.8), 2)
-
-
 def schedule_hours_per_day(sched):
     s, e = sched.get("start", 8), sched.get("end", 16)
     return (e - s) if e > s else (e + 24 - s)
 
 
-def worker_productivity(perf, fit, reliability, trait_mult=1.0):
-    """Legacy unified productivity (used by NPC estimate)."""
-    return round(clamp(perf * fit * (0.8 + 0.4 * reliability / 100) * trait_mult, 0.2, 1.9), 2)
+def _productivity(skill_level, reliability, cond):
+    """Unified productivity (mirrors employee_engine.worker_productivity)."""
+    fit = clamp(0.55 + (skill_level - 1) / 9 * 0.75, 0.55, 1.3)
+    rel = 0.8 + 0.4 * (reliability / 100.0)
+    return round(clamp(fit * rel * cond, 0.35, 1.8), 3)
 
 
-def projection_at(hourly_wage, productivity, output_mult):
-    rev = round(hourly_wage * output_mult * productivity, 2)
-    return {"productivity": productivity, "wage_per_hour": round(hourly_wage, 2),
-            "rev_per_hour": rev, "net_per_hour": round(rev - hourly_wage, 2)}
+def _biz_supply(b):
+    recipe = b.get("recipe") or []
+    mc = sum(r.get("qty", 1) * r.get("cost", 0) for r in recipe)
+    price = (b.get("product") or {}).get("price", 0)
+    return b.get("production_per_worker_hour", 0), round(price - mc, 4)
 
 
-def player_perf(p):
-    """Condition + skill performance factor for a player (mirrors auto-work)."""
-    return round(shift_performance(p) * effectiveness(p), 2)
+def _player_skill_for_role(p, role):
+    sk = ROLE_SKILL.get(role)
+    return p["skills"].get(sk, {}).get("level", 1) if sk else _avg(_top_skills(p))
 
 
-def applicant_projection(p, cfg, roles, reliability=60):
-    """Per-role productivity map for a player applicant; frontend computes $ live with the wage."""
-    by_role = {r: employee_work_quality(p, r, reliability) for r in roles}
-    by_role["_default"] = employee_work_quality(p, None, reliability)
-    return {"output_multiplier": cfg.get("employment", {}).get("player_output_multiplier", 1.8),
-            "hire_reliability": reliability, "by_role": by_role}
+def applicant_projection(p, cfg, roles, b, reliability=60):
+    """Per-role productivity map + this business's units/hr and $ margin; FE computes net live."""
+    pph, margin = _biz_supply(b)
+    cond = clamp(0.85 + 0.15 * effectiveness(p), 0.85, 1.05)
+    by_role = {r: _productivity(_player_skill_for_role(p, r), reliability, cond) for r in roles}
+    by_role["_default"] = _productivity(_avg(_top_skills(p)), reliability, cond)
+    return {"units_per_hour": pph, "margin_per_unit": margin, "hire_reliability": reliability, "by_role": by_role}
 
 
-async def player_employee_projection(db, cfg, emp):
-    """$/h estimate for an active player employee at current skill + wage + role."""
+async def player_employee_projection(db, cfg, emp, b):
     p = await db.players.find_one({"id": emp["employee_player_id"]}, {"_id": 0})
     if not p:
         return None
-    prod = employee_work_quality(p, emp.get("role"), emp.get("reliability", 60))
+    pph, margin = _biz_supply(b)
+    cond = clamp(0.85 + 0.15 * effectiveness(p), 0.85, 1.05)
+    prod = _productivity(_player_skill_for_role(p, emp.get("role")), emp.get("reliability", 60), cond)
     wph = emp.get("wage_per_hour") or round(emp.get("wage_per_shift", 60) / 4.0, 2)
-    out = projection_at(wph, prod, cfg.get("employment", {}).get("player_output_multiplier", 1.8))
-    out["estimated"] = True
-    return out
+    rev = round(pph * prod * margin, 2)
+    return {"units_per_hour": pph, "margin_per_unit": margin, "productivity": prod,
+            "rev_per_hour": rev, "wage_per_hour": wph, "net_per_hour": round(rev - wph, 2), "estimated": True}
 
 
-def npc_employee_projection(emp, cfg, traits_map):
-    """Unified $/h estimate for an NPC employee (comparable to players, clearly an estimate)."""
-    skill = emp.get("skill", 3)
-    fit = round(clamp(0.55 + (skill - 1) / 9 * 0.75, 0.55, 1.3), 2)
-    rel = 0.8 + 0.4 * (emp.get("reliability", 60) / 100)
-    tmult = 1.0
+def npc_employee_projection(emp, cfg, traits_map, b):
+    pph, margin = _biz_supply(b)
+    cond = clamp(0.85 + 0.15 * ((emp.get("morale", 60) + emp.get("energy", 80)) / 200.0), 0.85, 1.05)
+    prod = _productivity(emp.get("skill", 3), emp.get("reliability", 60), cond)
     for t in emp.get("traits", []):
-        tmult *= (1 + traits_map.get(t, {}).get("effects", {}).get("revenue", 0))
-    tmult = max(0.7, min(1.4, tmult))
-    prod = round(clamp(fit * rel * tmult, 0.35, 1.8), 2)
-    equiv = cfg.get("employment", {}).get("npc_equiv_hours", 8)
-    hourly = round(emp.get("daily_wage", 90) / equiv, 2)
-    out = projection_at(hourly, prod, cfg.get("employment", {}).get("player_output_multiplier", 1.8))
-    out["estimated"] = True
-    out["equiv_hours"] = equiv
-    return out
+        prod *= (1 + traits_map.get(t, {}).get("effects", {}).get("revenue", 0))
+    prod = round(clamp(prod, 0.2, 1.9), 3)
+    wph = emp.get("wage_per_hour") or round(emp.get("daily_wage", 90) / 8.0, 2)
+    rev = round(pph * prod * margin, 2)
+    return {"units_per_hour": pph, "margin_per_unit": margin, "productivity": prod,
+            "rev_per_hour": rev, "wage_per_hour": wph, "net_per_hour": round(rev - wph, 2), "estimated": True}
 
 
-async def accrue_player_employment(db, p, cfg, gh, now):
-    """Continuous, offline-safe auto-work for player employees on scheduled shifts.
+async def resolve_worked_businesses(db, p, cfg, now):
+    """Trigger the (idempotent, business-clock-gated) resolver for every business this player
+    works at, so wages/output book promptly. Safe to call from the employee's own resolve."""
+    import employee_engine
+    bids = await db.player_employment.distinct("business_id", {"employee_player_id": p["id"], "status": "active"})
+    for bid in bids:
+        b = await db.businesses.find_one({"id": bid}, {"_id": 0})
+        if b:
+            await employee_engine.resolve_business(db, cfg, now, b)
 
-    During scheduled hours the player automatically works: wages accrue to the player and
-    revenue (net of wage) accrues to the employing business. Sets p['on_shift'] for activity gating.
-    """
-    emps = await db.player_employment.find({"employee_player_id": p["id"], "status": "active"}, {"_id": 0}).to_list(50)
+
+async def sweep_player_earnings(db, p, cfg, now):
+    """Pay out wages the businesses accrued to this player's employment records (atomic drain,
+    so it never double-pays or races the business resolver) and apply the shift's personal toll."""
     g_now = game_now(cfg, now)
-    last = parse_dt(p.get("last_resolved_at")) or now
-    g_last = game_now(cfg, last)
-    eff = effectiveness(p)
     on_shift = None
-    busy = bool(p.get("current_activity"))
+    emps = await db.player_employment.find({"employee_player_id": p["id"], "status": "active"}, {"_id": 0}).to_list(50)
     for emp in emps:
-        sch = emp.get("schedule")
-        if not sch:
-            continue
+        drained = await db.player_employment.find_one_and_update(
+            {"id": emp["id"]},
+            {"$set": {"earnings_pending": 0.0, "personal_hours_pending": 0.0}},
+            projection={"_id": 0, "earnings_pending": 1, "personal_hours_pending": 1},
+            return_document=ReturnDocument.BEFORE)
+        pend_cash = round((drained or {}).get("earnings_pending", 0) or 0, 2)
+        pend_hours = (drained or {}).get("personal_hours_pending", 0) or 0
+        if pend_cash > 0:
+            add_money(p, pend_cash)
+            ledger_add(p, "wages_earned", pend_cash)
+        if pend_hours > 0:
+            p["fatigue"] = clamp(p["fatigue"] + 1.4 * pend_hours)
+            p["energy"] = clamp(p["energy"] - 1.1 * pend_hours)
+            p["stress"] = clamp(p["stress"] + 0.8 * pend_hours)
+            sk = ROLE_SKILL.get(emp.get("role"))
+            if sk:
+                add_skill_xp(p, sk, 3.0 * pend_hours * effectiveness(p), cfg)
         if emp_on_shift(emp, g_now):
-            wb = current_window_bounds(sch, g_now)
+            wb = current_window_bounds(emp.get("schedule") or {}, g_now)
             on_shift = {"employment_id": emp["id"], "business_id": emp["business_id"],
                         "business_name": emp.get("business_name"), "role": emp.get("role"),
-                        "schedule": sch, "ends_at_game": wb[1].isoformat() if wb else None}
-        if busy:
-            continue  # cannot auto-work while in a blocking activity -> role left uncovered
-        hired = parse_dt(emp.get("hired_at"))
-        g_hired = game_now(cfg, hired) if hired else g_last
-        a_start = max(g_last, g_hired)
-        co = parse_dt(emp.get("clocked_out_until"))
-        hours = active_hours_in_range(sch, a_start, g_now, co)
-        if hours > 0.001:
-            await _accrue_one(db, p, cfg, emp, hours, eff, now)
+                        "schedule": emp.get("schedule"), "ends_at_game": wb[1].isoformat() if wb else None}
     p["on_shift"] = on_shift
-
-
-async def _accrue_one(db, p, cfg, emp, hours, eff, now):
-    biz = await db.businesses.find_one({"id": emp["business_id"]}, {"_id": 0})
-    e = cfg.get("employment", {})
-    wph = emp.get("wage_per_hour") or round(emp.get("wage_per_shift", 60) / 4.0, 2)
-    wage = round(wph * hours, 2)
-    role = emp.get("role")
-    perf = round(shift_performance(p) * eff, 2)
-    fit = role_fit(p, role)
-    rel = emp.get("reliability", 60)
-    productivity = round(clamp(perf * fit * (0.8 + 0.4 * rel / 100), 0.2, 1.9), 2)
-
-    add_money(p, wage)
-    ledger_add(p, "wages_earned", wage)
-    p["fatigue"] = clamp(p["fatigue"] + 1.4 * hours)
-    p["energy"] = clamp(p["energy"] - 1.1 * hours)
-    p["stress"] = clamp(p["stress"] + 0.8 * hours)
-    sk = ROLE_SKILL.get(role)
-    if sk:
-        add_skill_xp(p, sk, 3.0 * hours * eff, cfg)
-
-    output_mult = e.get("player_output_multiplier", 1.8)
-    revenue = round(wph * hours * output_mult * productivity, 2)
-    net = round(revenue - wage, 2)
-
-    emp["total_hours_worked"] = round(emp.get("total_hours_worked", 0) + hours, 2)
-    emp["total_wages_earned"] = round(emp.get("total_wages_earned", 0) + wage, 2)
-    emp["total_value_added"] = round(emp.get("total_value_added", 0) + revenue, 2)
-    emp["last_paid_at"] = now.isoformat()
-    emp["reliability"] = clamp(emp.get("reliability", 60) + (0.05 if perf >= 0.8 else -0.05) * hours)
-    emp["performance"] = round(clamp(emp.get("performance", 60) * 0.9 + productivity * 100 * 0.1, 0, 100), 1)
-    gd = game_now(cfg, now).date().isoformat()
-    today = emp.get("today") or {}
-    if today.get("date") != gd:
-        today = {"date": gd, "hours": 0.0, "wage": 0.0, "revenue": 0.0, "net": 0.0}
-    today["hours"] = round(today["hours"] + hours, 2)
-    today["wage"] = round(today["wage"] + wage, 2)
-    today["revenue"] = round(today["revenue"] + revenue, 2)
-    today["net"] = round(today["net"] + net, 2)
-    emp["today"] = today
-    emp["last_impact"] = {"hours": round(hours, 2), "wage": wage, "revenue": revenue, "net": net,
-                          "productivity": productivity, "at": now.isoformat()}
-    await db.player_employment.update_one({"id": emp["id"]}, {"$set": {
-        "total_hours_worked": emp["total_hours_worked"], "total_wages_earned": emp["total_wages_earned"],
-        "total_value_added": emp["total_value_added"], "last_paid_at": emp["last_paid_at"],
-        "reliability": emp["reliability"], "performance": emp["performance"],
-        "today": emp["today"], "last_impact": emp["last_impact"]}})
-
-    if biz and not biz.get("bankrupt"):
-        new_cash = round(biz.get("cash", 0) + net, 2)
-        debt = biz.get("debt", 0)
-        if new_cash < 0:
-            debt = round(debt - new_cash, 2)
-            new_cash = 0.0
-        sat = clamp(biz.get("satisfaction", 60) + (productivity - 1.0) * 1.0)
-        rep = clamp(biz.get("reputation", 50) + (0.1 if productivity >= 1 else -0.05))
-        rev_total = round(biz.get("revenue_total", 0) + max(revenue, 0), 2)
-        hist = biz.get("history", [])
-        hist.append({"ts": now.isoformat(), "kind": "shift", "amount": net, "rev": revenue, "wage": wage,
-                     "label": f"{p['name']} — {round(hours, 1)}h {role}", "cash": new_cash, "debt": debt})
-        await db.businesses.update_one({"id": biz["id"]}, {"$set": {
-            "cash": new_cash, "debt": debt, "satisfaction": sat, "reputation": rep,
-            "revenue_total": rev_total, "history": hist[-60:]}})
 
 
 async def clock_out_early(db, p, cfg, emp):

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 function BizCard({ b, onAction, busyKey }) {
     const [inject, setInject] = useState("");
-    const net = b.last_net_day || 0;
+    const net = b.metrics?.net_day || 0;
 
     return (
         <Panel className={cn("p-5", b.bankrupt && "border-neon-red/50")} data-testid={`owned-biz-${b.id}`}>
@@ -42,9 +42,9 @@ function BizCard({ b, onAction, busyKey }) {
 
             {b.metrics && (
                 <div className="grid grid-cols-4 gap-2 text-center mb-3 py-2 border-y border-white/8">
-                    <div><div className="text-[9px] uppercase text-muted-foreground">Staff</div><div className="font-mono text-sm text-white">{b.metrics.employee_count}</div></div>
-                    <div><div className="text-[9px] uppercase text-muted-foreground">Coverage</div><div className={cn("font-mono text-sm", b.metrics.coverage >= 0.9 ? "text-neon-green" : b.metrics.coverage < 0.6 ? "text-neon-red" : "text-neon-yellow")}>{Math.round(b.metrics.coverage * 100)}%</div></div>
-                    <div><div className="text-[9px] uppercase text-muted-foreground">Morale</div><div className="font-mono text-sm text-neon-purple">{b.metrics.morale_avg}%</div></div>
+                    <div><div className="text-[9px] uppercase text-muted-foreground">Staff</div><div className="font-mono text-sm text-white">{b.metrics.employee_count + (b.metrics.player_employee_count || 0)}</div></div>
+                    <div><div className="text-[9px] uppercase text-muted-foreground">Active</div><div className={cn("font-mono text-sm", b.metrics.coverage >= 0.9 ? "text-neon-green" : b.metrics.coverage < 0.6 ? "text-neon-red" : "text-neon-yellow")}>{Math.round((b.metrics.coverage || 0) * 100)}%</div></div>
+                    <div><div className="text-[9px] uppercase text-muted-foreground">Stock</div><div className="font-mono text-sm text-neon-purple">{Math.round(b.metrics.products_in_stock || 0)}</div></div>
                     <div><div className="text-[9px] uppercase text-muted-foreground">Satis.</div><div className="font-mono text-sm text-neon-cyan">{b.metrics.satisfaction}%</div></div>
                 </div>
             )}

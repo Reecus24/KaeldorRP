@@ -4,7 +4,7 @@ import { api, errMessage } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar, Money, EmptyState, InfoTip } from "@/components/game/primitives";
 import { KButton, KInput } from "@/components/game/controls";
-import { money, fmtDuration, realDurationLabel, scheduleLabel, SHIFT_PRESETS } from "@/lib/helpers";
+import { money, money2, fmtDuration, realDurationLabel, scheduleLabel, SHIFT_PRESETS } from "@/lib/helpers";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -53,14 +53,16 @@ function WageInput({ value, onChange, testid }) {
 function calcProj(projection, role, wph) {
     if (!projection || !wph) return null;
     const prod = (projection.by_role && (projection.by_role[role] ?? projection.by_role._default)) || 1.0;
-    const om = projection.output_multiplier || 1.8;
-    const rev = wph * om * prod;
-    return { rev_per_hour: rev, wage_per_hour: wph, net_per_hour: rev - wph, productivity: prod };
+    const uph = projection.units_per_hour || 0;
+    const margin = projection.margin_per_unit || 0;
+    const rev = uph * prod * margin;
+    return { rev_per_hour: rev, wage_per_hour: wph, net_per_hour: rev - wph, productivity: prod, units_per_hour: uph, margin_per_unit: margin };
 }
 
 function ProjLine({ proj, label = "Projected output", testid }) {
     if (!proj) return null;
     const rev = proj.rev_per_hour, wage = proj.wage_per_hour, net = proj.net_per_hour;
+    const uph = proj.units_per_hour, margin = proj.margin_per_unit, prod = proj.productivity;
     return (
         <div className="text-[11px] mt-1" data-testid={testid}>
             <span className="text-muted-foreground">{label}:</span>{" "}
@@ -69,7 +71,9 @@ function ProjLine({ proj, label = "Projected output", testid }) {
             <span className="text-neon-red">${Math.round(wage)}/h</span>
             <span className="text-muted-foreground"> = net </span>
             <span className={net >= 0 ? "text-neon-green font-bold" : "text-neon-red font-bold"}>{net >= 0 ? "+$" : "-$"}{Math.abs(Math.round(net))}/h</span>
-            <span className="text-muted-foreground/50"> (est.)</span>
+            {uph != null && margin != null && (
+                <span className="text-muted-foreground/60"> · makes ≈{(uph * (prod || 1)).toFixed(1)} units/h × ${margin} margin</span>
+            )}
         </div>
     );
 }
@@ -358,6 +362,9 @@ export default function BusinessManage() {
     const [inject, setInject] = useState("");
     const [trainEmp, setTrainEmp] = useState(null);
     const [confirmSell, setConfirmSell] = useState(false);
+    const [renaming, setRenaming] = useState(false);
+    const [nameInput, setNameInput] = useState("");
+    const [targetInput, setTargetInput] = useState("");
 
     const loadAll = useCallback(async () => {
         try {
@@ -402,8 +409,24 @@ export default function BusinessManage() {
         await loadAll();
         setBusy(null);
     };
-    const toggleBackup = async (role, enabled) => {
-        await act(() => api.post(`/businesses/${id}/backup`, { role, enabled }), enabled ? `NPC backup enabled for ${role.replace(/_/g, " ")}` : `NPC backup disabled for ${role.replace(/_/g, " ")}`);
+    const doRename = async () => {
+        const name = nameInput.trim();
+        if (name.length < 2) return;
+        setBusy("rename");
+        const r = await act(() => api.post(`/businesses/${id}/rename`, { name }), "Business renamed");
+        if (r?.ok) { setRenaming(false); await loadAll(); }
+        setBusy(null);
+    };
+    const buyMaterials = async () => {
+        setBusy("materials");
+        const body = targetInput ? { units: Number(targetInput) } : {};
+        const r = await act(() => api.post(`/businesses/${id}/buy-materials`, body), null);
+        if (r?.ok) toast.success(r.res.data.cost > 0 ? `Restocked for $${Math.round(r.res.data.cost)}` : "Already fully stocked");
+        await loadAll();
+        setBusy(null);
+    };
+    const toggleAutoRestock = async (val) => {
+        await act(() => api.post(`/businesses/${id}/restock-settings`, { auto_restock: val }), val ? "Auto-restock ON" : "Auto-restock OFF");
         await loadAll();
     };
 
@@ -444,89 +467,136 @@ export default function BusinessManage() {
             {tab === "overview" && (
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                        <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#00FF66" : "#FF0055"} />
-                        <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00F3FF" />
-                        <Tile label="Expenses / day" value={money(m.exp_day)} accent="#FFC300" />
+                        <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#00FF66" : "#FF0055"} sub="rev − materials − wages" />
+                        <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00F3FF" sub={`${Math.round(m.sold_day)} sold × ${money2(m.product?.price || 0)}`} />
+                        <Tile label="Materials / day" value={money(m.material_day)} accent="#FFC300" sub={`${money2(m.material_cost_per_unit)}/unit`} />
                         <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#FF8A00" />
-                        <Tile label="Active Coverage" value={`${Math.round((m.active_coverage ?? m.coverage) * 100)}%`} accent={(m.active_coverage ?? m.coverage) >= 0.9 ? "#00FF66" : (m.active_coverage ?? m.coverage) < 0.6 ? "#FF0055" : "#FFC300"} sub={`Roster ${Math.round((m.roster_coverage ?? 1) * 100)}%`} />
-                        <Tile label="Satisfaction" value={`${m.satisfaction}%`} accent="#00F3FF" />
-                        <Tile label="Avg Morale" value={`${m.morale_avg}%`} accent="#B026FF" />
-                        <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" />
-                        <Tile label="Uncollected" value={money(b.cash)} accent="#00FF66" />
-                        <Tile label="Debt" value={money(b.debt)} accent={b.debt > 0 ? "#FF0055" : "#9CA3AF"} />
-                        <Tile label="Bankruptcy Risk" value={`${m.bankruptcy_risk}%`} accent={m.bankruptcy_risk > 60 ? "#FF0055" : "#FFC300"} />
-                        <Tile label="Employees" value={`${m.employee_count}${m.sick_count ? ` (+${m.sick_count} sick)` : ""}`} accent="#fff" />
+                        <Tile label="Products in stock" value={Math.round(m.products_in_stock)} accent="#B026FF" sub={`${Math.round(m.demand_day)}/day demand`} />
+                        <Tile label="Uncollected cash" value={money(b.cash)} accent="#00FF66" />
+                        <Tile label="Business debt" value={money(b.debt)} accent={b.debt > 0 ? "#FF0055" : "#9CA3AF"} />
+                        <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" sub={`Satisfaction ${m.satisfaction}%`} />
                     </div>
 
+                    {/* SUPPLY CHAIN — transparent P&L */}
+                    <Panel className="p-5" data-testid="supply-chain-panel">
+                        <div className="flex items-center gap-1.5 mb-3">
+                            <span className="font-display font-bold text-white">Supply Chain — how this business makes money</span>
+                            <InfoTip text="Your business buys ingredients, your workers turn them into the product, and the product is sold to meet daily demand. Profit = sales − materials − wages. No rent, no hidden fees." testid="supply-info" />
+                        </div>
+                        <div className="grid lg:grid-cols-2 gap-4">
+                            <div>
+                                <div className="text-[11px] uppercase tracking-wider text-neon-cyan/70 mb-2">Recipe</div>
+                                <div className="text-sm text-white mb-1">Sells: <span className="font-bold">{m.product?.name}</span> @ <span className="text-neon-green">{money2(m.product?.price || 0)}</span>/unit</div>
+                                <div className="space-y-1 font-mono text-[12px]">
+                                    {(m.recipe || []).map((r) => (
+                                        <div key={r.id} className="flex justify-between text-muted-foreground" data-testid={`recipe-${r.id}`}>
+                                            <span>{r.qty}× {r.name}</span><span className="text-neon-yellow">{money2(r.cost)}</span>
+                                        </div>
+                                    ))}
+                                    <div className="flex justify-between border-t border-white/10 pt-1 mt-1 text-white">
+                                        <span>Materials / unit</span><span className="text-neon-yellow">{money2(m.material_cost_per_unit)}</span>
+                                    </div>
+                                    <div className="flex justify-between text-white">
+                                        <span>Margin / unit</span><span className="text-neon-green font-bold">{money2(m.margin_per_unit)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-[11px] uppercase tracking-wider text-neon-cyan/70 mb-2">Daily profit &amp; loss</div>
+                                <div className="space-y-1 font-mono text-[12px] border border-white/10 rounded-sm p-3" data-testid="pnl-breakdown">
+                                    <div className="flex justify-between"><span className="text-muted-foreground">Sold {Math.round(m.sold_day)} × {money2(m.product?.price || 0)}</span><span className="text-neon-green">+{money(m.rev_day)}</span></div>
+                                    <div className="flex justify-between"><span className="text-muted-foreground">− Materials ({Math.round(m.sold_day)} units)</span><span className="text-neon-yellow">−{money(m.material_day)}</span></div>
+                                    <div className="flex justify-between"><span className="text-muted-foreground">− Wages (all workers)</span><span className="text-neon-red">−{money(m.wage_per_day)}</span></div>
+                                    <div className="flex justify-between border-t border-white/10 pt-1 mt-1"><span className="text-white font-bold">Net / day</span><span className={net >= 0 ? "text-neon-green font-bold" : "text-neon-red font-bold"} data-testid="pnl-net">{net >= 0 ? "+" : ""}{money(net)}</span></div>
+                                </div>
+                                <div className="text-[11px] text-muted-foreground mt-2">
+                                    Demand caps sales at ~{Math.round(m.demand_day)}/day. Add workers or raise skill to produce more; run Marketing to raise demand.
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Materials stock + restock */}
+                        <div className="mt-4 pt-4 border-t border-white/10">
+                            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                                <span className="text-[11px] uppercase tracking-wider text-neon-cyan/70">Inventory &amp; restock</span>
+                                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer" title="Automatically buy ingredients from the business's cash to keep production running.">
+                                    <input type="checkbox" checked={!!m.auto_restock} onChange={(e) => toggleAutoRestock(e.target.checked)} className="accent-neon-cyan" data-testid="auto-restock-toggle" /> Auto-restock
+                                </label>
+                            </div>
+                            <div className="flex flex-wrap gap-2 mb-3">
+                                {(m.materials || []).map((mat) => (
+                                    <Pill key={mat.id} tone={mat.stock > 0 ? "cyan" : "red"} data-testid={`stock-${mat.id}`}>{mat.name}: {Math.round(mat.stock)}</Pill>
+                                ))}
+                                <Pill tone="purple" data-testid="stock-products">Finished: {Math.round(m.products_in_stock)}</Pill>
+                            </div>
+                            <div className="flex items-end gap-2 flex-wrap">
+                                <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Stock target (units)
+                                    <input type="number" min="0" value={targetInput} placeholder={String(Math.round(m.restock_target || 0))} onChange={(e) => setTargetInput(e.target.value)} data-testid="restock-target-input"
+                                        className="w-28 bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono" /></label>
+                                <KButton variant="primary" loading={busy === "materials"} onClick={buyMaterials} data-testid="buy-materials-button"><Boxes className="w-3.5 h-3.5" /> Buy Materials to Target</KButton>
+                            </div>
+                        </div>
+                    </Panel>
+
+                    {/* STAFFING */}
                     <Panel className="p-5">
                         <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
                             <div className="font-display font-bold text-white flex items-center gap-1.5">
-                                Staffing — Roster vs Active Coverage
-                                <InfoTip text="Roster = who's officially hired/scheduled for a role. Active = who's actually working right now. Business output only comes from active coverage. Enable NPC backup to auto-cover a role when nobody is working it (the business pays a backup wage)." testid="staffing-info" />
+                                Staffing
+                                <InfoTip text="Workers (NPC and player employees alike) produce the goods during their scheduled shifts. Only workers on shift right now count toward 'active'. Same wage & productivity math for everyone." testid="staffing-info" />
                             </div>
-                            <div className="text-[11px] font-mono text-muted-foreground">Roster {Math.round((m.roster_coverage ?? 1) * 100)}% · Active {Math.round((m.active_coverage ?? m.coverage) * 100)}%</div>
+                            <div className="text-[11px] font-mono text-muted-foreground">Active {Math.round((m.active_coverage ?? 0) * 100)}% · Roster {Math.round((m.roster_coverage ?? 1) * 100)}%</div>
                         </div>
                         <div className="space-y-2 mt-2">
                             {m.staffing.length === 0 && <div className="text-sm text-muted-foreground">No specific staffing needed.</div>}
                             {m.staffing.map((s) => {
-                                const activeOk = (s.active_filled ?? 0) >= s.recommended;
+                                const activeOk = (s.active_working ?? 0) >= s.recommended;
                                 return (
                                     <div key={s.role} className="flex items-center justify-between gap-3 border-b border-white/5 pb-2 last:border-0" data-testid={`staffing-${s.role}`}>
                                         <div className="min-w-0">
                                             <span className="capitalize text-white text-sm">{s.role.replace(/_/g, " ")}</span>
                                             <div className="text-[11px] font-mono">
-                                                <span className="text-muted-foreground">Roster {s.roster_filled}/{s.recommended}</span>
-                                                <span className="text-muted-foreground"> · </span>
-                                                <span className={activeOk ? "text-neon-green" : "text-neon-yellow"} data-testid={`staffing-active-${s.role}`}>
-                                                    Active {s.active_working}{s.backup_active ? " (+backup)" : ""}/{s.recommended}
-                                                </span>
+                                                <span className="text-muted-foreground">Roster {s.roster_filled}/{s.recommended} · </span>
+                                                <span className={activeOk ? "text-neon-green" : "text-neon-yellow"} data-testid={`staffing-active-${s.role}`}>Active {s.active_working}/{s.recommended}</span>
                                             </div>
                                             <div className="text-[10px] text-muted-foreground">{s.status}{s.npc_have ? ` · ${s.npc_have} NPC` : ""}{s.player_roster ? ` · ${s.player_roster} player` : ""}</div>
                                         </div>
-                                        <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer shrink-0" title="Auto-cover this role with an NPC when nobody is actively working it (the business pays a backup wage).">
-                                            <input type="checkbox" checked={!!s.backup_enabled} onChange={(e) => toggleBackup(s.role, e.target.checked)} className="accent-neon-cyan" data-testid={`backup-toggle-${s.role}`} />
-                                            <ShieldCheck className="w-3 h-3" /> NPC backup
-                                        </label>
                                     </div>
                                 );
                             })}
                         </div>
-                        {m.backup_wage_day > 0 && <div className="text-[11px] text-neon-yellow mt-2">NPC backup currently costs ~{money(m.backup_wage_day)}/day while covering empty roles.</div>}
                     </Panel>
 
-                    {!b.bankrupt ? (
-                        <Panel className="p-4" data-testid="biz-actions">
-                            <div className="grid sm:grid-cols-2 gap-3">
-                                <div className="border border-white/10 rounded-sm p-3 flex flex-col">
-                                    <div className="font-display font-bold text-white text-sm mb-0.5">Collect Profit</div>
-                                    <p className="text-[11px] text-muted-foreground mb-3 flex-1">Move the business's uncollected cash into your wallet. Instant.</p>
-                                    <KButton variant="green" disabled={b.cash <= 0} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(b.cash)}</KButton>
-                                </div>
-                                <div className="border border-white/10 rounded-sm p-3 flex flex-col">
-                                    <div className="font-display font-bold text-white text-sm mb-0.5">Upgrade · Lvl {costs.upgrade_from_level} → {costs.upgrade_to_level}</div>
-                                    <p className="text-[11px] text-muted-foreground mb-3 flex-1">{costs.can_upgrade ? `+${costs.upgrade_revenue_boost_pct}% revenue capacity per level and +${costs.upgrade_reputation_gain} reputation. Instant.` : "This business is already at its maximum level."}</p>
-                                    <KButton variant="primary" disabled={!costs.can_upgrade} loading={busy === "upgrade"} onClick={() => run(() => api.post(`/businesses/${id}/upgrade`), "Upgraded", "upgrade")} data-testid="ov-upgrade"><ArrowUpCircle className="w-3.5 h-3.5" /> {costs.can_upgrade ? `Upgrade · ${money(costs.upgrade_cost)}` : "Max level"}</KButton>
-                                </div>
-                                <div className="border border-white/10 rounded-sm p-3 flex flex-col">
-                                    <div className="font-display font-bold text-white text-sm mb-0.5">Marketing · Level {costs.marketing_level} → {costs.marketing_next_level}</div>
-                                    <p className="text-[11px] text-muted-foreground mb-3 flex-1">+{costs.marketing_revenue_boost_pct}% ongoing revenue and +{costs.marketing_reputation_gain} reputation. Instant, permanent demand boost.</p>
-                                    <KButton className="border border-neon-purple text-neon-purple hover:bg-neon-purple hover:text-white" loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign run", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> Run Marketing · {money(costs.marketing_cost)}</KButton>
-                                </div>
-                                <div className="border border-white/10 rounded-sm p-3 flex flex-col">
-                                    <div className="font-display font-bold text-white text-sm mb-0.5">Sell Business</div>
-                                    <p className="text-[11px] text-muted-foreground mb-3 flex-1">Permanently sell this business. Estimated payout <span className="text-neon-green">{money(costs.sell_value)}</span> (asset value − debt + uncollected cash).</p>
-                                    <KButton variant="ghost" onClick={() => setConfirmSell(true)} data-testid="ov-sell">Sell · ~{money(costs.sell_value)}</KButton>
+                    <Panel className="p-4" data-testid="biz-actions">
+                        <div className="grid sm:grid-cols-2 gap-3">
+                            <div className="border border-white/10 rounded-sm p-3 flex flex-col">
+                                <div className="font-display font-bold text-white text-sm mb-0.5">Collect Profit</div>
+                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">Move the business's uncollected cash into your wallet. Instant.</p>
+                                <KButton variant="green" disabled={b.cash <= 0} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(b.cash)}</KButton>
+                            </div>
+                            <div className="border border-white/10 rounded-sm p-3 flex flex-col">
+                                <div className="font-display font-bold text-white text-sm mb-0.5">Upgrade · Lvl {costs.upgrade_from_level} → {costs.upgrade_to_level}</div>
+                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">{costs.can_upgrade ? `+25% production capacity & demand per level, +4 reputation. Instant.` : "This business is already at its maximum level."}</p>
+                                <KButton variant="primary" disabled={!costs.can_upgrade} loading={busy === "upgrade"} onClick={() => run(() => api.post(`/businesses/${id}/upgrade`), "Upgraded", "upgrade")} data-testid="ov-upgrade"><ArrowUpCircle className="w-3.5 h-3.5" /> {costs.can_upgrade ? `Upgrade · ${money(costs.upgrade_cost)}` : "Max level"}</KButton>
+                            </div>
+                            <div className="border border-white/10 rounded-sm p-3 flex flex-col">
+                                <div className="font-display font-bold text-white text-sm mb-0.5">Marketing · Level {costs.marketing_level} → {costs.marketing_next_level}</div>
+                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">+{costs.marketing_revenue_boost_pct}% demand and +{costs.marketing_reputation_gain} reputation. Instant, permanent demand boost.</p>
+                                <KButton className="border border-neon-purple text-neon-purple hover:bg-neon-purple hover:text-white" loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign run", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> Run Marketing · {money(costs.marketing_cost)}</KButton>
+                            </div>
+                            <div className="border border-white/10 rounded-sm p-3 flex flex-col">
+                                <div className="font-display font-bold text-white text-sm mb-0.5">Rename / Sell</div>
+                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">Rename this business, or permanently sell it. Est. sale payout <span className="text-neon-green">{money(costs.sell_value)}</span>.</p>
+                                <div className="flex gap-2">
+                                    <KButton variant="ghost" className="flex-1" onClick={() => { setNameInput(b.name); setRenaming(true); }} data-testid="ov-rename">Rename</KButton>
+                                    <KButton variant="ghost" className="flex-1" onClick={() => setConfirmSell(true)} data-testid="ov-sell">Sell · ~{money(costs.sell_value)}</KButton>
                                 </div>
                             </div>
-                        </Panel>
-                    ) : (
-                        <Panel className="p-4 border-neon-red/40 flex items-center gap-2 text-neon-red text-sm">
-                            <AlertTriangle className="w-4 h-4" /> Bankrupt. Pay off the debt below to revive, or sell.
-                        </Panel>
-                    )}
-                    {(b.debt > 0 || b.bankrupt) && (
+                        </div>
+                    </Panel>
+                    {b.debt > 0 && (
                         <Panel className="p-4 flex gap-2 items-end">
-                            <KInput label="Inject cash / pay debt" type="number" value={inject} onChange={(e) => setInject(e.target.value)} className="flex-1" testid="inject-input" />
+                            <KInput label="Inject cash / pay business debt" type="number" value={inject} onChange={(e) => setInject(e.target.value)} className="flex-1" testid="inject-input" />
                             <KButton variant="green" loading={busy === "inject"} onClick={() => run(() => api.post(`/businesses/${id}/inject`, { amount: Number(inject) }), "Cash injected", "inject")} data-testid="inject-button">Inject</KButton>
                         </Panel>
                     )}
@@ -538,13 +608,13 @@ export default function BusinessManage() {
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                         <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00FF66" />
-                        <Tile label="Operating / day" value={money(m.exp_day - m.wage_per_day)} accent="#FFC300" />
+                        <Tile label="Materials / day" value={money(m.material_day)} accent="#FFC300" />
                         <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#FF8A00" />
                         <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#00FF66" : "#FF0055"} />
                     </div>
                     <Panel className="p-5">
                         <div className="font-display font-bold text-white mb-1">Profit / Loss History</div>
-                        <p className="text-[11px] text-muted-foreground mb-3"><span className="text-foreground/70">Forecast</span> = current per-day rate (not a charge). <span className="text-neon-purple">Booking</span> = real money moved (e.g. player shifts).</p>
+                        <p className="text-[11px] text-muted-foreground mb-3">Each entry is a real settlement window: units sold × price − materials − wages. Rates shown are the per-day run-rate at that moment.</p>
                         {(!b.history || b.history.length === 0) ? (
                             <div className="text-sm text-muted-foreground">No history yet. Check back as time passes.</div>
                         ) : (
@@ -552,21 +622,14 @@ export default function BusinessManage() {
                                 {b.history.slice().reverse().map((h, i) => (
                                     <div key={i} className="flex items-center justify-between gap-3 border-b border-white/5 py-1.5">
                                         <span className="text-muted-foreground shrink-0">{new Date(h.ts).toLocaleString()}</span>
-                                        {h.kind === "shift" ? (
-                                            <span className="flex gap-2 items-center flex-wrap justify-end">
-                                                <Pill tone="purple">Booking</Pill>
-                                                <span className="text-foreground/70">{h.label}</span>
-                                                <span className={h.amount >= 0 ? "text-neon-green" : "text-neon-red"}>{h.amount >= 0 ? "+" : ""}{money(h.amount)}</span>
-                                            </span>
-                                        ) : (
-                                            <span className="flex gap-2 items-center flex-wrap justify-end">
-                                                <Pill>Forecast</Pill>
-                                                <span className="text-neon-green">rev {money(h.rev || 0)}/d</span>
-                                                <span className="text-neon-yellow">exp {money(h.exp || 0)}/d</span>
-                                                <span className={h.net >= 0 ? "text-neon-green" : "text-neon-red"}>net {money(h.net)}/d</span>
-                                                {h.amount != null && <span className="text-muted-foreground">({h.amount >= 0 ? "+" : ""}{money(h.amount)})</span>}
-                                            </span>
-                                        )}
+                                        <span className="flex gap-2 items-center flex-wrap justify-end">
+                                            {h.sold != null && <span className="text-foreground/60">{Math.round(h.sold)} sold</span>}
+                                            <span className="text-neon-green">rev {money(h.rev || 0)}/d</span>
+                                            <span className="text-neon-yellow">mat {money(h.material || 0)}/d</span>
+                                            <span className="text-neon-red">wage {money(h.wages || 0)}/d</span>
+                                            <span className={(h.net || 0) >= 0 ? "text-neon-green" : "text-neon-red"}>net {money(h.net)}/d</span>
+                                            {h.amount != null && <span className="text-muted-foreground">({h.amount >= 0 ? "+" : ""}{money(h.amount)})</span>}
+                                        </span>
                                     </div>
                                 ))}
                             </div>
@@ -742,6 +805,24 @@ export default function BusinessManage() {
                         <div className="flex gap-2">
                             <KButton variant="danger" className="flex-1" loading={busy === "sell"} onClick={sellBiz} data-testid="sell-confirm-button">Confirm Sale · {money(costs.sell_value)}</KButton>
                             <KButton variant="ghost" onClick={() => setConfirmSell(false)} data-testid="sell-cancel-button">Cancel</KButton>
+                        </div>
+                    </Panel>
+                </div>
+            )}
+
+            {/* RENAME MODAL */}
+            {renaming && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="rename-modal">
+                    <div className="absolute inset-0 bg-black/75" onClick={() => setRenaming(false)} />
+                    <Panel className="relative w-full max-w-md p-5">
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="font-display font-bold text-white">Rename business</span>
+                            <button onClick={() => setRenaming(false)}><X className="w-5 h-5 text-muted-foreground" /></button>
+                        </div>
+                        <KInput label="New name (2–40 characters)" value={nameInput} onChange={(e) => setNameInput(e.target.value)} testid="rename-input" />
+                        <div className="flex gap-2 mt-4">
+                            <KButton variant="primary" className="flex-1" loading={busy === "rename"} disabled={nameInput.trim().length < 2} onClick={doRename} data-testid="rename-confirm-button">Save name</KButton>
+                            <KButton variant="ghost" onClick={() => setRenaming(false)}>Cancel</KButton>
                         </div>
                     </Panel>
                 </div>
