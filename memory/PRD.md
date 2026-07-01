@@ -5,6 +5,15 @@ Browser-based **persistent, real-time life-simulation RPG** ("Kaeldor RPG"). A l
 
 **Hard design rule:** NO action points, NO daily action limits, NO "end turn". Always playable. Balance comes from real-time action durations, fatigue, money, risk, cooldowns, health, stress, consequences, and opportunity cost. Offline time counts; jobs/education/business/legal/recovery continue while offline.
 
+## Session Update — 2026-07-01 (Phase 4: Inventory & Equipment + Active Perks panel)
+**Equipment system:** players have 5 slots — outfit, accessory, phone, computer, work_gear (`p.equipment = {slot: item_id}`). Equippable items carry `slot` + `equip` bonus dict; aggregated into `p.equip_bonus` (floors→max, *_mult→product, rest→sum) via `_recompute_equip_bonus` on equip/unequip. Endpoints: `GET /equipment`, `POST /inventory/{id}/equip`, `POST /equipment/{slot}/unequip`. `GET /inventory` now returns `usable`(consumable only)/`equippable`/`equipped` flags; `use` restricted to consumables.
+**Passive bonuses wired into formulas:** `work_effectiveness`→effectiveness() (cap raised to 1.25, also lifts pay+XP+tips), `tip_rate`→job tips, `social_success`→social interaction chance, `energy_drain_mult`/`health_regen`/`*_floor` (mood/social_status/reputation)→decay_needs(). All additive/floor — no infinite stacking.
+**Items:** consumables (energy_drink, protein_bar, coffee, painkillers, + new first_aid_kit, sleeping_pills); apparel (nice_clothes, business_suit); accessory (luxury_watch); device (smartphone→phone slot, laptop→computer slot, keep SMS/email ownership gate); gear (toolbelt, athletic_gear). Removed legacy 'gift' item + 'wearable'/'gear-passive-by-owning'.
+**Active Perks panel:** BusinessManage Overview shows social-contact perks (−wage% / −material%) from `player.social_perks`, or an empty hint. Reflects the Socials 3.0 perks already applied to the P&L.
+**Shop UI:** rebuilt as "Shop & Inventory" with an Equipment slot grid (equip/unequip), equip-bonus pills, per-category shop groups.
+**Verification:** testing_agent iteration_22 — backend 7/7 pytest PASS + frontend flows PASS, zero console errors; verify_economy.py still green.
+
+
 ## Session Update — 2026-07-01 (Socials 3.0 + staffing fix + rebalance + day-clock fix)
 **Day-clock bug FIXED:** `fmtGameClock(helpers.js)` now derives the day index from `state.world_start_game` (1:1 real-time anchor) instead of a hard-coded 2050 epoch → always positive "Day N" (was "DAY -16124"). Verified header shows "Day 1".
 **Staffing slot enforcement:** `employee_engine.business_metrics` caps per-role `active_working = min(active_raw, recommended)` and adds `overstaffed`/`active_raw`. UI (BusinessManage) shows "Working now X/Y" (never > slots) + overstaffed warning ("extra wages wasted"). Production was already slot-capped via `effective_worker_hours`.
