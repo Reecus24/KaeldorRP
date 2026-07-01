@@ -450,6 +450,9 @@ async def complete_social_activity(db, p, cfg, payload, eff):
                 await add_event(db, p["id"], "You need a job before you can network at a workplace.", "social", "warning")
                 return
             await _do_meet_at(db, p, cfg, a, eff, ["coworker", "manager"], [0.65, 0.35], "work")
+        elif kind == "go_to_streets":
+            p["criminal_suspicion"] = clamp(p.get("criminal_suspicion", 0) + 3)
+            await _do_meet_at(db, p, cfg, a, eff, ["shady_dealer", "bar_regular"], [0.7, 0.3], "the backstreets")
         return
     c = await db.contacts.find_one({"id": payload.get("contact_id"), "player_id": p["id"]}, {"_id": 0})
     if not c:

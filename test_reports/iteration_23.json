@@ -1,0 +1,33 @@
+{
+  "summary": "Full backend+frontend verification of Iteration 23 (Underworld gating, Crime fail/bust risk profiles, Stock+Crypto markets, Admin tuning). Backend pytest: 15/15 PASS. Frontend: all 8 review items verified on live URL.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_markets_underworld.py",
+    "/app/test_reports/pytest/iteration_23.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py still ~3065 lines — recommend splitting market/underworld/admin routers into modules (existing minor code hygiene issue, not blocking).",
+    "MarketPanel.jsx nicely reuses one component with kind='stock'|'crypto' — DRY, testable via kind-holdings-value / asset-<id> / buy-<id> / sell-<id> / position-<id>.",
+    "Fail vs Bust separation on illegal-actions is clear: response includes fail_chance + bust_risk per action; UI renders separate fail-profile-<id> and bust-profile-<id> panels — matches spec exactly.",
+    "/api/market/stocks returns bare list (no wrapper) while /api/market/crypto returns {access, assets}. Slight shape inconsistency but not a bug; frontend handles both.",
+    "Admin tuning drift/volatility keys (stock_drift, stock_volatility, crypto_drift, crypto_volatility) persist correctly via PUT /api/admin/config — verified via read-mutate-read round-trip.",
+    "Mara's crypto buy correctly returns 403 (crypto locked for players without trusted shady contact) — gating enforced at API level, not just UI."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_markets_underworld.py",
+    "/app/test_reports/iteration_23.json"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% (8/8 review items verified)"},
+  "test_credentials": "mara@kaeldor.com/demo123 (locked underworld, stock trading), dovan@kaeldor.com/demo123 (unlocked via Cato Cohen, crypto), admin@kaeldor.com/admin123 (tuning).",
+  "seed_data_creation": "None. Existing demo players used. Mara bought+sold 1 ORB stock (net-neutral); Dovan bought 1 DGZ crypto (small position of ~$1 remains).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest file /app/backend/tests/test_markets_underworld.py covers: (1) underworld gating for both mara (locked) & dovan (unlocked with Cato Cohen), (2) /illegal-actions returns access+actions with fail_chance/bust_risk, (3) commit endpoint permission (dovan 200/400/409; mara 400/403), (4) /market/stocks list contains stk_kael/nova/orb, (5) buy-then-sell stk_orb via mara with net_worth 'investments' key verified via /game/state recursive scan, (6) mara crypto buy 403, (7) dovan crypto buy 200 + portfolio persistence, (8) admin config round-trip on stock_drift. Prices only move after >36s real elapsed between reads, so %change reads 0.00% on first load — expected. Frontend testids: underworld-locked, goto-social-btn, illegal-card-<id>, fail-profile-<id>, bust-profile-<id>, tab-crypto, asset-<id>, price-<id>, qty-<id>, buy-<id>, sell-<id>, position-<id>, stock-holdings-value, crypto-holdings-value, tune-stock_drift/stock_volatility/crypto_drift/crypto_volatility, save-tuning. To switch users in UI tests, clear cookies AND localStorage/sessionStorage — this app persists token in localStorage too.",
+  "rca of the issue": "N/A — no defects found."
+}

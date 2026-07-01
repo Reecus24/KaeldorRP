@@ -82,6 +82,7 @@ def new_player(user_id, name, background):
         "inventory": {},
         "equipment": {},
         "equip_bonus": {},
+        "portfolio": {},
         "current_activity": None,
         "status": "free",
         "jail_until": None,
@@ -175,6 +176,11 @@ DEFAULT_CONFIG = {
         "accident_chance": 0.30,         # chance of injury per shift when below the threshold
         # progressive income-tax brackets on job wages: [gross_up_to (null = top), rate]
         "tax_brackets": [[100, 0.10], [250, 0.15], [None, 0.22]],
+        # financial markets — per-real-hour geometric random walk (1 game hr = 1 real hr)
+        "stock_drift": 0.0015,        # expected stock return per hour (0.15%)
+        "stock_volatility": 0.03,     # stock hourly volatility (3%)
+        "crypto_drift": 0.004,        # expected crypto return per hour (0.4%)
+        "crypto_volatility": 0.09,    # crypto hourly volatility (9%)
     },
 }
 

@@ -27,6 +27,7 @@ from game_engine import (
 from seed_data import seed_content, CONTENT_MAP, JOBS
 import employee_engine
 import social_engine
+import market_engine
 import comms
 import employment
 
@@ -288,9 +289,11 @@ async def net_worth_parts(p):
     bizs = await db.businesses.find({"player_id": p["id"], "bankrupt": {"$ne": True}}, {"_id": 0}).to_list(100)
     for b in bizs:
         business += b.get("cash", 0) - b.get("debt", 0) + b.get("purchase_price", 0) * 0.5
+    investments = await market_engine.portfolio_value(db, p)
     parts = {"cash": cash, "bank": bank, "debt": debt,
-             "vehicles": round(vehicles, 2), "property": round(prop, 2), "business": round(business, 2)}
-    parts["total"] = round(cash + bank - debt + vehicles + prop + business, 2)
+             "vehicles": round(vehicles, 2), "property": round(prop, 2), "business": round(business, 2),
+             "investments": round(investments, 2)}
+    parts["total"] = round(cash + bank - debt + vehicles + prop + business + investments, 2)
     return parts
 
 
@@ -1331,21 +1334,71 @@ async def buy_materials(biz_id: str, body: MaterialsBody, user: dict = Depends(c
 
 
 # ============================ ILLEGAL / LEGAL ============================
+UW_MIN_SCORE = 40
+UW_MIN_TRUST = 30
+
+
+async def underworld_access(p):
+    """Underworld is gated behind knowing & being trusted by a criminal contact (Socials 3.0)."""
+    trusted = await db.contacts.find_one(
+        {"player_id": p["id"], "relationship_type": "shady_contact",
+         "relationship_score": {"$gte": UW_MIN_SCORE}, "trust": {"$gte": UW_MIN_TRUST}},
+        {"_id": 0, "name": 1})
+    if trusted:
+        return True, None, trusted["name"]
+    any_shady = await db.contacts.find_one(
+        {"player_id": p["id"], "relationship_type": "shady_contact"}, {"_id": 0, "name": 1})
+    if any_shady:
+        return (False, f"You know {any_shady['name']}, but they don't trust you enough yet. "
+                       f"Meet up and build the bond to Trust {UW_MIN_TRUST}+ and Relationship {UW_MIN_SCORE}+.", None)
+    return (False, "You have no way in. Meet a Shady Contact first — Social ▸ Meet People ▸ Prowl the Backstreets.", None)
+
+
+def _effective_crime_risk(p, a, risk_mult=1.0):
+    """Mirror game_engine._resolve_illegal so the UI shows the true, live odds."""
+    street = p.get("skills", {}).get("street_smarts", {}).get("level", 1)
+    susp = p.get("criminal_suspicion", 0)
+    bust = a.get("police_risk", 0) * (1 + susp / 150.0) * (1 - min(0.4, street * 0.03)) * risk_mult
+    fail = a.get("failure_chance", 0) * (1 - min(0.3, street * 0.025))
+    bust = max(0.0, min(0.95, bust))
+    fail = max(0.0, min(0.95 - bust, fail))
+    return round(bust, 3), round(fail, 3)
+
+
+@api.get("/underworld/status")
+async def underworld_status(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    access, reason, contact = await underworld_access(p)
+    return {"access": access, "reason": reason, "contact": contact,
+            "criminal_suspicion": p.get("criminal_suspicion", 0),
+            "min_score": UW_MIN_SCORE, "min_trust": UW_MIN_TRUST}
+
+
 @api.get("/illegal-actions")
 async def list_illegal(user: dict = Depends(current_user)):
     p = await get_state(user)
+    access, reason, _ = await underworld_access(p)
+    if not access:
+        return {"access": False, "reason": reason, "actions": []}
+    buff = p.get("social_buffs", {})
+    until = parse_dt(buff.get("until")) if buff.get("until") else None
+    risk_mult = buff["crime_risk_mult"] if (buff.get("crime_risk_mult") and until and until > now_utc()) else 1.0
     acts = await db.illegal_actions.find({}, {"_id": 0}).to_list(100)
     out = []
     for a in acts:
-        ok, reason = meets_requirements(p, a.get("requirements"))
-        out.append({**a, "available": ok, "reason": reason})
-    return out
+        ok, rsn = meets_requirements(p, a.get("requirements"))
+        bust, fail = _effective_crime_risk(p, a, risk_mult)
+        out.append({**a, "available": ok, "reason": rsn, "bust_risk": bust, "fail_chance": fail})
+    return {"access": True, "reason": None, "actions": out}
 
 
 @api.post("/illegal-actions/{action_id}/commit")
 async def commit_illegal(action_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     ensure_free(p)
+    access, reason, _ = await underworld_access(p)
+    if not access:
+        raise HTTPException(status_code=403, detail=reason)
     a = await db.illegal_actions.find_one({"id": action_id}, {"_id": 0})
     if not a:
         raise HTTPException(status_code=404, detail="Action not found")
@@ -1364,6 +1417,86 @@ async def commit_illegal(action_id: str, user: dict = Depends(current_user)):
     await add_event(db, p["id"], f"You started something risky: {a['name']}...", "crime", "warning")
     await save_player(p)
     return {"ok": True, "activity": serialize_activity(p)}
+
+
+# ---------------- FINANCIAL MARKETS: stocks (open) + crypto (Underworld-gated) ----------------
+class TradeBody(BaseModel):
+    asset_id: str
+    qty: float
+
+
+async def _do_trade(p, asset_id, qty, side):
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="Quantity must be positive")
+    asset = await db.market_assets.find_one({"id": asset_id}, {"_id": 0})
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if asset["kind"] == "crypto":
+        access, reason, _ = await underworld_access(p)
+        if not access:
+            raise HTTPException(status_code=403, detail=reason)
+    price = float(asset["price"])
+    port = p.setdefault("portfolio", {})
+    h = port.get(asset_id, {"qty": 0.0, "avg_cost": price})
+    if side == "buy":
+        cost = round(price * qty, 2)
+        if p["cash"] < cost:
+            raise HTTPException(status_code=400, detail=f"Not enough cash (need ${cost:,.2f})")
+        new_qty = h["qty"] + qty
+        h["avg_cost"] = round((h["qty"] * h.get("avg_cost", price) + qty * price) / new_qty, 6)
+        h["qty"] = new_qty
+        charge(p, cost)
+        port[asset_id] = h
+        await add_event(db, p["id"], f"Bought {qty:g} {asset['symbol']} @ ${price:,.2f} (${cost:,.2f}).", "bank", "info")
+    else:
+        if h["qty"] < qty - 1e-9:
+            raise HTTPException(status_code=400, detail=f"You only hold {h['qty']:g} {asset['symbol']}")
+        proceeds = round(price * qty, 2)
+        h["qty"] = round(h["qty"] - qty, 8)
+        add_money(p, proceeds)
+        if h["qty"] <= 1e-9:
+            port.pop(asset_id, None)
+        else:
+            port[asset_id] = h
+        await add_event(db, p["id"], f"Sold {qty:g} {asset['symbol']} @ ${price:,.2f} (+${proceeds:,.2f}).", "bank", "success")
+    p["net_worth"] = await compute_net_worth(p)
+    await save_player(p)
+    return {"ok": True, "price": price}
+
+
+@api.get("/market/stocks")
+async def market_stocks(user: dict = Depends(current_user)):
+    await get_state(user)
+    cfg = await get_config(db)
+    return await market_engine.get_market(db, cfg, "stock")
+
+
+@api.get("/market/crypto")
+async def market_crypto(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    access, reason, _ = await underworld_access(p)
+    if not access:
+        return {"access": False, "reason": reason, "assets": []}
+    cfg = await get_config(db)
+    return {"access": True, "reason": None, "assets": await market_engine.get_market(db, cfg, "crypto")}
+
+
+@api.get("/market/portfolio")
+async def market_portfolio(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    return await market_engine.portfolio_view(db, p)
+
+
+@api.post("/market/buy")
+async def market_buy(body: TradeBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    return await _do_trade(p, body.asset_id, body.qty, "buy")
+
+
+@api.post("/market/sell")
+async def market_sell(body: TradeBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    return await _do_trade(p, body.asset_id, body.qty, "sell")
 
 
 @api.get("/legal/record")

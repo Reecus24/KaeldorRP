@@ -4,7 +4,8 @@ import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, StatTile, Money } from "@/components/game/primitives";
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
-import { Landmark } from "lucide-react";
+import { Landmark, LineChart } from "lucide-react";
+import { MarketPanel } from "@/components/game/MarketPanel";
 
 export default function Bank() {
     const { player, act } = useGame();
@@ -101,6 +102,15 @@ export default function Bank() {
                     <KInput type="number" label="Repay debt" value={repay} onChange={(e) => setRepay(e.target.value)} placeholder="0" testid="repay-input" />
                     <KButton variant="green" className="w-full" loading={busy} disabled={player.debt <= 0} onClick={() => run(() => api.post("/bank/repay", { amount: Number(repay) }), "Debt repaid", () => setRepay(""))} data-testid="repay-button">Repay</KButton>
                 </Panel>
+            </div>
+
+            <div>
+                <div className="flex items-center gap-1.5 mb-3 mt-2">
+                    <LineChart className="w-4 h-4 text-neon-cyan" />
+                    <span className="font-display font-bold text-white">Stock Market</span>
+                    <span className="text-[11px] text-muted-foreground">— buy low, sell high. Prices move in real time.</span>
+                </div>
+                <MarketPanel endpoint="/market/stocks" kind="stock" accent="#00F3FF" />
             </div>
         </div>
     );

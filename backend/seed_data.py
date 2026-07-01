@@ -656,6 +656,10 @@ RELATIONSHIP_ACTIONS = [
      "duration_minutes": 60, "cooldown_minutes": 120, "money_cost": 0, "blocking": True, "untargeted": True, "icon": "Briefcase",
      "desc": "Chat with people around the workplace. A chance to meet Colleagues or a Manager. Requires a job.", "requires": {},
      "success": {"base": 0.78, "charisma_factor": 0.3}},
+    {"id": "go_to_streets", "label": "Prowl the Backstreets", "kind": "go_to_streets", "category": "discovery", "timing": "activity",
+     "duration_minutes": 90, "cooldown_minutes": 180, "money_cost": 0, "blocking": True, "untargeted": True, "icon": "Skull",
+     "desc": "Head to the wrong side of town. Risky — a chance to meet a Shady Contact who can open the door to the Underworld.",
+     "requires": {}, "success": {"base": 0.6, "charisma_factor": 0.25}},
 ]
 
 GIFT_TYPES = [
@@ -701,6 +705,20 @@ SOCIAL_EVENTS = [
 ]
 
 
+MARKET_ASSETS = [
+    # --- Stocks (open market, traded in the Bank) ---
+    {"id": "stk_kael", "symbol": "KAEL", "name": "KaelCorp Industries", "kind": "stock", "base_price": 145.0, "price": 145.0, "prev_price": 145.0, "history": [145.0], "desc": "Blue-chip conglomerate. Steady, low volatility."},
+    {"id": "stk_nova", "symbol": "NOVA", "name": "Nova Systems", "kind": "stock", "base_price": 82.0, "price": 82.0, "prev_price": 82.0, "history": [82.0], "desc": "Consumer tech. Balanced growth."},
+    {"id": "stk_helx", "symbol": "HELX", "name": "Helix Biotech", "kind": "stock", "base_price": 310.0, "price": 310.0, "prev_price": 310.0, "history": [310.0], "desc": "Biotech. Higher risk, higher upside."},
+    {"id": "stk_orb", "symbol": "ORB", "name": "Orbit Logistics", "kind": "stock", "base_price": 47.0, "price": 47.0, "prev_price": 47.0, "history": [47.0], "desc": "Freight & logistics. Affordable entry."},
+    # --- Crypto (Underworld-gated, traded in the Underworld) ---
+    {"id": "cry_btk", "symbol": "BTK", "name": "BitKoin", "kind": "crypto", "base_price": 32000.0, "price": 32000.0, "prev_price": 32000.0, "history": [32000.0], "desc": "The original. Volatile store of value."},
+    {"id": "cry_etk", "symbol": "ETK", "name": "EtherKoin", "kind": "crypto", "base_price": 2100.0, "price": 2100.0, "prev_price": 2100.0, "history": [2100.0], "desc": "Smart-contract chain. Very volatile."},
+    {"id": "cry_kld", "symbol": "KLD", "name": "KaelChain", "kind": "crypto", "base_price": 8.5, "price": 8.5, "prev_price": 8.5, "history": [8.5], "desc": "Local upstart token. Extreme swings."},
+    {"id": "cry_dgz", "symbol": "DGZ", "name": "DogeZ", "kind": "crypto", "base_price": 0.42, "price": 0.42, "prev_price": 0.42, "history": [0.42], "desc": "Meme coin. Pure degeneracy."},
+]
+
+
 CONTENT_MAP = {
     "jobs": ("jobs", JOBS),
     "actions": ("actions", ACTIONS),
@@ -721,6 +739,7 @@ CONTENT_MAP = {
     "relationship_actions": ("relationship_actions", RELATIONSHIP_ACTIONS),
     "gift_types": ("gift_types", GIFT_TYPES),
     "social_events": ("social_events", SOCIAL_EVENTS),
+    "market_assets": ("market_assets", MARKET_ASSETS),
 }
 
 

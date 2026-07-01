@@ -229,6 +229,8 @@ const TUNE_FIELDS = [
     { section: "Timers (in-game days)", keys: [["upgrade_days", "Upgrade duration"], ["marketing_days", "Marketing duration"], ["raise_cooldown_days", "Wage-raise cooldown"]] },
     { section: "Multiplier ranges", keys: [["satisfaction_mult_min", "Satisfaction→Production min"], ["satisfaction_mult_max", "Satisfaction→Production max"], ["reputation_mult_min", "Reputation→Demand min"], ["reputation_mult_max", "Reputation→Demand max"], ["worker_cond_min", "Worker condition min"], ["worker_cond_max", "Worker condition max"]] },
     { section: "Effectiveness → Accidents", keys: [["accident_eff_threshold", "Injury effectiveness threshold"], ["accident_chance", "Injury chance below threshold"]] },
+    { section: "Stock Market (per real hour)", keys: [["stock_drift", "Base return / hr (e.g. 0.0015)"], ["stock_volatility", "Volatility / hr (e.g. 0.03)"]] },
+    { section: "Crypto Market (per real hour)", keys: [["crypto_drift", "Base return / hr (e.g. 0.004)"], ["crypto_volatility", "Volatility / hr (e.g. 0.09)"]] },
 ];
 
 function TuningPanel() {
