@@ -12,7 +12,7 @@ import {
     LayoutDashboard, Home, Briefcase, BadgeCheck, GraduationCap, ShoppingCart,
     Landmark, Building2, Car, Store, Boxes, Sparkles, Skull, Stethoscope,
     Lock, Trophy, Settings, LogOut, Menu, X, Activity, Zap, Clock3, Users,
-    Bell, ScrollText, CalendarClock, MessageSquare,
+    Bell, ScrollText, CalendarClock, MessageSquare, Backpack,
 } from "lucide-react";
 
 const NAV = [
@@ -30,6 +30,7 @@ const NAV = [
     { to: "/education", label: "Education", icon: GraduationCap },
     { section: "Economy" },
     { to: "/shop", label: "Shop", icon: ShoppingCart },
+    { to: "/inventory", label: "Inventory", icon: Backpack },
     { to: "/bank", label: "Bank & Loans", icon: Landmark },
     { to: "/real-estate", label: "Real Estate", icon: Building2 },
     { to: "/vehicles", label: "Vehicle Dealer", icon: Car },

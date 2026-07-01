@@ -16,6 +16,7 @@ import JobCenter from "@/pages/JobCenter";
 import CurrentJob from "@/pages/CurrentJob";
 import Education from "@/pages/Education";
 import Shop from "@/pages/Shop";
+import Inventory from "@/pages/Inventory";
 import Bank from "@/pages/Bank";
 import RealEstate from "@/pages/RealEstate";
 import VehicleDealer from "@/pages/VehicleDealer";
@@ -92,6 +93,7 @@ function AppRoutes() {
                 <Route path="/current-job" element={<CurrentJob />} />
                 <Route path="/education" element={<Education />} />
                 <Route path="/shop" element={<Shop />} />
+                <Route path="/inventory" element={<Inventory />} />
                 <Route path="/bank" element={<Bank />} />
                 <Route path="/real-estate" element={<RealEstate />} />
                 <Route path="/vehicles" element={<VehicleDealer />} />

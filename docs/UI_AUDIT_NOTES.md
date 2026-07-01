@@ -36,3 +36,13 @@ linked stats). Status + action per tab.
 ## Remaining polish (low priority)
 - Surface player Effectiveness value + its live pay impact on the Current Job screen (currently implicit).
 - Show tax withholding breakdown on the Current Job pay preview (currently only in the completion event).
+
+## Inventory Refactor & Asset Consolidation (2026-07-01)
+- **New sidebar tab "Inventory"** (`/inventory`, `Backpack` icon) added under the Economy section, between Shop and Bank.
+- **Central asset hub** (`/app/frontend/src/pages/Inventory.jsx`) consolidates:
+  - **Equipment** panel (5 slots, equip/unequip) — moved out of Shop.
+  - **Items** panel (consumables use / equippables equip) — moved out of Shop.
+  - **Your Garage** panel (owned vehicles + sell/resale) — moved out of Vehicle Dealer.
+- **Shop** (`Shop.jsx`) is now purchase-only (category-grouped item cards → "Buy to Inventory"); the inventory/equipment sections were removed.
+- **Vehicle Dealer** (`VehicleDealer.jsx`) is now purchase-only ("For Sale" listings); the "Your Garage" owned-vehicles section was removed (now in Inventory).
+- Backend unchanged — same endpoints (`/inventory`, `/equipment`, `/inventory/{id}/use|equip`, `/equipment/{slot}/unequip`, `/vehicles`, `/vehicles/{id}/sell`); this is a pure frontend re-org.
