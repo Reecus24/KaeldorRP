@@ -64,8 +64,17 @@ async def admin_get_config(admin: dict = Depends(admin_user)):
 @api.put("/admin/config")
 async def admin_update_config(body: dict, admin: dict = Depends(admin_user)):
     body.pop("_id", None)
-    body["id"] = "global"
-    await db.config.update_one({"id": "global"}, {"$set": body}, upsert=True)
+    body.pop("id", None)
+    # Shallow-merge dict sub-documents (e.g. `tuning`) so a partial save never wipes other knobs.
+    set_ops = {}
+    for k, v in body.items():
+        if isinstance(v, dict):
+            for sk, sv in v.items():
+                set_ops[f"{k}.{sk}"] = sv
+        else:
+            set_ops[k] = v
+    set_ops["id"] = "global"
+    await db.config.update_one({"id": "global"}, {"$set": set_ops}, upsert=True)
     return {"ok": True}
 
 
