@@ -314,20 +314,49 @@ async def work_shift(body: ShiftBody, user: dict = Depends(current_user)):
     j = await db.jobs.find_one({"id": p["job"]["job_id"]}, {"_id": 0})
     if not j:
         raise HTTPException(status_code=404, detail="Job no longer exists")
-    if body.hours not in j.get("shift_options", [4]):
-        raise HTTPException(status_code=400, detail="Invalid shift length")
     if p["energy"] < 10:
         raise HTTPException(status_code=400, detail="Too exhausted to work. Rest first.")
     cfg = await get_config(db)
+    shifts = j.get("shift_options") or []
+    dict_shifts = [s for s in shifts if isinstance(s, dict)]
+    shift = None
+    enforce_window = True
+    if body.shift_id:
+        shift = next((s for s in dict_shifts if s.get("id") == body.shift_id), None)
+        if not shift:
+            raise HTTPException(status_code=400, detail="Invalid shift option")
+    elif body.hours is not None:
+        # Legacy path (backward-compatible API callers): match by duration, no window gate.
+        enforce_window = False
+        shift = next((s for s in dict_shifts if s.get("duration_hours") == body.hours), None)
+        if not shift and body.hours in [s for s in shifts if isinstance(s, int)]:
+            shift = {"id": f"h{body.hours}", "name": f"{body.hours}h shift", "duration_hours": body.hours,
+                     "injury_risk": 0.0, "pay_multiplier": 1.0, "xp_multiplier": 1.0}
+        if not shift:
+            raise HTTPException(status_code=400, detail="Invalid shift length")
+    else:
+        raise HTTPException(status_code=400, detail="No shift selected")
+
+    if enforce_window and not shift_window_open(shift, game_now(cfg).hour):
+        w = shift.get("start_window") or {}
+        raise HTTPException(status_code=400,
+            detail=f"The {shift.get('name', 'shift')} can only start between "
+                   f"{int(w.get('min_hour', 0)):02d}:00 and {int(w.get('max_hour', 24)):02d}:00.")
+
+    hours = int(shift["duration_hours"])
+    shift_name = shift.get("name", f"{hours}h")
     payload = {
-        "job_id": j["id"], "title": j["title"], "hours": body.hours, "category": j.get("category"),
+        "job_id": j["id"], "title": j["title"], "hours": hours, "category": j.get("category"),
         "hourly_wage": p["job"].get("hourly_wage", j["hourly_wage"]), "fatigue_ph": j["fatigue_per_hour"],
         "stress_ph": j["stress_per_hour"], "energy_ph": j["energy_per_hour"],
-        "skill_xp": j.get("skill_xp", {}),
+        "skill_xp": j.get("skill_xp", {}), "shift_name": shift_name,
+        "pay_multiplier": float(shift.get("pay_multiplier", 1.0)),
+        "xp_multiplier": float(shift.get("xp_multiplier", 1.0)),
+        "injury_risk": float(shift.get("injury_risk", 0.0)),
     }
-    set_activity(p, "job", f"{j['title']} ({body.hours}h shift)", body.hours * 60, cfg, payload, blocking=True)
+    set_activity(p, "job", f"{j['title']} — {shift_name}", hours * 60, cfg, payload, blocking=True)
     p["status"] = "working"
-    await add_event(db, p["id"], f"Clocked in for a {body.hours}h shift as {j['title']}.", "job", "info")
+    await add_event(db, p["id"], f"Clocked in for {shift_name} as {j['title']}.", "job", "info")
     await save_player(p)
     return {"ok": True, "activity": serialize_activity(p)}
 

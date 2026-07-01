@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { SKILL_LABELS, scheduleLabel } from "@/lib/helpers";
-import { BadgeCheck, TrendingUp, Briefcase, Clock, Building2, LogOut } from "lucide-react";
+import { SKILL_LABELS, scheduleLabel, computeGameTime, shiftWindowOpen, fmtWindow } from "@/lib/helpers";
+import { BadgeCheck, TrendingUp, Briefcase, Clock, Building2, LogOut, AlertTriangle } from "lucide-react";
 
 export default function CurrentJob() {
     const { state, player, act } = useGame();
@@ -17,9 +18,9 @@ export default function CurrentJob() {
 
     const blocked = !!state?.activity || ["jail", "hospital"].includes(player?.status) || !!player?.on_shift;
 
-    const work = async (hours) => {
+    const work = async (shift) => {
         setBusy(true);
-        await act(() => api.post("/jobs/work", { hours }), `Clocked in for a ${hours}h shift`);
+        await act(() => api.post("/jobs/work", { shift_id: shift.id }), `Clocked in for ${shift.name}`);
         await load();
         setBusy(false);
     };
@@ -66,6 +67,8 @@ export default function CurrentJob() {
     const j = npc?.details || {};
     const job = npc?.job;
     const promo = npc?.promotion;
+    const gt = computeGameTime(state);
+    const gameHour = gt ? gt.getUTCHours() : 0;
 
     return (
         <div className="space-y-6">
@@ -155,15 +158,41 @@ export default function CurrentJob() {
                         <p className="text-sm text-neon-red font-mono">Too exhausted to work. Rest or sleep first.</p>
                     ) : (
                         <>
-                            <p className="text-[11px] text-muted-foreground mb-4">
-                                Longer shifts pay more but drain energy, raise fatigue and stress. Pay scales with your effectiveness.
+                            <p className="text-[11px] text-muted-foreground mb-3">
+                                Each shift has its own hours, time window, pay & risk. Night and hazardous shifts pay more but can cause a work accident (health loss). A shift can only start inside its time window.
                             </p>
                             <div className="grid grid-cols-1 gap-2">
-                                {(j.shift_options || [4]).map((h) => (
-                                    <KButton key={h} variant="green" onClick={() => work(h)} loading={busy} data-testid={`work-shift-${h}`}>
-                                        Work {h}h shift · ~${Math.round((j.hourly_wage || 0) * h * (state?.effectiveness || 1))}
-                                    </KButton>
-                                ))}
+                                {(j.shift_options || []).filter((s) => typeof s === "object" && s !== null).map((s) => {
+                                    const open = shiftWindowOpen(s.start_window, gameHour);
+                                    const est = Math.round((j.hourly_wage || 0) * s.duration_hours * (state?.effectiveness || 1) * (s.pay_multiplier || 1));
+                                    const highRisk = (s.injury_risk || 0) >= 0.1;
+                                    return (
+                                        <div key={s.id} className={cn("border rounded-sm p-3", open ? "border-white/12" : "border-white/8 opacity-60")} data-testid={`shift-option-${s.id}`}>
+                                            <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+                                                <span className="font-display font-bold text-white text-sm">{s.name}</span>
+                                                <span className="font-mono text-neon-green tnum">~${est}</span>
+                                            </div>
+                                            <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+                                                <Pill tone="cyan">{s.duration_hours}h</Pill>
+                                                <Pill><Clock className="w-3 h-3 mr-0.5" />{fmtWindow(s.start_window)}</Pill>
+                                                {Number(s.pay_multiplier) !== 1 && <Pill tone="green">×{s.pay_multiplier} pay</Pill>}
+                                                {Number(s.xp_multiplier) !== 1 && <Pill tone="purple">×{s.xp_multiplier} XP</Pill>}
+                                                {highRisk
+                                                    ? <Pill tone="red"><AlertTriangle className="w-3 h-3 mr-0.5" />High risk</Pill>
+                                                    : (s.injury_risk > 0 ? <Pill tone="yellow">Low risk</Pill> : null)}
+                                            </div>
+                                            {open ? (
+                                                <KButton variant="green" className="w-full" onClick={() => work(s)} loading={busy} data-testid={`work-shift-${s.id}`}>
+                                                    Start {s.name}
+                                                </KButton>
+                                            ) : (
+                                                <div className="text-[11px] text-neon-yellow font-mono" data-testid={`shift-closed-${s.id}`}>
+                                                    Opens {fmtWindow(s.start_window)} · now {String(gameHour).padStart(2, "0")}:00
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </>
                     )}

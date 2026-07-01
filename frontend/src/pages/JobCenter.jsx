@@ -69,9 +69,12 @@ function JobCard({ j, isCurrent, pending, busy, onApply, onGoto }) {
                 <span className="flex items-center gap-1"><Brain className="w-3 h-3 text-neon-cyan" /> {Object.keys(j.skill_xp || {}).map((s) => SKILL_LABELS[s] || s).join(", ")}</span>
             </div>
 
-            <div className="flex items-center gap-2 text-[11px] font-mono mb-3">
+            <div className="flex items-center gap-2 text-[11px] font-mono mb-3 flex-wrap">
                 <span className="text-muted-foreground">Shifts:</span>
-                {j.shift_options.map((h) => <Pill key={h}>{h}h</Pill>)}
+                {(j.shift_options || []).map((s) => {
+                    const isObj = typeof s === "object" && s !== null;
+                    return <Pill key={isObj ? s.id : s}>{isObj ? `${s.duration_hours}h` : `${s}h`}</Pill>;
+                })}
             </div>
 
             {j.requirements && Object.keys(j.requirements).length > 0 && (

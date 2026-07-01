@@ -307,7 +307,9 @@ async def complete_activity(db, p, cfg):
 
     elif kind == "job":
         hours = payload["hours"]
-        base_pay = round(payload["hourly_wage"] * hours * eff, 2)
+        pay_mult = float(payload.get("pay_multiplier", 1.0))
+        xp_mult = float(payload.get("xp_multiplier", 1.0))
+        base_pay = round(payload["hourly_wage"] * hours * eff * pay_mult, 2)
         # REPUTATION + SOCIAL STATUS tip for customer-facing work (see PLAYER_STATS_LOGIC.md)
         tip = 0.0
         if payload.get("category") in ("retail", "food", "logistics", "office", "management", "trade"):
@@ -328,7 +330,7 @@ async def complete_activity(db, p, cfg):
         p["energy"] = clamp(p["energy"] - payload["energy_ph"] * hours)
         p["hunger"] = clamp(p["hunger"] + hours * 2.5)
         for sk, xp in payload.get("skill_xp", {}).items():
-            add_skill_xp(p, sk, xp * hours * eff, cfg)
+            add_skill_xp(p, sk, xp * hours * eff * xp_mult, cfg)
         p["reputation"] = clamp(p["reputation"] + 0.5)
         if p.get("job"):
             p["job"]["shifts_worked"] = p["job"].get("shifts_worked", 0) + 1
@@ -337,7 +339,15 @@ async def complete_activity(db, p, cfg):
             p["job"]["reliability"] = clamp(p["job"].get("reliability", 50) + rel_delta)
         p["stats_meta"]["shifts_worked"] = p["stats_meta"].get("shifts_worked", 0) + 1
         p["stats_meta"]["total_hours_worked"] = round(p["stats_meta"].get("total_hours_worked", 0) + hours, 1)
-        await add_event(db, pid, f"Finished {hours}h shift as {payload.get('title')} (+${net_pay} after ${tax} tax{f', incl. ${tip} tips' if tip > 0 else ''}).", "job", "success")
+        shift_name = payload.get("shift_name") or f"{hours}h"
+        await add_event(db, pid, f"Finished {shift_name} shift as {payload.get('title')} (+${net_pay} after ${tax} tax{f', incl. ${tip} tips' if tip > 0 else ''}).", "job", "success")
+        # SHIFT INJURY RISK — hazardous/night shifts can hurt you (health + stress); the shift still completes.
+        injury_risk = float(payload.get("injury_risk", 0.0))
+        if injury_risk > 0 and random.random() < injury_risk:
+            dmg = round(random.uniform(6, 16))
+            p["health"] = clamp(p["health"] - dmg)
+            p["stress"] = clamp(p["stress"] + round(dmg * 0.6))
+            await add_event(db, pid, f"Work accident during your {shift_name} shift — you lost {dmg} health.", "job", "danger")
         # random work event
         if eff < game_models.TUNE.get("accident_eff_threshold", 0.55) and random.random() < game_models.TUNE.get("accident_chance", 0.30):
             p["health"] = clamp(p["health"] - 8)

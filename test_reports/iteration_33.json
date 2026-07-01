@@ -1,0 +1,47 @@
+{
+  "summary": "Independently validated the Universal Shift & Risk Engine end-to-end on the preview URL. Backend: 13/13 pytest cases pass in /app/backend/tests/test_job_shifts_engine.py covering admin GET/PUT job-shifts (schema + non-admin 401/403 + empty-list/duplicate-id/bad-duration/bad-window 400s + valid save→GET-verify persistence + restore), player POST /jobs/work with shift_id (invalid→400 'Invalid shift option', closed-window→400 'can only start between HH:00 and HH:00', open-window→200 activity created), and legacy hours path (invalid hours→400, valid duration→200, no window enforcement). Both guard scripts (verify_economy.py + verify_markets.py) still print ALL ... PASSED. Frontend: Admin ▸ Gameplay Tuning ▸ Job Shifts grid renders with jobshift-job-cleaner + all 3 shift pills; edit modal (jobshifts-editor) exposes every field/action testid listed in the request. Player Current Job page correctly gates by live game clock (game hour = 23): morning and day shifts render 'Opens HH:00–HH:00 · now 23:00' with NO start button, night shift shows the green START NIGHT SANITATION button, ×1.4 PAY / ×1.15 XP / HIGH RISK pills; clicking Start clocks in and In-Progress panel shows 'Cleaner — Night Sanitation 5h 59m 57s'. Cleaner shifts and shiftplayer activity restored to original state after testing.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verified_flows": [
+    "GET /api/admin/job-shifts (admin) → 200; cleaner has 3 rich-schema shifts (morning/day/night); every shift has id, name, duration_hours, start_window{min_hour,max_hour}, injury_risk, pay_multiplier, xp_multiplier",
+    "GET /api/admin/job-shifts (non-admin token) → 403 as expected",
+    "PUT /api/admin/job-shifts/cleaner {shift_options: []} → 400 'At least one shift option is required'",
+    "PUT /api/admin/job-shifts/cleaner duplicate id → 400 'Duplicate shift id'",
+    "PUT /api/admin/job-shifts/cleaner duration_hours=20 → 400 'Shift duration must be 1–16 hours'",
+    "PUT /api/admin/job-shifts/cleaner window max_hour=30 → 400 'Window hours must be 0–24'",
+    "PUT /api/admin/job-shifts/cleaner valid alt payload → 200 returns cleaned shift_options; GET afterwards reflects new shifts; restore PUT to original 3 → 200 and re-verified via GET",
+    "POST /api/jobs/work {shift_id:'does-not-exist'} → 400 'Invalid shift option'",
+    "POST /api/jobs/work with a shift whose window is CLOSED at current game hour (23:00) → 400 'The <name> can only start between HH:00 and HH:00.'",
+    "POST /api/jobs/work with a shift whose window is OPEN at current game hour → 200 activity started (kind=job)",
+    "POST /api/jobs/work {hours: 99} (legacy path) → 400 'Invalid shift length'; {hours: <valid duration>} → 200 activity started (no window enforcement)",
+    "python3 /app/tests/verify_economy.py → exit 0, prints ALL ECONOMY GUARDS PASSED",
+    "python3 /app/tests/verify_markets.py → exit 0, prints ALL MARKET/UNDERWORLD CHECKS PASSED",
+    "Admin UI: /admin ▸ Gameplay Tuning ▸ Job Shifts renders 16 job cards with shift pills; jobshift-job-cleaner shows Morning Clean 4h 05-11, Day Shift 6h 06-16, Night Sanitation 6h 21-03; jobshift-edit-cleaner opens jobshifts-editor with jobshift-name-0/hours-0/start-0/end-0/risk-0/pay-0/xp-0 + jobshift-add/save/del-0",
+    "Player UI: /current-job renders shift-option-morning/day/night; morning+day show shift-closed-<id> ('Opens 05:00–11:00 · now 23:00' / 'Opens 06:00–16:00 · now 23:00') with NO work-shift button; night shows work-shift-night green Start button with multiplier + HIGH RISK pills",
+    "Clicking work-shift-night → toast 'Clocked in for Night Sanitation', page switches to 'You're busy or unavailable' + IN PROGRESS panel 'Cleaner — Night Sanitation 5h 59m 57s' with progress bar"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_job_shifts_engine.py",
+    "/app/test_reports/pytest/iter33_shifts.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "routes/admin.py PUT /admin/job-shifts validates window hours as 0..24 (inclusive of 24). shift_window_open() clamps hi as int and uses lo<=h<hi so hi=24 works, but hi=0 with lo=0 yields lo==hi -> 'always open' (returns True) which likely isn't the intended semantics for a zero-length window; consider requiring hi != lo or documenting the 'lo==hi means 24h open' behaviour.",
+    "routes/player.py work_shift error string mixes 'and' with 24-hour times formatted %02d:00. For overnight wraps (min>max) the message reads 'can only start between 21:00 and 03:00' which is grammatically correct but doesn't hint at midnight wrap; UX could add '(overnight)' suffix for wrapped windows.",
+    "seed_data JOB_SHIFTS assigns Night Loading a start_window of 22→5 with duration 8h; a shift starting at 05:00 (last legal minute) would run to 13:00 – fine, but if start_window max is exclusive (05 not allowed) tests should be aware. Current shift_window_open uses lo<=h<hi so hour==22..04 legal, hour 5 illegal — consistent.",
+    "Legacy hours-path in work_shift silently bypasses time-window enforcement. This is intentional (backward compat) but could allow scripted/API clients to skirt the whole gating system. Consider logging or a soft-warning event so admins can spot abuse."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_job_shifts_engine.py (new file, 13 pytest tests + guard-script wrappers)"
+  ],
+  "success_rate": { "backend": "100% (13/13 pytest)", "frontend": "100% (admin panel + player shift cards + start flow)" },
+  "test_credentials": "admin@kaeldor.com/admin123, shiftplayer@kaeldor.com/demo123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Test temporarily replaced cleaner.shift_options with a single 'tempshift' payload then RESTORED the original 3 shifts (morning 4h 05-11, day 6h 06-16, night 6h 21-03 pay×1.4 xp×1.15). Also cancelled the running 'Cleaner — Night Sanitation' activity on shiftplayer after the UI start test so the demo state is clean.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reusable test file: /app/backend/tests/test_job_shifts_engine.py. Run with 'pytest backend/tests/test_job_shifts_engine.py -o addopts= -v' (rootdir pytest.ini enables xdist parallelism which races on the shared cleaner job — pass -o addopts= to force serial). Player tests auto-cancel any pending activity via POST /api/game/cancel-activity so they're re-runnable. Window openness depends on the LIVE game clock (1 real hour = 1 game hour) — DO NOT hardcode an expected 'open shift'; compute it from GET /api/config game_time hour. When testing UI on Current Job, at game hour 23 only 'night' is open; other hours will flip which cards show Start vs 'Opens …'. jobshifts-cancel testid is present for closing the editor without saving."
+}

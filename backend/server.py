@@ -203,6 +203,23 @@ async def migrate_job_sectors():
             await db.job_sectors.insert_one({**s})
 
 
+async def migrate_job_shift_options():
+    """Upgrade legacy int shift_options ([2,4,6]) to the rich Shift & Risk schema (one-time)."""
+    from seed_data import JOB_SHIFTS
+    async for j in db.jobs.find({}, {"_id": 0, "id": 1, "shift_options": 1}):
+        so = j.get("shift_options")
+        if isinstance(so, list) and so and isinstance(so[0], dict):
+            continue
+        if j["id"] in JOB_SHIFTS:
+            new_so = [{**s} for s in JOB_SHIFTS[j["id"]]]
+        else:
+            hrs = [h for h in (so or [4]) if isinstance(h, int)] or [4]
+            new_so = [{"id": f"h{h}", "name": f"{h}h Shift", "duration_hours": h,
+                       "start_window": {"min_hour": 6, "max_hour": 20},
+                       "injury_risk": 0.04, "pay_multiplier": 1.0, "xp_multiplier": 1.0} for h in hrs]
+        await db.jobs.update_one({"id": j["id"]}, {"$set": {"shift_options": new_so}})
+
+
 
 @app.on_event("startup")
 async def startup():
@@ -225,6 +242,7 @@ async def startup():
     await migrate_business_supply_chain()
     await migrate_city_shops()
     await migrate_job_sectors()
+    await migrate_job_shift_options()
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@kaeldor.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

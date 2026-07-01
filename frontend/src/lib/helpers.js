@@ -169,6 +169,24 @@ export function scheduleLabel(sch) {
     return `${sch.label || "Shift"} · ${pad(sch.start)}:00–${pad(sch.end)}:00`;
 }
 
+// ---------- Job shift windows (Universal Shift & Risk Engine) ----------
+// min_hour > max_hour = overnight window that wraps past midnight (e.g. 21 -> 3).
+export function shiftWindowOpen(win, hour) {
+    if (!win) return true;
+    const lo = Number(win.min_hour ?? 0), hi = Number(win.max_hour ?? 24);
+    if (lo === hi) return true;
+    if (lo < hi) return hour >= lo && hour < hi;
+    return hour >= lo || hour < hi;
+}
+
+export function fmtWindow(win) {
+    if (!win) return "Any time";
+    const pad = (n) => String(n).padStart(2, "0");
+    const lo = Number(win.min_hour ?? 0), hi = Number(win.max_hour ?? 24);
+    if (lo === 0 && hi >= 24) return "Any time";
+    return `${pad(lo)}:00–${pad(hi)}:00`;
+}
+
 // ---------- Tooltip / explainer copy ----------
 export const STAT_INFO = {
     energy: "Energy fuels activities. It drops as you stay awake and work; sleep and rest restore it.",

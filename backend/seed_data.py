@@ -93,6 +93,68 @@ JOBS = [
      "promotion_to": None, "promotion_req": {}},
 ]
 
+# ============================ JOB SHIFTS — Universal Shift & Risk Engine ============================
+# Each job offers hand-tuned, individual shift options. A shift can only be STARTED while the current
+# game hour is inside start_window (HARD gate). min_hour > max_hour = an overnight window that wraps
+# past midnight (e.g. 21 -> 3). pay_multiplier / xp_multiplier scale the shift's wage & skill XP;
+# injury_risk is the per-shift chance of an on-the-job injury (health loss + stress) — the shift
+# still finishes. All fields are admin-editable via Admin ▸ Gameplay Tuning ▸ Job Shifts.
+def _shift(sid, name, hours, lo, hi, risk, pay=1.0, xp=1.0):
+    return {"id": sid, "name": name, "duration_hours": hours,
+            "start_window": {"min_hour": lo, "max_hour": hi},
+            "injury_risk": risk, "pay_multiplier": pay, "xp_multiplier": xp}
+
+
+JOB_SHIFTS = {
+    "cleaner": [
+        _shift("morning", "Morning Clean", 4, 5, 11, 0.03),
+        _shift("day", "Day Shift", 6, 6, 16, 0.05),
+        _shift("night", "Night Sanitation", 6, 21, 3, 0.13, pay=1.40, xp=1.15)],
+    "cashier": [
+        _shift("day", "Day Shift", 6, 7, 16, 0.02),
+        _shift("evening", "Evening Rush", 4, 15, 21, 0.03, pay=1.15, xp=1.10),
+        _shift("double", "Double Shift", 8, 8, 12, 0.05, pay=1.05, xp=1.05)],
+    "kitchen_helper": [
+        _shift("prep", "Prep Shift", 4, 7, 14, 0.05),
+        _shift("dinner", "Dinner Rush", 8, 14, 19, 0.11, pay=1.20, xp=1.15)],
+    "delivery_driver": [
+        _shift("day", "Daytime Route", 4, 8, 16, 0.06),
+        _shift("rush", "Rush Hour Route", 6, 15, 20, 0.10, pay=1.20, xp=1.10),
+        _shift("night", "Late Night Deliveries", 6, 21, 3, 0.16, pay=1.50, xp=1.20)],
+    "warehouse_worker": [
+        _shift("day", "Day Shift", 6, 6, 14, 0.08),
+        _shift("night", "Night Loading", 8, 22, 5, 0.15, pay=1.45, xp=1.15)],
+    "sales_assistant": [
+        _shift("floor", "Floor Shift", 6, 8, 16, 0.02),
+        _shift("commission", "Commission Push", 8, 9, 13, 0.03, pay=1.20, xp=1.15)],
+    "call_center": [
+        _shift("day", "Day Shift", 6, 7, 16, 0.01),
+        _shift("night", "Overnight Support", 8, 21, 4, 0.04, pay=1.35, xp=1.10)],
+    "barista": [
+        _shift("morning", "Morning Rush", 4, 5, 10, 0.04, pay=1.15, xp=1.10),
+        _shift("day", "Day Shift", 6, 8, 16, 0.03)],
+    "mechanic_apprentice": [
+        _shift("garage", "Garage Shift", 4, 7, 15, 0.08),
+        _shift("heavy", "Heavy Repair Day", 8, 7, 12, 0.13, pay=1.20, xp=1.20)],
+    "office_assistant": [
+        _shift("office", "Office Hours", 6, 7, 13, 0.01),
+        _shift("overtime", "Overtime", 8, 7, 11, 0.02, pay=1.15, xp=1.10)],
+    "store_manager": [
+        _shift("day", "Management Shift", 6, 7, 14, 0.02),
+        _shift("long", "Full Operating Day", 8, 7, 11, 0.03, pay=1.15, xp=1.10)],
+    "restaurant_manager": [
+        _shift("service", "Service Shift", 6, 10, 16, 0.04),
+        _shift("dinner", "Dinner Service", 8, 14, 19, 0.07, pay=1.20, xp=1.15)],
+    "logistics_manager": [
+        _shift("ops", "Operations Shift", 6, 6, 14, 0.03),
+        _shift("night", "Night Operations", 8, 21, 3, 0.09, pay=1.40, xp=1.15)],
+}
+# Override the legacy int shift_options ([2,4,6]) with the rich per-job shift schema.
+for _j in JOBS:
+    if _j["id"] in JOB_SHIFTS:
+        _j["shift_options"] = JOB_SHIFTS[_j["id"]]
+
+
 # Job Sectors / Agencies. The Job Center groups jobs into sectors; players browse a
 # sector, then see only the jobs assigned to it. Admin-editable via Sandbox -> Job Sectors.
 JOB_SECTORS = [

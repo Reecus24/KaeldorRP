@@ -257,6 +257,20 @@ def set_activity(p, kind, name, duration_game_minutes, cfg, payload, blocking=Tr
 
 
 
+def shift_window_open(shift, game_hour):
+    """Hard time-gate for a job shift option. min_hour > max_hour = overnight window (wraps midnight)."""
+    w = shift.get("start_window") or {}
+    lo = int(w.get("min_hour", 0))
+    hi = int(w.get("max_hour", 24))
+    if lo == hi:
+        return True
+    if lo < hi:
+        return lo <= game_hour < hi
+    return game_hour >= lo or game_hour < hi
+
+
+
+
 async def fetch_raw_player(user_id):
     p = await db.players.find_one({"user_id": user_id}, {"_id": 0})
     if not p:
@@ -444,7 +458,8 @@ class ApplyBody(BaseModel):
 
 
 class ShiftBody(BaseModel):
-    hours: int
+    shift_id: Optional[str] = None
+    hours: Optional[int] = None
 
 
 

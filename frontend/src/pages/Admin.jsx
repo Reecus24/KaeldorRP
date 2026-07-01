@@ -874,6 +874,118 @@ function JobSectorsPanel() {
 }
 
 
+function JobShiftsPanel() {
+    const [data, setData] = useState(null);
+    const [sel, setSel] = useState(null);      // job id being edited
+    const [draft, setDraft] = useState(null);   // shift_options array
+    const [saving, setSaving] = useState(false);
+    const load = useCallback(() => api.get("/admin/job-shifts").then(({ data }) => setData(data)).catch(() => setData({ jobs: [] })), []);
+    useEffect(() => { load(); }, [load]);
+
+    const openJob = (jb) => { setSel(jb.id); setDraft(JSON.parse(JSON.stringify(jb.shift_options || []))); };
+    const setShift = (i, k, v) => setDraft((d) => d.map((s, idx) => (idx === i ? { ...s, [k]: v } : s)));
+    const setWin = (i, k, v) => setDraft((d) => d.map((s, idx) => (idx === i ? { ...s, start_window: { ...(s.start_window || {}), [k]: v } } : s)));
+    const addShift = () => setDraft((d) => [...d, { id: `shift${d.length + 1}`, name: "New Shift", duration_hours: 4, start_window: { min_hour: 8, max_hour: 18 }, injury_risk: 0.03, pay_multiplier: 1, xp_multiplier: 1 }]);
+    const removeShift = (i) => setDraft((d) => d.filter((_, idx) => idx !== i));
+    const save = async () => {
+        setSaving(true);
+        try {
+            await api.put(`/admin/job-shifts/${sel}`, { shift_options: draft });
+            toast.success("Shifts saved — live for players immediately");
+            setSel(null); setDraft(null); await load();
+        } catch (e) { toast.error(errMessage(e)); }
+        setSaving(false);
+    };
+
+    if (!data) return <Spinner />;
+    const selJob = (data.jobs || []).find((j) => j.id === sel);
+    const numCls = "bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white w-full";
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Configure each job's work shifts — hours, start-time window, injury risk and pay/XP multipliers. A shift can only be started while the current game hour is inside its window. An overnight window wraps midnight when Start &gt; End (e.g. 21 → 03). Changes go live in players' Current Job page immediately.</p>
+
+            {sel && draft ? (
+                <Panel className="p-5 space-y-4 border-neon-cyan/30" data-testid="jobshifts-editor">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2">
+                            <Briefcase className="w-4 h-4 text-neon-cyan" />
+                            <span className="font-display font-bold text-white">{selJob?.title || sel}</span>
+                            <Pill tone="green">${selJob?.hourly_wage}/h base</Pill>
+                        </div>
+                        <KButton variant="ghost" onClick={addShift} data-testid="jobshift-add"><Plus className="w-3.5 h-3.5" /> Add Shift</KButton>
+                    </div>
+
+                    <div className="space-y-3">
+                        {draft.map((s, i) => (
+                            <div key={i} className="border border-white/10 rounded-sm p-3 space-y-2" data-testid={`jobshift-row-${i}`}>
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-mono text-muted-foreground">Shift #{i + 1}</span>
+                                    <button onClick={() => removeShift(i)} className="text-neon-red hover:text-neon-red/70" data-testid={`jobshift-del-${i}`}><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                                <div className="grid sm:grid-cols-2 gap-2">
+                                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Name
+                                        <KInput value={s.name} onChange={(e) => setShift(i, "name", e.target.value)} testid={`jobshift-name-${i}`} /></label>
+                                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">ID (unique)
+                                        <KInput value={s.id} onChange={(e) => setShift(i, "id", e.target.value)} testid={`jobshift-id-${i}`} /></label>
+                                </div>
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Hours
+                                        <input type="number" min="1" max="16" className={numCls} value={s.duration_hours} onChange={(e) => setShift(i, "duration_hours", Number(e.target.value))} data-testid={`jobshift-hours-${i}`} /></label>
+                                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Start (0-24)
+                                        <input type="number" min="0" max="24" className={numCls} value={s.start_window?.min_hour ?? 0} onChange={(e) => setWin(i, "min_hour", Number(e.target.value))} data-testid={`jobshift-start-${i}`} /></label>
+                                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">End (0-24)
+                                        <input type="number" min="0" max="24" className={numCls} value={s.start_window?.max_hour ?? 24} onChange={(e) => setWin(i, "max_hour", Number(e.target.value))} data-testid={`jobshift-end-${i}`} /></label>
+                                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Injury risk
+                                        <input type="number" min="0" max="1" step="0.01" className={numCls} value={s.injury_risk} onChange={(e) => setShift(i, "injury_risk", Number(e.target.value))} data-testid={`jobshift-risk-${i}`} /></label>
+                                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Pay ×
+                                        <input type="number" min="0.1" step="0.05" className={numCls} value={s.pay_multiplier} onChange={(e) => setShift(i, "pay_multiplier", Number(e.target.value))} data-testid={`jobshift-pay-${i}`} /></label>
+                                </div>
+                                <label className="text-[10px] text-muted-foreground flex flex-col gap-1 sm:w-1/5">XP ×
+                                    <input type="number" min="0.1" step="0.05" className={numCls} value={s.xp_multiplier} onChange={(e) => setShift(i, "xp_multiplier", Number(e.target.value))} data-testid={`jobshift-xp-${i}`} /></label>
+                            </div>
+                        ))}
+                        {draft.length === 0 && <p className="text-[11px] text-neon-yellow font-mono">No shifts — add at least one so players can work this job.</p>}
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                        <KButton variant="green" loading={saving} disabled={draft.length === 0} onClick={save} data-testid="jobshift-save">Save Shifts</KButton>
+                        <KButton variant="ghost" onClick={() => { setSel(null); setDraft(null); }} data-testid="jobshift-cancel">Cancel</KButton>
+                    </div>
+                </Panel>
+            ) : (
+                <div className="grid md:grid-cols-2 gap-3">
+                    {(data.jobs || []).map((jb) => (
+                        <Panel key={jb.id} className="p-4" data-testid={`jobshift-job-${jb.id}`}>
+                            <div className="flex items-start justify-between mb-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-display font-bold text-white">{jb.title}</span>
+                                    <Pill tone="purple">T{jb.tier}</Pill>
+                                    <span className="text-[10px] font-mono text-muted-foreground">{jb.category}</span>
+                                </div>
+                                <button onClick={() => openJob(jb)} className="text-muted-foreground hover:text-neon-cyan" data-testid={`jobshift-edit-${jb.id}`}><Pencil className="w-4 h-4" /></button>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                                {(jb.shift_options || []).filter((s) => typeof s === "object").map((s) => {
+                                    const w = s.start_window || {};
+                                    const pad = (n) => String(n).padStart(2, "0");
+                                    return (
+                                        <Pill key={s.id} tone={(s.injury_risk || 0) >= 0.1 ? "red" : "cyan"}>
+                                            {s.name} · {s.duration_hours}h · {pad(w.min_hour ?? 0)}-{pad(w.max_hour ?? 24)}
+                                        </Pill>
+                                    );
+                                })}
+                                {(!jb.shift_options || jb.shift_options.length === 0) && <span className="text-[11px] text-neon-yellow font-mono">No shifts configured</span>}
+                            </div>
+                        </Panel>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+
 const ADMIN_GROUPS = [
     { key: "overview", label: "Overview", icon: LayoutDashboard, locked: true,
       children: [{ key: "stats", label: "Dashboard" }, { key: "feed", label: "Live Feed" }] },
@@ -884,7 +996,7 @@ const ADMIN_GROUPS = [
     { key: "tuning", label: "Gameplay Tuning", icon: Gauge,
       children: [
           { key: "tuning", label: "Tuning" }, { key: "config", label: "Config" }, { key: "actions", label: "Actions" },
-          { key: "courses", label: "Courses" }, { key: "jobs", label: "Jobs" }, { key: "random_events", label: "Events" }] },
+          { key: "courses", label: "Courses" }, { key: "jobs", label: "Jobs" }, { key: "jobshifts", label: "Job Shifts" }, { key: "random_events", label: "Events" }] },
     { key: "players", label: "Player Management", icon: Users,
       children: [
           { key: "players", label: "Players" }, { key: "employee_roles", label: "Emp Roles" }, { key: "employee_traits", label: "Emp Traits" },
@@ -956,6 +1068,7 @@ function renderAdminLeaf(key, ctx = {}) {
         case "locations": return <LocationsPanel />;
         case "cityshops": return <CityShopsPanel />;
         case "jobsectors": return <JobSectorsPanel />;
+        case "jobshifts": return <JobShiftsPanel />;
         case "players": return <PlayersTable focus={ctx.focusPlayer} onFocusHandled={ctx.onFocusHandled} />;
         default: return <ContentEditor ctype={key} />;
     }

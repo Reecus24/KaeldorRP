@@ -438,6 +438,55 @@ async def admin_delete_job_sector(sector_id: str, admin: dict = Depends(admin_us
 
 
 
+@api.get("/admin/job-shifts")
+async def admin_job_shifts(admin: dict = Depends(admin_user)):
+    jobs = await db.jobs.find({}, {"_id": 0, "id": 1, "title": 1, "category": 1, "tier": 1,
+                                   "hourly_wage": 1, "shift_options": 1}).to_list(300)
+    jobs.sort(key=lambda x: (x.get("tier", 1), x.get("title", "")))
+    return {"jobs": jobs}
+
+
+
+
+@api.put("/admin/job-shifts/{job_id}")
+async def admin_update_job_shifts(job_id: str, body: dict, admin: dict = Depends(admin_user)):
+    raw = body.get("shift_options")
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(status_code=400, detail="At least one shift option is required")
+    cleaned, seen = [], set()
+    for i, s in enumerate(raw):
+        if not isinstance(s, dict):
+            raise HTTPException(status_code=400, detail="Each shift must be an object")
+        sid = (str(s.get("id") or "").strip()) or f"shift{i + 1}"
+        if sid in seen:
+            raise HTTPException(status_code=400, detail=f"Duplicate shift id: {sid}")
+        seen.add(sid)
+        try:
+            hours = int(s.get("duration_hours"))
+            lo = int((s.get("start_window") or {}).get("min_hour", 0))
+            hi = int((s.get("start_window") or {}).get("max_hour", 24))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Hours and window must be numbers")
+        if hours < 1 or hours > 16:
+            raise HTTPException(status_code=400, detail="Shift duration must be 1–16 hours")
+        if not (0 <= lo <= 24) or not (0 <= hi <= 24):
+            raise HTTPException(status_code=400, detail="Window hours must be 0–24")
+        cleaned.append({
+            "id": sid, "name": (str(s.get("name") or sid).strip()),
+            "duration_hours": hours,
+            "start_window": {"min_hour": lo, "max_hour": hi},
+            "injury_risk": max(0.0, min(1.0, float(s.get("injury_risk", 0.0) or 0.0))),
+            "pay_multiplier": max(0.1, float(s.get("pay_multiplier", 1.0) or 1.0)),
+            "xp_multiplier": max(0.1, float(s.get("xp_multiplier", 1.0) or 1.0)),
+        })
+    res = await db.jobs.update_one({"id": job_id}, {"$set": {"shift_options": cleaned}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True, "shift_options": cleaned}
+
+
+
+
 @api.get("/admin/chat")
 async def admin_chat(limit: int = 100, admin: dict = Depends(admin_user)):
     return await db.world_chat.find({}, {"_id": 0}).sort("ts", -1).to_list(limit)
