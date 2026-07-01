@@ -7,7 +7,7 @@ import {
     Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
     MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
     Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles,
-    ShoppingCart, Scale, Home, Car, HeartPulse, Radio,
+    ShoppingCart, Scale, Home, Car, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -293,11 +293,28 @@ function TuningPanel() {
     );
 }
 
-function PlayersTable() {
+function PlayersTable({ focus, onFocusHandled }) {
     const [players, setPlayers] = useState(null);
     const [edit, setEdit] = useState(null);
+    const [search, setSearch] = useState("");
+    const [highlightId, setHighlightId] = useState(null);
     const load = () => api.get("/admin/players").then(({ data }) => setPlayers(data));
     useEffect(() => { load(); }, []);
+
+    // Quick-Jump from the Live City Feed: filter to the player, highlight + open edit.
+    useEffect(() => {
+        if (!focus || !players) return;
+        setSearch(focus.name || "");
+        const target = players.find((p) => p.id === focus.id);
+        if (target) {
+            setEdit({ ...target });
+            setHighlightId(target.id);
+        } else {
+            toast.error(`Player "${focus.name}" not found`);
+        }
+        onFocusHandled && onFocusHandled();
+    }, [focus, players]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const save = async () => {
         try {
             await api.put(`/admin/players/${edit.id}`, {
@@ -310,15 +327,26 @@ function PlayersTable() {
         } catch (e) { toast.error(errMessage(e)); }
     };
     if (!players) return <Spinner />;
+    const q = search.trim().toLowerCase();
+    const shown = q ? players.filter((p) => (p.name || "").toLowerCase().includes(q)) : players;
     return (
         <Panel className="p-0 overflow-hidden">
+            <div className="p-3 border-b border-white/8 bg-[#050505] flex items-center gap-2">
+                <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search players by name…"
+                    className="bg-transparent flex-1 text-sm text-white placeholder:text-muted-foreground/50 outline-none" data-testid="player-search" />
+                {search && <button onClick={() => { setSearch(""); setHighlightId(null); }} className="text-muted-foreground hover:text-white" data-testid="player-search-clear"><X className="w-4 h-4" /></button>}
+                <span className="font-mono text-[10px] text-muted-foreground shrink-0">{shown.length}/{players.length}</span>
+            </div>
             <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/8 bg-[#050505] font-mono text-[10px] uppercase text-muted-foreground">
                 <div className="col-span-3">Name</div><div className="col-span-1">Lvl</div><div className="col-span-2 text-right">Cash</div>
                 <div className="col-span-2 text-right">Net Worth</div><div className="col-span-1 text-right">Rep</div><div className="col-span-1 text-right">Legal</div>
                 <div className="col-span-1 text-right">Susp</div><div className="col-span-1"></div>
             </div>
-            {players.map((p) => (
-                <div key={p.id} className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-white/5 text-sm items-center" data-testid={`admin-player-${p.id}`}>
+            <div className="max-h-[58vh] overflow-y-auto">
+            {shown.map((p) => (
+                <div key={p.id} className={cn("grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-white/5 text-sm items-center transition-colors",
+                    highlightId === p.id ? "bg-neon-cyan/10 ring-1 ring-inset ring-neon-cyan/40" : "")} data-testid={`admin-player-${p.id}`}>
                     <div className="col-span-3 text-white truncate">{p.name}</div>
                     <div className="col-span-1 font-mono tnum">{p.level}</div>
                     <div className="col-span-2 text-right font-mono"><Money value={p.cash} /></div>
@@ -329,9 +357,11 @@ function PlayersTable() {
                     <div className="col-span-1 text-right"><KButton variant="ghost" className="!px-2 !py-1 !text-[10px]" onClick={() => setEdit({ ...p })} data-testid={`edit-player-${p.id}`}>Edit</KButton></div>
                 </div>
             ))}
+            {shown.length === 0 && <div className="px-4 py-6 text-center text-sm text-muted-foreground">No players match "{search}".</div>}
+            </div>
             {edit && (
                 <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setEdit(null)}>
-                    <Panel className="p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                    <Panel className="p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()} data-testid="player-edit-modal">
                         <div className="flex items-center justify-between mb-3"><div className="font-display font-bold text-white">Edit {edit.name}</div><button onClick={() => setEdit(null)}><X className="w-4 h-4 text-muted-foreground" /></button></div>
                         <div className="grid grid-cols-2 gap-3">
                             {[["cash", "Cash"], ["bank", "Bank"], ["debt", "Debt"], ["reputation", "Reputation"], ["legal_reputation", "Legal Standing"], ["criminal_suspicion", "Criminal Suspicion"], ["social_status", "Social Status"], ["health", "Health"], ["energy", "Energy"]].map(([k, label]) => (
@@ -914,17 +944,17 @@ const ADMIN_SUMMARY = {
     ],
 };
 
-function renderAdminLeaf(key) {
+function renderAdminLeaf(key, ctx = {}) {
     switch (key) {
         case "stats": return <StatsView />;
-        case "feed": return <LiveCityFeed />;
+        case "feed": return <LiveCityFeed onPlayerClick={ctx.onFeedPlayerClick} />;
         case "economy": return <EconomyTuner />;
         case "tuning": return <TuningPanel />;
         case "config": return <ConfigEditor />;
         case "locations": return <LocationsPanel />;
         case "cityshops": return <CityShopsPanel />;
         case "jobsectors": return <JobSectorsPanel />;
-        case "players": return <PlayersTable />;
+        case "players": return <PlayersTable focus={ctx.focusPlayer} onFocusHandled={ctx.onFocusHandled} />;
         default: return <ContentEditor ctype={key} />;
     }
 }
@@ -963,7 +993,7 @@ const feedTimeAgo = (iso) => {
     return `${Math.floor(s / 86400)}d ago`;
 };
 
-function LiveCityFeed() {
+function LiveCityFeed({ onPlayerClick }) {
     const [events, setEvents] = useState(null);
     const [filter, setFilter] = useState("all");
     const load = useCallback(() => {
@@ -983,6 +1013,7 @@ function LiveCityFeed() {
                         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-neon-green" />
                     </span>
                     <span className="font-mono text-xs uppercase tracking-wider text-neon-green">Live · auto-refresh 6s</span>
+                    <span className="font-mono text-[10px] text-muted-foreground/70 hidden sm:inline">· click a name to jump to the player</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5" data-testid="feed-filters">
                     {FEED_FILTERS.map((f) => (
@@ -1000,19 +1031,29 @@ function LiveCityFeed() {
             ) : (
                 <div className="space-y-1.5 max-h-[62vh] overflow-y-auto pr-1" data-testid="live-city-feed">
                     {events.map((e) => {
+                        const isDanger = e.severity === "danger";
                         const meta = FEED_META[e.type] || FEED_META.system;
-                        const Icon = meta.icon;
+                        const Icon = isDanger ? AlertTriangle : meta.icon;
                         return (
-                            <div key={e.id} className={cn("flex items-start gap-3 p-2.5 border rounded-sm bg-black/20", meta.border)} data-testid={`feed-event-${e.id}`}>
-                                <div className={cn("w-7 h-7 rounded-sm bg-white/5 border border-white/10 flex items-center justify-center shrink-0", meta.tone)}>
+                            <div key={e.id}
+                                className={cn("flex items-start gap-3 p-2.5 border rounded-sm",
+                                    isDanger ? "danger-pulse bg-[#FF4444]/10 border-[#FF4444]/60" : cn("bg-black/20", meta.border))}
+                                data-testid={`feed-event-${e.id}`} data-severity={e.severity}>
+                                <div className={cn("w-7 h-7 rounded-sm border flex items-center justify-center shrink-0",
+                                    isDanger ? "bg-[#FF4444]/15 border-[#FF4444]/50 text-[#FF4444]" : cn("bg-white/5 border-white/10", meta.tone))}>
                                     <Icon className="w-3.5 h-3.5" />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-display font-bold text-white text-xs">{e.player_name}</span>
-                                        <span className={cn("font-mono text-[9px] uppercase tracking-wider", meta.tone)}>{e.type}</span>
+                                        <button onClick={() => onPlayerClick && onPlayerClick(e.player_id, e.player_name)}
+                                            className="font-display font-bold text-white text-xs hover:text-neon-cyan hover:underline underline-offset-2 transition-colors"
+                                            data-testid={`feed-player-${e.player_id}`} title="Jump to this player">
+                                            {e.player_name}
+                                        </button>
+                                        <span className={cn("font-mono text-[9px] uppercase tracking-wider", isDanger ? "text-[#FF4444]" : meta.tone)}>{e.type}</span>
+                                        {isDanger && <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm bg-[#FF4444]/20 text-[#FF4444] border border-[#FF4444]/50" data-testid={`feed-danger-${e.id}`}>Danger</span>}
                                     </div>
-                                    <p className="text-[11px] text-muted-foreground leading-snug">{e.message}</p>
+                                    <p className={cn("text-[11px] leading-snug", isDanger ? "text-[#FF6666]" : "text-muted-foreground")}>{e.message}</p>
                                 </div>
                                 <span className="font-mono text-[10px] text-muted-foreground/60 shrink-0 whitespace-nowrap">{feedTimeAgo(e.ts)}</span>
                             </div>
@@ -1066,6 +1107,7 @@ export default function Admin() {
     const [activeGroup, setActiveGroup] = useState("overview");
     const [activeLeaf, setActiveLeaf] = useState("stats");
     const [customizing, setCustomizing] = useState(false);
+    const [focusPlayer, setFocusPlayer] = useState(null);
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
     const byKey = Object.fromEntries(ADMIN_GROUPS.map((g) => [g.key, g]));
@@ -1089,6 +1131,12 @@ export default function Admin() {
         setActiveGroup(gk);
         const g = byKey[gk];
         if (g && g.children[0]) setActiveLeaf(g.children[0].key);
+    };
+
+    const onFeedPlayerClick = (playerId, playerName) => {
+        setFocusPlayer({ id: playerId, name: playerName });
+        setActiveGroup("players");
+        setActiveLeaf("players");
     };
 
     const onDragEnd = ({ active, over }) => {
@@ -1176,7 +1224,7 @@ export default function Admin() {
             </div>
 
             {/* Active panel */}
-            <div>{renderAdminLeaf(activeLeaf)}</div>
+            <div>{renderAdminLeaf(activeLeaf, { focusPlayer, onFocusHandled: () => setFocusPlayer(null), onFeedPlayerClick })}</div>
         </div>
     );
 }

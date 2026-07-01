@@ -112,3 +112,14 @@ The layout (order + hidden list) is **saved per admin account** in the backend v
 - UI: pulsing "LIVE · auto-refresh 6s" indicator (polls every 6s), category filter chips
   (All / Purchases / Work & Hiring / Crime & Legal / Finance / Social), colored per-type icons and
   relative timestamps. Read-only — a monitoring view for the Game Master.
+
+## Live Feed — Game Master enhancements (2026-07-01)
+- **Actionable player links**: every player name in the Live Feed is a clickable button
+  (`data-testid feed-player-<playerId>`). Clicking it jumps to **Player Management ▸ Players**,
+  pre-fills the search with that player's name, highlights their row and auto-opens the Edit modal
+  for immediate action (edit cash/bank/debt/reputation/suspicion/health…).
+- **Player search**: the Players table now has a name search box (`player-search`) with a result count.
+- **Danger highlighting**: events with `severity == "danger"` (arrests, hospitalization, collapse,
+  bankruptcy, etc.) render with a red **Danger Red `#FF4444`** pulsing border/glow (`.danger-pulse`
+  keyframe in index.css), a red AlertTriangle icon and a "DANGER" pill, so critical incidents stand
+  out from standard events at a glance.
