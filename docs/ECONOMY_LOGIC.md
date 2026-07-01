@@ -21,19 +21,26 @@ total_daily_wages = SUM(each_worker.hourly_wage * each_worker.shift_hours)
 ## Revenue / Production Calculation (ONLY valid formula)
 ```
 units_produced_per_hour = production_per_worker_hour (pph)
-total_daily_production = pph * total_covered_hours * satisfaction_mult   (* level multiplier)
-total_covered_hours = UNION of all workers' shift durations (clipped to & capped at opening_hours)
+total_daily_production = pph * effective_worker_hours * satisfaction_mult   (* level multiplier)
+effective_worker_hours = SUM over opening hours of MIN(active_workers_that_hour, staff_slots)
 daily_revenue = min(total_daily_production, daily_demand) * sale_price
 ```
 
 ### Rules:
-- Production ONLY happens during hours where at least 1 worker is on-shift.
-- If 2 workers cover 6h each (non-overlapping), total_covered_hours = 12h.
-- If 2 workers overlap for 4h on a 1-slot business, production during overlap = pph * 1 (not doubled).
-  (Enforced by using the UNION of shift intervals, not the sum.)
-- Uncovered hours within opening window = 0 production.
-- The per-tick offline resolver charges/produces the time-integral of these daily rates over the
-  elapsed game-window; over a full day it equals the formulas above exactly.
+- Production scales with WORKER-HOURS, capped per hour by `staff_slots` (= base_slots + level - 1).
+- 1 worker over a 12h opening = 12 effective worker-hours.
+- 2 workers on a 2-slot business, both 08:00-20:00 (concurrent) = 24 worker-hours → **2x output** (additive).
+- 2 workers doing 6h each (non-overlapping) = 12 worker-hours (full time coverage, single-worker output).
+- On a 1-slot business, 2 overlapping workers are capped at 1 concurrent → 12 worker-hours (NOT doubled),
+  and the shift planner rejects the overlap anyway.
+- Uncovered hours within the opening window = 0 production.
+- `covered_hours` (UNION of shifts) is reported separately for the coverage% display only.
+
+## Real-time clock
+- `time_scale = 1.0` → **1 in-game hour = 1 real-world hour**.
+- The world clock is hard-synced to German local time (Europe/Berlin, CEST/UTC+2 in summer, DST-aware).
+- All time-based systems (shift resolution, revenue accrual, skill decay, upgrade/marketing timers,
+  suspicion decay) integrate over elapsed game-hours, so they run correctly at this 1:1 pace.
 
 ## Overlap Constraint
 ```

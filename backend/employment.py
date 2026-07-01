@@ -234,6 +234,67 @@ def covered_hours_in_range(opening, worker_schedules, g_start, g_end):
     return round(total, 4)
 
 
+def concurrency_segments(opening, worker_schedules):
+    """Break the opening window into segments with a constant number of on-shift workers.
+    Returns list of (start_h, end_h, concurrency)."""
+    o, c = opening_bounds(opening)
+    clipped = []
+    pts = {o, c}
+    for sch in worker_schedules:
+        if not sch:
+            continue
+        s, e = shift_bounds(sch)
+        s = max(o, s)
+        e = min(c, e)
+        if e > s:
+            clipped.append((s, e))
+            pts.add(s)
+            pts.add(e)
+    pts = sorted(pts)
+    segs = []
+    for i in range(len(pts) - 1):
+        a, b = pts[i], pts[i + 1]
+        if b <= a:
+            continue
+        mid = (a + b) / 2.0
+        conc = sum(1 for (s, e) in clipped if s <= mid < e)
+        segs.append((a, b, conc))
+    return segs
+
+
+def effective_worker_hours_per_day(opening, worker_schedules, slots):
+    """Sum over the opening window of min(active workers, slots) — i.e. concurrent workers
+    (capped at slots) scale production. 1 worker over 12h = 12; 2 concurrent over 12h (slots>=2) = 24."""
+    slots = max(1, int(slots))
+    return round(sum((b - a) * min(conc, slots) for a, b, conc in concurrency_segments(opening, worker_schedules)), 4)
+
+
+def effective_worker_hours_in_range(opening, worker_schedules, slots, g_start, g_end):
+    """Worker-hours (min(concurrency, slots)) accrued within [g_start,g_end]."""
+    if g_end <= g_start:
+        return 0.0
+    slots = max(1, int(slots))
+    segs = concurrency_segments(opening, worker_schedules)
+    if not segs:
+        return 0.0
+    total = 0.0
+    day = g_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_day = g_end.replace(hour=0, minute=0, second=0, microsecond=0)
+    guard = 0
+    while day <= end_day and guard < 4000:
+        for a, b, conc in segs:
+            ws = day + timedelta(hours=a)
+            we = day + timedelta(hours=b)
+            lo = max(ws, g_start)
+            hi = min(we, g_end)
+            if hi > lo:
+                total += (hi - lo).total_seconds() / 3600.0 * min(conc, slots)
+        day += timedelta(days=1)
+        guard += 1
+    return round(total, 4)
+
+
+
 def worker_shift_hours(schedule, opening):
     """A worker's paid shift length per day, clipped to the opening window. 0 if unscheduled."""
     if not schedule:

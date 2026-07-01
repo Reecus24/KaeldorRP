@@ -2802,6 +2802,21 @@ async def migrate_business_supply_chain():
     # Sync job requirements from seed (so Legal Standing / Social Status gates apply to existing DBs)
     for jd in JOBS:
         await db.jobs.update_one({"id": jd["id"]}, {"$set": {"requirements": jd.get("requirements", {})}})
+    # One-time: hard-sync the world clock to German local time (Europe/Berlin) at 1:1 real-time pace.
+    cfg_doc = await db.config.find_one({"id": "global"})
+    if cfg_doc and not cfg_doc.get("time_synced_de"):
+        try:
+            from zoneinfo import ZoneInfo
+            offset = datetime.now(ZoneInfo("Europe/Berlin")).utcoffset() or timedelta(hours=2)
+        except Exception:
+            offset = timedelta(hours=2)
+        now = now_utc()
+        await db.config.update_one({"id": "global"}, {"$set": {
+            "time_scale": 1.0,
+            "world_start_real": now.isoformat(),
+            "world_start_game": (now + offset).isoformat(),
+            "time_synced_de": True,
+        }})
 
 
 @app.on_event("startup")

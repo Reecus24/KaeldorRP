@@ -225,19 +225,26 @@ async def gather_workers(db, b, cfg, traits_map=None):
     return workers
 
 
-def _day_rates(b, workers, upgrade_penalty=1.0):
+def calculate_effective_worker_hours(employees, opening, slots):
+    """Worker-hours that drive production: sum of min(concurrent workers, slots) over opening hours.
+    1 worker/12h = 12; two 6h split shifts = 12; two concurrent 12h shifts (slots>=2) = 24 (scales)."""
+    return employment.effective_worker_hours_per_day(opening, [e.get("schedule") for e in employees], slots)
+
+
+def _day_rates(b, workers, upgrade_penalty=1.0, slots=1):
     """Steady-state per-day P&L forecast (transparent; independent of tick size).
-    Production is driven by COVERED opening-hours (union of worker shifts), not head-count."""
+    Production scales with EFFECTIVE worker-hours = concurrent workers (capped at slots) x hours."""
     pph = b.get("production_per_worker_hour", 0)
     mkt = marketing_demand_mult(b)
     rep = reputation_mult(b)
     lvl = 1 + 0.6 * (b.get("level", 1) - 1)
     opening = b.get("opening_hours")
     # canonical coverage + wage formulas (see /app/docs/ECONOMY_LOGIC.md)
-    covered_hours = calculate_total_covered_hours(workers, opening)
+    covered_hours = calculate_total_covered_hours(workers, opening)   # union, for coverage% display
+    worker_hours = calculate_effective_worker_hours(workers, opening, slots)  # drives production
     open_hours = employment.open_hours_total(opening)
     demand_day = b.get("daily_demand", 0) * mkt * rep * lvl
-    capacity_day = pph * covered_hours * satisfaction_mult(b) * lvl
+    capacity_day = pph * worker_hours * satisfaction_mult(b) * lvl
     sold_day = min(capacity_day, demand_day)
     mc = material_cost_per_unit(b)
     eprice = effective_price(b)
@@ -250,7 +257,7 @@ def _day_rates(b, workers, upgrade_penalty=1.0):
         "produced_day": round(sold_day, 1), "sold_day": round(sold_day, 1),
         "rev_day": rev_day, "material_day": material_day,
         "wages_day": wages_day, "net_day": net_day, "effective_price": eprice,
-        "covered_hours": covered_hours, "open_hours": open_hours,
+        "covered_hours": covered_hours, "worker_hours": worker_hours, "open_hours": open_hours,
     }
 
 
@@ -618,6 +625,7 @@ async def resolve_business(db, cfg, now, b):
     reqs = await get_staffing(db, b)
 
     workers = await gather_workers(db, b, cfg, traits_map)
+    slots = max(1, sum(r.get("recommended", 1) for r in reqs)) + (b.get("level", 1) - 1)  # concurrent capacity
 
     # --- business activity timers (upgrade / marketing campaign) ---
     upgrade_active = False
@@ -650,7 +658,7 @@ async def resolve_business(db, cfg, now, b):
     if gh > 0:
         opening = b.get("opening_hours")
         scheds = [w["schedule"] for w in workers]
-        covered = employment.covered_hours_in_range(opening, scheds, g_last, g_now)
+        covered = employment.effective_worker_hours_in_range(opening, scheds, slots, g_last, g_now)
         lvl_mult = 1 + 0.6 * (b.get("level", 1) - 1)
         for w in workers:
             whrs = employment.worker_hours_in_range(w["schedule"], opening, g_last, g_now, w["clocked_out_until"])
@@ -707,7 +715,7 @@ async def resolve_business(db, cfg, now, b):
                                          "net": rev_share, "productivity": prod, "at": now.isoformat()}}})
 
     # --- steady-state per-day forecast for the UI ---
-    rates = _day_rates(b, workers, upgrade_penalty=0.5 if upgrade_active else 1.0)
+    rates = _day_rates(b, workers, upgrade_penalty=0.5 if upgrade_active else 1.0, slots=slots)
     b.update({k: rates[k] for k in ("demand_day", "capacity_day", "produced_day", "sold_day",
                                     "rev_day", "material_day", "wages_day", "net_day")})
     b["exp_day"] = round(rates["material_day"] + rates["wages_day"], 2)
