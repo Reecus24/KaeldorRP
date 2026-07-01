@@ -46,3 +46,18 @@ linked stats). Status + action per tab.
 - **Shop** (`Shop.jsx`) is now purchase-only (category-grouped item cards → "Buy to Inventory"); the inventory/equipment sections were removed.
 - **Vehicle Dealer** (`VehicleDealer.jsx`) is now purchase-only ("For Sale" listings); the "Your Garage" owned-vehicles section was removed (now in Inventory).
 - Backend unchanged — same endpoints (`/inventory`, `/equipment`, `/inventory/{id}/use|equip`, `/equipment/{slot}/unequip`, `/vehicles`, `/vehicles/{id}/sell`); this is a pure frontend re-org.
+
+## City Shops enhancement — Opening Hours + Stock/Discount (2026-07-01)
+- **Shop browser** (`Shop.jsx`): each store card now shows an Open/Closed pill + opening-hours range + a
+  "Sale" pill when any item is discounted.
+- **Inside a shop**: an Open/Closed status pill + hours; when CLOSED a red banner is shown and every buy
+  button is disabled/labelled "Closed" (items still visible, grayed out). Each item shows "X in stock"
+  (or "Out of stock"), a −N% sale badge with struck-through base price when discounted. Buy sends `store_id`.
+
+## Job Center → Sector Browser (2026-07-01)
+- **`JobCenter.jsx`** rebuilt into a two-level flow mirroring City Shops:
+  - **Sector browser**: "Your Applications" panel + grid of sector cards (icon, description,
+    "X listings · Y you qualify for", "Open Listings" button).
+  - **Sector detail**: "Back to Sectors" + applications panel + the reusable `JobCard`s for only that
+    sector's jobs (same requirements chips + real-time apply/accept/withdraw flow as before).
+- No change to the apply/offer/accept backend flow; `/jobs` (flat list) retained for compatibility.

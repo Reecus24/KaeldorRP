@@ -243,3 +243,21 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - Frontend Shop.jsx overhauled: City Shops browser grid → enter shop → category items with effect/equip pills → Buy to Inventory.
 - VERIFIED: verify_economy.py + verify_markets.py PASS; backend curl (stores/items/buy/admin CRUD) all OK; testing_agent iteration_27 frontend 100%, 0 bugs.
 - Minor non-blocking notes from QA: admin tab testid contains a space (`admin-tab-city shops`); window.confirm used for delete. Left as-is (cosmetic).
+
+## 2026-07-01 — City Shops Enhancement: Opening Hours + Stock + Discounts (COMPLETE ✓)
+- Each city shop now has opening_hours (players can only BUY while OPEN; closed shops show grayed items + banner), per-item daily stock capacity that depletes on purchase and RESTOCKS at game midnight (game_day_index), and optional manual discount % (sale events).
+- All configurable per-shop in Admin ▸ City Shops (opening-hours inputs + per-item Stock/Discount table). No auto price dynamics (user choice). Buy sends store_id, validates open + stock, charges discounted price.
+- Backend: _resolve_shop_stock, _eff_price; CityShopBody + opening_hours/items_config; migrate_city_shops(). Frontend Shop.jsx (Open/Closed/Sale pills, stock, sold-out) + Admin CityShopsPanel.
+- Verified: verify_economy + verify_markets PASS; testing_agent iteration_28 frontend 100%, 0 bugs.
+
+## 2026-07-01 — Job Center Reorganization: Sector/Agency Browser (COMPLETE ✓)
+- Job Center rebuilt into a sector browser (mirrors City Shops): sector cards (name/desc/icon/"Open Listings"/qualify count) → open a sector → filtered jobs with the same real-time apply flow.
+- Seeded 7 sectors covering all 19 DB jobs: Retail & Sales, Food & Hospitality, Logistics & Transport, Corporate & Office, Trades & Manual Labor, Military & Defense, Public Services. Virtual "General Listings" fallback surfaces any unassigned job.
+- Backend: JOB_SECTORS seed + CONTENT_MAP; GET /jobs/sectors, GET /jobs/sectors/{id} (unassigned handling); admin CRUD /admin/job-sectors; migrate_job_sectors(). Frontend JobCenter.jsx (JobCard reused) + Admin JobSectorsPanel (job-assignment checkbox picker).
+- Verified: testing_agent iteration_29 backend 100% (12/12) + frontend 100% (5/5), 0 bugs. (Created /app/backend/tests/test_job_sectors.py.)
+
+## NEXT (in progress): Admin Dashboard Overhaul — Categorization & Layout Control
+- Group ~25 flat admin tabs into ~5 logical Main Tabs (Economy, Gameplay Tuning, Player Management, City Infrastructure, Underworld/Finance).
+- Admin-customizable ordering of main tabs (settings panel or drag-and-drop), persisted.
+- Per-tab Dashboard Summary (key metrics: total market value, active workers city-wide, etc.).
+- Keep gritty neon-cyan dark aesthetic. Update docs/ADMIN_SANDBOX.md with layout-customization instructions.

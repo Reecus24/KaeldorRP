@@ -47,3 +47,30 @@ Saves write to Mongo immediately. The offline resolver / metrics call `get_confi
 request, which refreshes `TUNE`, so new values take effect on the next tick with NO restart.
 `apply_existing` also mutates existing `businesses` docs so live ventures immediately reflect the
 new economics.
+
+## City Shops — Opening Hours, Stock & Discounts (2026-07-01)
+- **City Shops** tab manages the stores players browse in the Shop. Per shop: name, item Category
+  (shop sells only items of that category), optional business-type/location link, order, active.
+- **Opening Hours** (`opening_hours {open, close}`, HH:MM; use `24:00` for round-the-clock): players
+  can only BUY while OPEN (browsing allowed when closed). `is_open_now` computed via
+  `employment.is_open_now`.
+- **Stock & Discounts** (`items_config {item_id: {capacity, discount_pct}}`): per-item daily stock
+  capacity + optional manual discount (0–95%). Effective price = base × (1 − discount/100).
+- **Midnight refresh**: stock restocks to capacity at game midnight (00:00). Implemented lazily via
+  `_resolve_shop_stock` keyed on `game_day_index`; editing a shop forces a refresh (`last_refresh_day=-1`).
+- Endpoints: GET `/shop/stores`, GET `/shop/stores/{id}/items`, POST `/shop/buy` (validates open + stock,
+  charges discounted price, decrements stock); admin GET/POST/PUT/DELETE `/admin/city-shops`.
+- Migration `migrate_city_shops()` backfills opening_hours/items_config onto pre-existing shops.
+
+## Job Sectors (Job Center reorganization) (2026-07-01)
+- **Job Sectors** tab manages the sectors/agencies players browse in the Job Center (mirrors City Shops).
+- Per sector: name, `desc`, `icon` (Briefcase/ShoppingBag/UtensilsCrossed/Truck/Building2/Wrench/Shield/Landmark),
+  `order`, `active`, and `job_ids` (assign existing jobs via a checkbox picker; picker shows which sector a
+  job is already in to avoid accidental double-assignment).
+- Seeded 7 sectors: Retail & Sales, Food & Hospitality, Logistics & Transport, Corporate & Office,
+  Trades & Manual Labor, Military & Defense, Public Services (cover all seed + army/police/garbage jobs).
+- Player endpoints: GET `/jobs/sectors` (adds `job_count`, `open_count`=qualified), GET `/jobs/sectors/{id}`
+  (filtered jobs with `qualified`/`reason`). A virtual `unassigned` "General Listings" sector is surfaced
+  ONLY if some job isn't assigned to any active sector, so no job is ever unreachable.
+- Admin CRUD: GET/POST/PUT/DELETE `/admin/job-sectors`. Migration `migrate_job_sectors()` inserts missing
+  seed sectors by id into existing DBs.
