@@ -78,3 +78,13 @@ linked stats). Status + action per tab.
   the existing stat `effects` chips. data-testid `action-gains-<actionId>` wraps the chip row.
 - Admin `MarketsPanel` (Underworld & Finance ▸ Markets): per-asset price/base editors (`market-price-<id>`,
   `market-base-<id>`, `market-save-<id>`), drift/volatility readout, `market-reroll` button.
+
+## Unread message red notification badges (2026-07-01)
+- **World Chat button** (`ChatWidget.jsx`): added a solid red circle badge (#EF4444, white bold text,
+  ring + glow, pulsing) at the button's top-right showing the count of unread world-chat messages
+  (`chat-unread-badge`). Unread = world messages from other players newer than the viewer's last-seen
+  timestamp (persisted per-player in localStorage `kaeldor_chat_seen_<id>`). Opening the widget marks all
+  seen and hides the badge. The green online-count pill is retained (it shows people online, not unread).
+- **Messages sidebar tab** (`Layout.jsx`): existing `msgUnread` badge restyled from `bg-neon-red/text-black`
+  to vibrant `#EF4444` + white text + red glow (`nav-messages-badge`), hidden when 0.
+- **Notification bell** restyled to the same vibrant-red + white-text badge for consistency.

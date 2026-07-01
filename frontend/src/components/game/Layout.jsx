@@ -73,7 +73,7 @@ function NavItems({ onNavigate, isAdmin }) {
                         <item.icon className="w-4 h-4 shrink-0" strokeWidth={1.7} />
                         <span className="flex-1">{item.label}</span>
                         {item.to === "/messages" && msgUnread > 0 && (
-                            <span data-testid="nav-messages-badge" className="min-w-[18px] h-[18px] px-1 rounded-full bg-neon-red text-[10px] font-bold text-black flex items-center justify-center">{msgUnread > 9 ? "9+" : msgUnread}</span>
+                            <span data-testid="nav-messages-badge" className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#EF4444] text-[10px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(239,68,68,0.7)]">{msgUnread > 9 ? "9+" : msgUnread}</span>
                         )}
                     </NavLink>
                 ),
@@ -124,7 +124,7 @@ function NotificationBell() {
                 className="relative text-muted-foreground hover:text-neon-cyan transition-colors" title="Notifications">
                 <Bell className="w-4 h-4" />
                 {unreadCount > 0 && (
-                    <span data-testid="notif-unread-count" className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-neon-red text-[9px] font-bold text-black flex items-center justify-center">
+                    <span data-testid="notif-unread-count" className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-[#EF4444] text-[9px] font-bold text-white flex items-center justify-center ring-2 ring-[#0A0A0A]">
                         {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                 )}

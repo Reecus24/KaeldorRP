@@ -11,15 +11,36 @@ export default function ChatWidget() {
     const [data, setData] = useState({ messages: [], online_count: 0 });
     const [text, setText] = useState("");
     const [sending, setSending] = useState(false);
+    const [unread, setUnread] = useState(0);
     const scrollRef = useRef(null);
     const meId = player?.id;
+    const seenKey = meId ? `kaeldor_chat_seen_${meId}` : "kaeldor_chat_seen";
+    const lastSeenRef = useRef(0);
+
+    useEffect(() => {
+        const v = Number(localStorage.getItem(seenKey) || 0);
+        lastSeenRef.current = isNaN(v) ? 0 : v;
+    }, [seenKey]);
+
+    const markAllSeen = useCallback((msgs) => {
+        const latest = (msgs || []).reduce((mx, m) => Math.max(mx, new Date(m.ts).getTime() || 0), 0);
+        if (latest) {
+            lastSeenRef.current = latest;
+            localStorage.setItem(seenKey, String(latest));
+        }
+        setUnread(0);
+    }, [seenKey]);
 
     const load = useCallback(async () => {
         try {
             const { data } = await api.get("/chat/world?limit=60");
             setData(data);
+            const cnt = (data.messages || []).filter(
+                (m) => m.player_id !== meId && (new Date(m.ts).getTime() || 0) > lastSeenRef.current,
+            ).length;
+            setUnread(cnt);
         } catch { /* ignore */ }
-    }, []);
+    }, [meId]);
 
     useEffect(() => {
         if (!hasCharacter) return;
@@ -29,8 +50,11 @@ export default function ChatWidget() {
     }, [hasCharacter, open, load]);
 
     useEffect(() => {
-        if (open && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }, [data.messages, open]);
+        if (open) {
+            markAllSeen(data.messages);
+            if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+    }, [data.messages, open, markAllSeen]);
 
     const send = async () => {
         const msg = text.trim();
@@ -52,6 +76,12 @@ export default function ChatWidget() {
                 className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2.5 bg-neon-cyan text-black font-display font-bold text-sm rounded-full shadow-[0_0_20px_rgba(0,243,255,0.4)] hover:scale-105 transition-transform">
                 <MessageSquare className="w-4 h-4" /> World Chat
                 <span className="flex items-center gap-1 text-[11px] bg-black/20 px-1.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse-dot" />{data.online_count}</span>
+                {unread > 0 && (
+                    <span data-testid="chat-unread-badge"
+                        className="absolute -top-1.5 -right-1.5 min-w-[20px] h-[20px] px-1 rounded-full bg-[#EF4444] text-[11px] font-bold text-white flex items-center justify-center ring-2 ring-[#0A0A0A] shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse-dot">
+                        {unread > 9 ? "9+" : unread}
+                    </span>
+                )}
             </button>
         );
     }
