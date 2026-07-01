@@ -740,6 +740,21 @@ async def withdraw_application(app_id: str, user: dict = Depends(current_user)):
 
 
 
+@api.post("/jobs/applications/{app_id}/dismiss")
+async def dismiss_application(app_id: str, user: dict = Depends(current_user)):
+    """Clear a finished application (rejected/withdrawn/expired/hired) from the player's list."""
+    p = await fetch_raw_player(user["id"])
+    a = await db.applications.find_one({"id": app_id, "player_id": p["id"]}, {"_id": 0})
+    if not a:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if a["status"] in ("pending", "accepted"):
+        raise HTTPException(status_code=400, detail="Withdraw an active application instead of dismissing it.")
+    await db.applications.delete_one({"id": app_id, "player_id": p["id"]})
+    return {"ok": True}
+
+
+
+
 # --- Player job market (applicant) ---
 @api.get("/jobs/market")
 async def job_market(user: dict = Depends(current_user)):

@@ -61,3 +61,14 @@ linked stats). Status + action per tab.
   - **Sector detail**: "Back to Sectors" + applications panel + the reusable `JobCard`s for only that
     sector's jobs (same requirements chips + real-time apply/accept/withdraw flow as before).
 - No change to the apply/offer/accept backend flow; `/jobs` (flat list) retained for compatibility.
+
+## Job Center → Dismiss Applications (2026-07-01)
+- **`JobCenter.jsx` (`ApplicationsPanel`)**: each finished application (rejected / withdrawn / expired /
+  hired — i.e. any non-active status) now shows a neon-cyan themed "x" **Dismiss** button
+  (`data-testid="dismiss-application-<id>"`) that clears the entry from "Your Applications".
+  Active applications (pending/accepted) keep only Accept/Withdraw (no dismiss).
+- **Backend** (`routes/player.py`): `POST /api/jobs/applications/{app_id}/dismiss` — deletes the
+  application record when its status is terminal; returns **400** for pending/accepted
+  ("Withdraw an active application instead of dismissing it."), **404** if not found.
+- Verified: curl (dismiss rejected → 200 + gone from list; re-dismiss → 404; dismiss pending → 400) and
+  UI screenshot (x visible on rejected card, click removes it with "Application dismissed" toast).
