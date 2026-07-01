@@ -33,7 +33,7 @@ def shift_performance(p):
     """0.3..1.5 multiplier from a player's skills + condition."""
     avg = _avg(_top_skills(p))  # 1..10
     base = 0.5 + (avg - 1) / 9 * 0.6
-    cond = (p["health"] + p["energy"] + (100 - p["fatigue"]) + p["mood"] + p["hygiene"]) / 500.0
+    cond = (p["health"] + p["energy"] + (100 - p["fatigue"]) + p["mood"]) / 400.0
     return round(clamp(base * (0.6 + 0.6 * cond), 0.3, 1.5), 2)
 
 
@@ -357,7 +357,6 @@ async def _accrue_one(db, p, cfg, emp, hours, eff, now):
     p["fatigue"] = clamp(p["fatigue"] + 1.4 * hours)
     p["energy"] = clamp(p["energy"] - 1.1 * hours)
     p["stress"] = clamp(p["stress"] + 0.8 * hours)
-    p["hygiene"] = clamp(p["hygiene"] - 0.8 * hours)
     sk = ROLE_SKILL.get(role)
     if sk:
         add_skill_xp(p, sk, 3.0 * hours * eff, cfg)

@@ -186,7 +186,7 @@ def add_player_xp(p, amount, cfg):
 
 
 def apply_effects(p, effects, mult=1.0):
-    need_keys = ["energy", "fatigue", "hunger", "hygiene", "mood", "stress", "health"]
+    need_keys = ["energy", "fatigue", "hunger", "mood", "stress", "health"]
     rep_keys = ["reputation", "legal_reputation", "criminal_suspicion", "social_status"]
     for k, v in (effects or {}).items():
         if k in need_keys or k in rep_keys:
@@ -198,7 +198,6 @@ def apply_effects(p, effects, mult=1.0):
 def decay_needs(p, gh, cfg, resting):
     d = cfg.get("decay", {})
     p["hunger"] = clamp(p["hunger"] + d.get("hunger", 3.2) * gh)
-    p["hygiene"] = clamp(p["hygiene"] - d.get("hygiene", 1.8) * gh)
     if not resting:
         p["energy"] = clamp(p["energy"] - d.get("energy_awake", 2.4) * gh)
         p["fatigue"] = clamp(p["fatigue"] + d.get("fatigue_awake", 1.8) * gh)
@@ -207,8 +206,6 @@ def decay_needs(p, gh, cfg, resting):
     if p["hunger"] > 80:
         p["health"] = clamp(p["health"] - 1.4 * gh)
         p["mood"] = clamp(p["mood"] - 1.0 * gh)
-    if p["hygiene"] < 25:
-        p["mood"] = clamp(p["mood"] - 0.8 * gh)
     if p["fatigue"] > 80:
         p["health"] = clamp(p["health"] - 0.6 * gh)
     if p["stress"] > 80:
@@ -279,7 +276,6 @@ async def complete_activity(db, p, cfg):
         p["stress"] = clamp(p["stress"] + payload["stress_ph"] * hours)
         p["energy"] = clamp(p["energy"] - payload["energy_ph"] * hours)
         p["hunger"] = clamp(p["hunger"] + hours * 2.5)
-        p["hygiene"] = clamp(p["hygiene"] - hours * 2.5)
         for sk, xp in payload.get("skill_xp", {}).items():
             add_skill_xp(p, sk, xp * hours * eff, cfg)
         p["reputation"] = clamp(p["reputation"] + 0.5)

@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 const QUICK = [
-    { to: "/home", label: "Home & Needs", icon: Home, desc: "Eat, sleep, shower, train" },
+    { to: "/home", label: "Home & Needs", icon: Home, desc: "Eat, sleep, rest, train" },
     { to: "/jobs", label: "Find Work", icon: Briefcase, desc: "Shifts & careers" },
     { to: "/education", label: "Study", icon: GraduationCap, desc: "Courses & degrees" },
     { to: "/business-market", label: "Business", icon: Store, desc: "Build an empire" },

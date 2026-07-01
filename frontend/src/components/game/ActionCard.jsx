@@ -5,7 +5,7 @@ import { useGame } from "@/context/GameContext";
 import { Clock, Coins, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const POSITIVE_GOOD = ["energy", "hygiene", "mood", "health", "reputation", "legal_reputation", "social_status"];
+const POSITIVE_GOOD = ["energy", "mood", "health", "reputation", "legal_reputation", "social_status"];
 
 function effectChips(effects) {
     const entries = Object.entries(effects || {}).filter(([, v]) => v);

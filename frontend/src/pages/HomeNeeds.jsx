@@ -8,7 +8,6 @@ import { Home } from "lucide-react";
 const GROUPS = [
     { key: "rest", label: "Rest & Recovery" },
     { key: "food", label: "Food" },
-    { key: "hygiene", label: "Hygiene" },
     { key: "health", label: "Health & Fitness" },
     { key: "leisure", label: "Leisure & Mind" },
     { key: "hustle", label: "Side Hustles" },
@@ -38,7 +37,7 @@ export default function HomeNeeds() {
     return (
         <div className="space-y-6">
             <SectionTitle icon={Home} kicker="Take care of yourself" title="Home & Needs"
-                sub="Manage your body and mind. Neglect food, sleep or hygiene and your performance — and health — will suffer." />
+                sub="Manage your body and mind. Neglect food, sleep or rest and your performance — and health — will suffer." />
 
             {blocked && (
                 <Panel className="p-4 border-neon-yellow/30">

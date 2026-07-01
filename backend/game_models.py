@@ -16,7 +16,7 @@ SKILLS = [
     "technology", "crafting", "creativity", "finance", "studying", "street_smarts",
 ]
 
-NEED_STATS = ["energy", "fatigue", "hunger", "hygiene", "mood", "stress", "health"]
+NEED_STATS = ["energy", "fatigue", "hunger", "mood", "stress", "health"]
 
 # Character creation backgrounds
 BACKGROUNDS = {
@@ -70,7 +70,7 @@ def new_player(user_id, name, background):
         "cash": float(bg.get("cash", 100)),
         "bank": float(bg.get("bank", 0)),
         "debt": float(bg.get("debt", 0)),
-        "energy": 100.0, "fatigue": 0.0, "hunger": 20.0, "hygiene": 90.0,
+        "energy": 100.0, "fatigue": 0.0, "hunger": 20.0,
         "mood": 70.0, "stress": 10.0, "health": 100.0,
         "reputation": 50.0, "legal_reputation": 75.0,
         "criminal_suspicion": 0.0, "social_status": 10.0,
@@ -106,7 +106,6 @@ DEFAULT_CONFIG = {
     "time_scale": 1.0,
     "decay": {
         "hunger": 3.2,        # hunger rises per game hour
-        "hygiene": 1.8,       # hygiene falls per game hour
         "energy_awake": 2.4,  # energy falls per game hour while awake
         "fatigue_awake": 1.8, # fatigue rises per game hour while awake
         "stress_relax": 1.2,  # stress drifts down per game hour when idle
