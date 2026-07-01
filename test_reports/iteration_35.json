@@ -1,0 +1,40 @@
+{
+  "summary": "P0 admin auth stale-cookie fix VERIFIED end-to-end. Backend now prefers Authorization Bearer over the access_token cookie, so a stale non-admin cookie can no longer downgrade an admin request to 403. Backend pytest: 5/5 pass. Frontend: real admin login → /admin renders fully (Overview + Economy + Gameplay Tuning + Player Management + City Infrastructure + Underworld & Finance) with 0 admin 403s; stale-cookie UI scenario (player access_token cookie + admin Bearer in localStorage) also renders /admin cleanly with 0 admin 403s and no error toasts. Non-admin player is correctly redirected away from /admin. Cookie-only admin (no Bearer) still authenticates (fallback preserved).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_admin_stale_cookie.py",
+    "/app/test_reports/pytest/iteration_35_admin_stale_cookie.xml"
+  ],
+  "tests_executed": {
+    "backend": [
+      "test_admin_bearer_with_stale_player_cookie_returns_200 (asserts /api/admin/config, /api/admin/stats, /api/admin/players all 200 with admin Bearer + stale player cookie) → PASS",
+      "test_player_bearer_on_admin_route_is_403 → PASS (admin gating not weakened)",
+      "test_cookie_only_admin_still_works → PASS (cookie fallback intact)",
+      "test_no_auth_returns_401 → PASS",
+      "test_player_bearer_with_stale_admin_cookie_is_still_403 → PASS (bearer precedence works in both directions)"
+    ],
+    "frontend": [
+      "Real admin UI login → /admin loads Admin Dashboard, 6 tabs visible, live stats populated (Players 67, Employed 13, Businesses 12, Market $3.80M) — 0 admin 403s.",
+      "Stale-cookie UI reproduction: player cookie in jar + admin token in localStorage under key 'kaeldor_token' → /admin renders Admin Dashboard with 0 admin 403s and no visible error toasts.",
+      "Gameplay Tuning sub-tab clicked → 0 admin 403s.",
+      "Non-admin (shiftplayer) visiting /admin → redirected to / by AdminGate (App.js). ✓"
+    ]
+  },
+  "action_items": [],
+  "critical_code_review_comments": [
+    "backend/core.py current_user (line 81): fix looks correct and minimal — Authorization Bearer read first, cookie only used as fallback when no header token. Clear inline comment explains the intent. No security regression: token still validated via JWT + user lookup regardless of source.",
+    "OPTIONAL hardening (not blocking): consider clearing / re-scoping the access_token cookie on /auth/login for a different user, or namespacing the cookie name — this would prevent stale cookies from lingering across account switches on shared machines. Bearer-first fix already resolves the P0, but this would be defense-in-depth.",
+    "OPTIONAL: frontend /auth/logout could explicitly call a backend logout endpoint that clears the cookie (delete_cookie); currently only localStorage is cleared client-side so a stale cookie can persist in-browser."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_admin_stale_cookie.py (NEW - regression tests for the fix)"
+  ],
+  "success_rate": {"backend": "100% (5/5)", "frontend": "100% (all admin dashboard flows verified)"},
+  "test_credentials": "admin@kaeldor.com / admin123 ; shiftplayer@kaeldor.com / demo123 (both work)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The 403 Admin Dashboard bug from stale non-admin access_token cookie is FULLY FIXED and independently verified at both API and UI layers. Backend regression tests live at /app/backend/tests/test_admin_stale_cookie.py — keep running these on future auth/refactor work. Bearer-first precedence in current_user (backend/core.py:81) is the fix.",
+  "rca of the issue": "Root cause: backend/core.py current_user previously read the httpOnly access_token cookie BEFORE the Authorization Bearer header. Because both /auth/login and /auth/register call set_auth_cookie(), whichever account last logged in on a given browser overwrote the cookie. The SPA sends withCredentials:true, so during account switches (e.g. QA logging out of a player and into admin, or vice versa via a different tab) the JWT resolved from the STALE cookie could belong to a non-admin user, causing admin_user() to raise 403 on /api/admin/*. Fix: current_user now reads Authorization: Bearer first (the SPA's active source of truth) and only falls back to the cookie when no header is present. Mitigation applied by main agent, verified by 5 pytest cases + 2 UI scenarios (real admin login, and stale-cookie override reproduction)."
+}

@@ -79,11 +79,16 @@ def set_auth_cookie(response: Response, token: str):
 
 
 async def current_user(request: Request) -> dict:
-    token = request.cookies.get("access_token")
+    # Prefer the explicit Authorization: Bearer header (the SPA's source of truth) over the cookie.
+    # A stale/mismatched access_token cookie from a prior different-account login must NOT override
+    # the token the client actively sends, otherwise admin requests can wrongly resolve to a
+    # non-admin session and 403. Cookie is only a fallback for cookie-only clients.
+    token = None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
     if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
+        token = request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
