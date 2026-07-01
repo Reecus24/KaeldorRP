@@ -434,25 +434,17 @@ async def interact_now(db, p, cfg, c, a, gift):
 
 
 async def complete_social_activity(db, p, cfg, payload, eff):
+    loc_id = payload.get("location_id")
+    if loc_id:
+        loc = await db.locations.find_one({"id": loc_id}, {"_id": 0})
+        if loc:
+            await _visit_location(db, p, cfg, loc, eff)
+        return
     aid = payload.get("action_id")
     a = await db.relationship_actions.find_one({"id": aid}, {"_id": 0})
     if not a:
         return
-    kind = a.get("kind")
     if a.get("untargeted"):
-        if kind == "go_to_bar":
-            await _do_meet_at(db, p, cfg, a, eff, ["bar_regular", "manager", "wholesaler"],
-                              [0.5, 0.25, 0.25], "the bar")
-        elif kind == "go_to_gym":
-            await _do_meet_at(db, p, cfg, a, eff, ["athlete", "gym_coach"], [0.6, 0.4], "the gym")
-        elif kind == "network_at_work":
-            if not p.get("job"):
-                await add_event(db, p["id"], "You need a job before you can network at a workplace.", "social", "warning")
-                return
-            await _do_meet_at(db, p, cfg, a, eff, ["coworker", "manager"], [0.65, 0.35], "work")
-        elif kind == "go_to_streets":
-            p["criminal_suspicion"] = clamp(p.get("criminal_suspicion", 0) + 3)
-            await _do_meet_at(db, p, cfg, a, eff, ["shady_dealer", "bar_regular"], [0.7, 0.3], "the backstreets")
         return
     c = await db.contacts.find_one({"id": payload.get("contact_id"), "player_id": p["id"]}, {"_id": 0})
     if not c:
@@ -479,7 +471,7 @@ def _discover_success(p, a, eff):
 async def _do_meet_at(db, p, cfg, a, eff, archetype_ids, weights, place_label):
     """Roleplay meeting: at a venue you have a CHANCE to meet a specific kind of NPC.
     New contacts are added to your circle only through these location actions."""
-    if _discover_success(p, a, eff):
+    if archetype_ids and _discover_success(p, a, eff):
         aid = random.choices(archetype_ids, weights=weights)[0]
         c = await create_contact(db, p, archetype_id=aid, announce=False)
         p["mood"] = clamp(p["mood"] + 5)
@@ -494,6 +486,17 @@ async def _do_meet_at(db, p, cfg, a, eff, archetype_ids, weights, place_label):
         p["stress"] = clamp(p["stress"] + 4)
         p["mood"] = clamp(p["mood"] + 1)
         await add_event(db, p["id"], f"You spent time at {place_label} but didn't click with anyone new.", "social", "info")
+
+
+async def _visit_location(db, p, cfg, loc, eff):
+    """Resolve a Socials 3.0 location visit using the location's DB-defined encounter weights."""
+    if loc.get("suspicion_gain"):
+        p["criminal_suspicion"] = clamp(p.get("criminal_suspicion", 0) + loc["suspicion_gain"])
+    npcs = [n for n in (loc.get("npcs") or []) if n.get("archetype_id") and n.get("weight", 0) > 0]
+    ids = [n["archetype_id"] for n in npcs]
+    weights = [n["weight"] for n in npcs]
+    a = {"success": {"base": loc.get("success_base", 0.72), "charisma_factor": loc.get("charisma_factor", 0.3)}}
+    await _do_meet_at(db, p, cfg, a, eff, ids, weights, loc.get("name", "the venue"))
 
 
 # ----------------------------- serialization for the API -----------------------------

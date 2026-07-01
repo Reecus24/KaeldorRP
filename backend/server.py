@@ -2138,6 +2138,150 @@ async def social_discover(action_id: str, user: dict = Depends(current_user)):
     return {"ok": True, "activity": serialize_activity(p)}
 
 
+# ---------------- DYNAMIC SOCIAL LOCATIONS & ENCOUNTERS (Socials 3.0) ----------------
+async def _archetype_label_map():
+    arch = await db.npc_archetypes.find({}, {"_id": 0, "id": 1, "label": 1, "category": 1}).to_list(200)
+    return {a["id"]: a for a in arch}
+
+
+def _loc_encounters(loc, amap):
+    """Attach archetype labels + normalized meeting probabilities for transparency."""
+    npcs = [n for n in (loc.get("npcs") or []) if n.get("archetype_id")]
+    total = sum(max(0.0, n.get("weight", 0)) for n in npcs) or 1.0
+    out = []
+    for n in npcs:
+        a = amap.get(n["archetype_id"], {})
+        out.append({"archetype_id": n["archetype_id"], "label": a.get("label", n["archetype_id"]),
+                    "weight": n.get("weight", 0), "chance": round(max(0.0, n.get("weight", 0)) / total, 4)})
+    return out
+
+
+@api.get("/social/locations")
+async def social_locations(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    amap = await _archetype_label_map()
+    locs = await db.locations.find({"active": True}, {"_id": 0}).to_list(100)
+    locs.sort(key=lambda x: (x.get("order", 99), x.get("name", "")))
+    out = []
+    for loc in locs:
+        cd = p.get("cooldowns", {}).get("loc_" + loc["id"])
+        on_cd = cd and parse_dt(cd) > now_utc()
+        blocked_reason = None
+        if loc.get("requires_job") and not p.get("job"):
+            blocked_reason = "Requires a job"
+        elif on_cd:
+            blocked_reason = "On cooldown"
+        elif loc.get("money_cost", 0) > p["cash"] + p["bank"]:
+            blocked_reason = "Can't afford"
+        out.append({
+            "id": loc["id"], "name": loc["name"], "category": loc.get("category"),
+            "desc": loc.get("desc", ""), "icon": loc.get("icon", "MapPin"),
+            "money_cost": loc.get("money_cost", 0), "duration_minutes": loc.get("duration_minutes", 60),
+            "requires_job": loc.get("requires_job", False), "encounters": _loc_encounters(loc, amap),
+            "available": blocked_reason is None, "reason": blocked_reason,
+            "cooldown_remaining": round((parse_dt(cd) - now_utc()).total_seconds()) if on_cd else 0,
+        })
+    return out
+
+
+@api.post("/social/visit/{location_id}")
+async def social_visit(location_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    loc = await db.locations.find_one({"id": location_id, "active": True}, {"_id": 0})
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+    ensure_free(p)
+    if loc.get("requires_job") and not p.get("job"):
+        raise HTTPException(status_code=400, detail="You need a job to go there.")
+    cfg = await get_config(db)
+    cdkey = "loc_" + loc["id"]
+    cd = p.get("cooldowns", {}).get(cdkey)
+    if cd and parse_dt(cd) > now_utc():
+        raise HTTPException(status_code=409, detail="You were just there — give it some time.")
+    cost = loc.get("money_cost", 0)
+    if cost > 0:
+        if p["cash"] + p["bank"] < cost:
+            raise HTTPException(status_code=400, detail="Not enough money")
+        charge(p, cost)
+        ledger_add(p, "living_costs", -cost)
+    payload = {"location_id": loc["id"], "name": loc["name"]}
+    set_activity(p, "social", f"Visit {loc['name']}", loc.get("duration_minutes", 60), cfg, payload, blocking=True)
+    cdm = loc.get("cooldown_minutes", 0)
+    if cdm > 0:
+        p.setdefault("cooldowns", {})[cdkey] = (
+            now_utc() + timedelta(seconds=real_seconds(loc.get("duration_minutes", 60) + cdm, cfg["time_scale"]))).isoformat()
+    await add_event(db, p["id"], f"You head out to {loc['name']}.", "social", "info")
+    await save_player(p)
+    return {"ok": True, "activity": serialize_activity(p)}
+
+
+# ---- Admin: locations & encounters management ----
+class LocationBody(BaseModel):
+    name: str
+    category: Optional[str] = "other"
+    desc: Optional[str] = ""
+    icon: Optional[str] = "MapPin"
+    money_cost: Optional[float] = 0
+    duration_minutes: Optional[int] = 60
+    cooldown_minutes: Optional[int] = 120
+    requires_job: Optional[bool] = False
+    suspicion_gain: Optional[float] = 0
+    success_base: Optional[float] = 0.72
+    charisma_factor: Optional[float] = 0.3
+    active: Optional[bool] = True
+    order: Optional[int] = 50
+    npcs: Optional[list] = None
+
+
+@api.get("/admin/locations")
+async def admin_locations(admin: dict = Depends(admin_user)):
+    amap = await _archetype_label_map()
+    locs = await db.locations.find({}, {"_id": 0}).to_list(200)
+    locs.sort(key=lambda x: (x.get("order", 99), x.get("name", "")))
+    for loc in locs:
+        loc["encounters"] = _loc_encounters(loc, amap)
+    return {"locations": locs,
+            "archetypes": sorted(amap.values(), key=lambda a: a.get("label", ""))}
+
+
+def _clean_npcs(npcs):
+    out = []
+    for n in (npcs or []):
+        aid = (n or {}).get("archetype_id")
+        if not aid:
+            continue
+        try:
+            w = max(0.0, float(n.get("weight", 1)))
+        except (TypeError, ValueError):
+            w = 1.0
+        out.append({"archetype_id": aid, "weight": round(w, 4)})
+    return out
+
+
+@api.post("/admin/locations")
+async def admin_create_location(body: LocationBody, admin: dict = Depends(admin_user)):
+    loc = body.model_dump()
+    loc["id"] = uuid.uuid4().hex
+    loc["npcs"] = _clean_npcs(loc.get("npcs"))
+    await db.locations.insert_one({**loc})
+    return {"ok": True, "id": loc["id"]}
+
+
+@api.put("/admin/locations/{location_id}")
+async def admin_update_location(location_id: str, body: LocationBody, admin: dict = Depends(admin_user)):
+    upd = body.model_dump()
+    upd["npcs"] = _clean_npcs(upd.get("npcs"))
+    await db.locations.update_one({"id": location_id}, {"$set": upd})
+    return {"ok": True}
+
+
+@api.delete("/admin/locations/{location_id}")
+async def admin_delete_location(location_id: str, admin: dict = Depends(admin_user)):
+    await db.locations.delete_one({"id": location_id})
+    return {"ok": True}
+
+
+
 @api.post("/social/contacts/{cid}/block")
 async def social_block(cid: str, user: dict = Depends(current_user)):
     p = await get_state(user)

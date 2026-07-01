@@ -36,3 +36,26 @@ toward neutral over time when neglected (realistic drift). Every action has a `c
 - Social status feeds job tips and prestige-job requirements (see PLAYER_STATS_LOGIC.md).
 - Referrals feed the employment application score.
 - Loans feed the Bank/debt system (interest applies).
+
+## Dynamic Meeting Locations & Encounters (Socials 3.0 — DB-driven)
+Meeting places are now fully data-driven and admin-editable (no hardcoded lists).
+
+**`locations` collection** (one doc per place):
+- `id, name, category, desc, icon, active, order`
+- `money_cost, duration_minutes, cooldown_minutes` — visit economics
+- `requires_job` (bool), `suspicion_gain` (float, e.g. Backstreets +3)
+- `success_base, charisma_factor` — meet-someone probability = `base + charisma_factor·(charisma/10)`, scaled by effectiveness
+- `npcs: [{archetype_id, weight}]` — the encounter table (who you can meet + relative weight)
+
+**Player flow**
+- `GET /social/locations` → active locations with per-NPC normalized `chance` (%) shown on the card.
+- `POST /social/visit/{id}` → validates active / requires_job / cooldown / cost, starts a blocking `social` activity with payload `{location_id}`.
+- On completion `social_engine._visit_location` rolls: success → `random.choices` over `npcs` by weight → a new contact is created; the location's `suspicion_gain` is always applied.
+
+**Admin management (Admin ▸ Locations)**
+- `GET /admin/locations` → all locations (incl. inactive) + `encounters` (labels + normalized %) + full `archetypes` list.
+- `POST /admin/locations`, `PUT /admin/locations/{id}`, `DELETE /admin/locations/{id}`.
+- The admin editor assigns NPCs (archetype dropdown) + weight, and shows the live normalized meeting % for full transparency.
+
+Meeting a `shady_dealer` here (e.g. at The Backstreets) is still the ONLY way to unlock the Underworld
+(see UNDERWORLD_MARKETS.md).

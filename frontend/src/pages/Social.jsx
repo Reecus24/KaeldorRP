@@ -101,44 +101,48 @@ function ContactCard({ c, onQuick, busyKey }) {
 
 function MeetPeople() {
     const { state, refresh } = useGame();
-    const [acts, setActs] = useState(null);
+    const [locs, setLocs] = useState(null);
     const [busy, setBusy] = useState(null);
     const busyActivity = !!state?.activity;
 
-    const load = useCallback(() => api.get("/social/discover-actions").then(({ data }) => setActs(data)).catch(() => setActs([])), []);
+    const load = useCallback(() => api.get("/social/locations").then(({ data }) => setLocs(data)).catch(() => setLocs([])), []);
     useEffect(() => { load(); }, [load]);
 
-    const run = async (a) => {
-        setBusy(a.id);
+    const visit = async (l) => {
+        setBusy(l.id);
         try {
-            await api.post(`/social/discover/${a.id}`);
-            toast.success(`Started: ${a.label}`);
+            await api.post(`/social/visit/${l.id}`);
+            toast.success(`Heading to ${l.name}`);
             await Promise.all([load(), refresh()]);
         } catch (e) { toast.error(errMessage(e)); }
         setBusy(null);
     };
 
-    if (!acts) return <Spinner />;
+    if (!locs) return <Spinner />;
     return (
         <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">Head out to a specific place to meet a specific kind of person. Each takes real time. Meet a Manager or Wholesaler here, then network with them (Talk Business) to unlock permanent business perks.</p>
+            <p className="text-sm text-muted-foreground">Head out to a place to meet new people. Each visit takes real time and shows who you might run into. Meet a Manager or Wholesaler, then network (Talk Business) to unlock permanent business perks.</p>
             <div className="grid sm:grid-cols-2 gap-3">
-                {acts.map((a) => {
-                    const onCd = a.cooldown_remaining > 0;
-                    return (
-                        <Panel key={a.id} className="p-4 flex flex-col" data-testid={`discover-${a.id}`}>
-                            <div className="flex items-center justify-between mb-1">
-                                <span className="font-display font-bold text-white">{a.label}</span>
-                                <span className="font-mono text-[11px] text-muted-foreground">{realDurationLabel(a.duration_minutes, state?.time_scale || 1)}{a.money_cost ? ` · $${a.money_cost}` : ""}</span>
-                            </div>
-                            <p className="text-[11px] text-muted-foreground mb-3 flex-1">{a.desc}</p>
-                            <KButton variant="primary" className="w-full" disabled={busyActivity || onCd} loading={busy === a.id}
-                                onClick={() => run(a)} data-testid={`discover-btn-${a.id}`}>
-                                {busyActivity ? "Busy" : onCd ? "On cooldown" : <><Sparkles className="w-3.5 h-3.5" /> Go</>}
-                            </KButton>
-                        </Panel>
-                    );
-                })}
+                {locs.map((l) => (
+                    <Panel key={l.id} className="p-4 flex flex-col" data-testid={`location-${l.id}`}>
+                        <div className="flex items-center justify-between mb-1">
+                            <span className="font-display font-bold text-white">{l.name}</span>
+                            <span className="font-mono text-[11px] text-muted-foreground">{realDurationLabel(l.duration_minutes, state?.time_scale || 1)}{l.money_cost ? ` · $${l.money_cost}` : ""}</span>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground mb-2 flex-1">{l.desc}</p>
+                        <div className="flex flex-wrap gap-1 mb-3" data-testid={`encounters-${l.id}`}>
+                            {l.encounters.map((e) => (
+                                <span key={e.archetype_id} className="font-mono text-[10px] px-1.5 py-0.5 rounded-sm border border-neon-cyan/25 text-neon-cyan/90">
+                                    {e.label} {Math.round(e.chance * 100)}%
+                                </span>
+                            ))}
+                        </div>
+                        <KButton variant="primary" className="w-full" disabled={busyActivity || !l.available} loading={busy === l.id}
+                            onClick={() => visit(l)} data-testid={`visit-btn-${l.id}`}>
+                            {busyActivity ? "Busy" : !l.available ? (l.reason || "Unavailable") : <><Sparkles className="w-3.5 h-3.5" /> Go</>}
+                        </KButton>
+                    </Panel>
+                ))}
             </div>
         </div>
     );

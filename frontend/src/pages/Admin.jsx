@@ -3,7 +3,7 @@ import { api, errMessage } from "@/lib/api";
 import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/primitives";
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
-import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge } from "lucide-react";
+import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -353,6 +353,148 @@ function StatsView() {
     );
 }
 
+function emptyLoc() {
+    return { name: "", category: "bar", desc: "", icon: "MapPin", money_cost: 0, duration_minutes: 60,
+        cooldown_minutes: 120, requires_job: false, suspicion_gain: 0, success_base: 0.72, charisma_factor: 0.3,
+        active: true, order: 50, npcs: [] };
+}
+
+function LocationEditor({ draft, setDraft, archetypes, onSave, onCancel, saving }) {
+    const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+    const setNpc = (i, k, v) => setDraft((d) => { const n = d.npcs.map((x) => ({ ...x })); n[i][k] = v; return { ...d, npcs: n }; });
+    const addNpc = () => setDraft((d) => ({ ...d, npcs: [...d.npcs, { archetype_id: archetypes[0]?.id || "", weight: 1 }] }));
+    const delNpc = (i) => setDraft((d) => ({ ...d, npcs: d.npcs.filter((_, j) => j !== i) }));
+    const total = draft.npcs.reduce((s, n) => s + (Number(n.weight) > 0 ? Number(n.weight) : 0), 0) || 1;
+    return (
+        <Panel className="p-5 space-y-3 border-neon-cyan/30" data-testid="location-editor">
+            <div className="grid sm:grid-cols-2 gap-3">
+                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Name
+                    <KInput value={draft.name} onChange={(e) => set("name", e.target.value)} testid="loc-name" /></label>
+                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Category
+                    <KInput value={draft.category} onChange={(e) => set("category", e.target.value)} testid="loc-category" /></label>
+            </div>
+            <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Description
+                <KInput value={draft.desc} onChange={(e) => set("desc", e.target.value)} testid="loc-desc" /></label>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Cost $
+                    <KInput type="number" value={draft.money_cost} onChange={(e) => set("money_cost", Number(e.target.value))} testid="loc-cost" /></label>
+                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Duration (min)
+                    <KInput type="number" value={draft.duration_minutes} onChange={(e) => set("duration_minutes", Number(e.target.value))} testid="loc-duration" /></label>
+                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Cooldown (min)
+                    <KInput type="number" value={draft.cooldown_minutes} onChange={(e) => set("cooldown_minutes", Number(e.target.value))} testid="loc-cooldown" /></label>
+                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Order
+                    <KInput type="number" value={draft.order} onChange={(e) => set("order", Number(e.target.value))} testid="loc-order" /></label>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Success base
+                    <KInput type="number" step="0.01" value={draft.success_base} onChange={(e) => set("success_base", Number(e.target.value))} testid="loc-success" /></label>
+                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Suspicion gain
+                    <KInput type="number" step="0.5" value={draft.suspicion_gain} onChange={(e) => set("suspicion_gain", Number(e.target.value))} testid="loc-suspicion" /></label>
+                <label className="text-[11px] text-muted-foreground flex items-center gap-2 mt-4">
+                    <input type="checkbox" checked={!!draft.requires_job} onChange={(e) => set("requires_job", e.target.checked)} data-testid="loc-requires-job" /> Requires job</label>
+                <label className="text-[11px] text-muted-foreground flex items-center gap-2 mt-4">
+                    <input type="checkbox" checked={!!draft.active} onChange={(e) => set("active", e.target.checked)} data-testid="loc-active" /> Active</label>
+            </div>
+
+            <div className="border-t border-white/10 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                    <span className="font-display font-bold text-white text-sm">Who you can meet here</span>
+                    <KButton variant="ghost" onClick={addNpc} data-testid="loc-add-npc"><Plus className="w-3.5 h-3.5" /> Add NPC</KButton>
+                </div>
+                {draft.npcs.length === 0 && <div className="text-[11px] text-muted-foreground">No NPCs assigned — nobody can be met here.</div>}
+                <div className="space-y-2">
+                    {draft.npcs.map((n, i) => (
+                        <div key={i} className="flex items-center gap-2" data-testid={`loc-npc-row-${i}`}>
+                            <select value={n.archetype_id} onChange={(e) => setNpc(i, "archetype_id", e.target.value)} data-testid={`loc-npc-select-${i}`}
+                                className="flex-1 bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white">
+                                {archetypes.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                            </select>
+                            <div className="w-24"><KInput type="number" step="0.1" value={n.weight} onChange={(e) => setNpc(i, "weight", Number(e.target.value))} testid={`loc-npc-weight-${i}`} /></div>
+                            <span className="w-14 text-right font-mono text-[11px] text-neon-cyan" data-testid={`loc-npc-chance-${i}`}>
+                                {Math.round((Number(n.weight) > 0 ? Number(n.weight) : 0) / total * 100)}%
+                            </span>
+                            <button onClick={() => delNpc(i)} className="text-neon-red hover:text-neon-red/70" data-testid={`loc-npc-del-${i}`}><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+                <KButton variant="green" loading={saving} disabled={!draft.name} onClick={onSave} data-testid="loc-save">Save Location</KButton>
+                <KButton variant="ghost" onClick={onCancel} data-testid="loc-cancel">Cancel</KButton>
+            </div>
+        </Panel>
+    );
+}
+
+function LocationsPanel() {
+    const [data, setData] = useState(null);
+    const [draft, setDraft] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const load = useCallback(() => api.get("/admin/locations").then(({ data }) => setData(data)).catch(() => setData({ locations: [], archetypes: [] })), []);
+    useEffect(() => { load(); }, [load]);
+
+    const save = async () => {
+        setSaving(true);
+        try {
+            const { id, encounters, _id, ...body } = draft;
+            if (id) await api.put(`/admin/locations/${id}`, body);
+            else await api.post("/admin/locations", body);
+            toast.success("Location saved — live immediately");
+            setDraft(null); await load();
+        } catch (e) { toast.error(errMessage(e)); }
+        setSaving(false);
+    };
+    const del = async (l) => {
+        if (!window.confirm(`Delete "${l.name}"?`)) return;
+        try { await api.delete(`/admin/locations/${l.id}`); toast.success("Deleted"); await load(); }
+        catch (e) { toast.error(errMessage(e)); }
+    };
+
+    if (!data) return <Spinner />;
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">Meeting places players can visit. Assign NPCs and set their meeting chance (weights auto-normalize to %).</p>
+                {!draft && <KButton variant="green" onClick={() => setDraft(emptyLoc())} data-testid="loc-new"><Plus className="w-4 h-4" /> New Location</KButton>}
+            </div>
+
+            {draft && <LocationEditor draft={draft} setDraft={setDraft} archetypes={data.archetypes} onSave={save} onCancel={() => setDraft(null)} saving={saving} />}
+
+            {!draft && (
+                <div className="grid md:grid-cols-2 gap-3">
+                    {data.locations.map((l) => (
+                        <Panel key={l.id} className="p-4" data-testid={`admin-location-${l.id}`}>
+                            <div className="flex items-start justify-between mb-1">
+                                <div>
+                                    <span className="font-display font-bold text-white">{l.name}</span>
+                                    <span className="ml-2 text-[10px] uppercase text-muted-foreground font-mono">{l.category}</span>
+                                    {!l.active && <Pill tone="red" className="ml-2">Inactive</Pill>}
+                                    {l.requires_job && <Pill tone="yellow" className="ml-2">Needs job</Pill>}
+                                </div>
+                                <div className="flex gap-1">
+                                    <button onClick={() => setDraft(JSON.parse(JSON.stringify(l)))} className="text-muted-foreground hover:text-white" data-testid={`loc-edit-${l.id}`}><Pencil className="w-4 h-4" /></button>
+                                    <button onClick={() => del(l)} className="text-neon-red hover:text-neon-red/70" data-testid={`loc-del-${l.id}`}><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mb-2">{l.desc}</p>
+                            <div className="text-[10px] font-mono text-muted-foreground mb-2">${l.money_cost} · {l.duration_minutes}min · CD {l.cooldown_minutes}min{l.suspicion_gain ? ` · +${l.suspicion_gain} suspicion` : ""}</div>
+                            <div className="flex flex-wrap gap-1" data-testid={`admin-encounters-${l.id}`}>
+                                {l.encounters.map((e) => (
+                                    <span key={e.archetype_id} className="font-mono text-[10px] px-1.5 py-0.5 rounded-sm border border-neon-cyan/25 text-neon-cyan/90">
+                                        {e.label} <span className="text-white">{Math.round(e.chance * 100)}%</span>
+                                    </span>
+                                ))}
+                                {l.encounters.length === 0 && <span className="text-[10px] text-neon-red font-mono">No NPCs assigned</span>}
+                            </div>
+                        </Panel>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function Admin() {
     const [tab, setTab] = useState("stats");
 
@@ -365,6 +507,7 @@ export default function Admin() {
                 <TabBtn active={tab === "stats"} onClick={() => setTab("stats")} icon={Database}>Stats</TabBtn>
                 <TabBtn active={tab === "economy"} onClick={() => setTab("economy")} icon={DollarSign}>Economy Sandbox</TabBtn>
                 <TabBtn active={tab === "tuning"} onClick={() => setTab("tuning")} icon={Gauge}>Tuning</TabBtn>
+                <TabBtn active={tab === "locations"} onClick={() => setTab("locations")} icon={MapPin}>Locations</TabBtn>
                 <TabBtn active={tab === "players"} onClick={() => setTab("players")} icon={Users}>Players</TabBtn>
                 <TabBtn active={tab === "config"} onClick={() => setTab("config")} icon={SlidersHorizontal}>Config</TabBtn>
                 {CONTENT_TYPES.map((c) => <TabBtn key={c.key} active={tab === c.key} onClick={() => setTab(c.key)}>{c.label}</TabBtn>)}
@@ -374,6 +517,7 @@ export default function Admin() {
                 {tab === "stats" && <StatsView />}
                 {tab === "economy" && <EconomyTuner />}
                 {tab === "tuning" && <TuningPanel />}
+                {tab === "locations" && <LocationsPanel />}
                 {tab === "config" && <ConfigEditor />}
                 {tab === "players" && <PlayersTable />}
                 {CONTENT_TYPES.some((c) => c.key === tab) && <ContentEditor ctype={tab} />}

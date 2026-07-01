@@ -644,22 +644,37 @@ RELATIONSHIP_ACTIONS = [
      "on_success": {"relationship_score": 9, "trust": 8, "respect": 4},
      "on_fail": {"relationship_score": 2, "trust": 1}, "success_text": "A productive talk with {name} — the professional bond grows.",
      "fail_text": "{name} kept it strictly polite. No progress today."},
-    {"id": "go_to_bar", "label": "Go to a Bar", "kind": "go_to_bar", "category": "discovery", "timing": "activity",
-     "duration_minutes": 90, "cooldown_minutes": 120, "money_cost": 25, "blocking": True, "untargeted": True, "icon": "Beer",
-     "desc": "Grab a drink out. A chance to meet a Bar Regular, a Manager or a Wholesaler.", "requires": {},
-     "success": {"base": 0.72, "charisma_factor": 0.35}},
-    {"id": "go_to_gym", "label": "Go to the Gym", "kind": "go_to_gym", "category": "discovery", "timing": "activity",
-     "duration_minutes": 90, "cooldown_minutes": 120, "money_cost": 15, "blocking": True, "untargeted": True, "icon": "Dumbbell",
-     "desc": "Train and socialize. A chance to meet a fellow Athlete or a Gym Coach.", "requires": {},
-     "success": {"base": 0.75, "charisma_factor": 0.3}},
-    {"id": "network_at_work", "label": "Network at Work", "kind": "network_at_work", "category": "discovery", "timing": "activity",
-     "duration_minutes": 60, "cooldown_minutes": 120, "money_cost": 0, "blocking": True, "untargeted": True, "icon": "Briefcase",
-     "desc": "Chat with people around the workplace. A chance to meet Colleagues or a Manager. Requires a job.", "requires": {},
-     "success": {"base": 0.78, "charisma_factor": 0.3}},
-    {"id": "go_to_streets", "label": "Prowl the Backstreets", "kind": "go_to_streets", "category": "discovery", "timing": "activity",
-     "duration_minutes": 90, "cooldown_minutes": 180, "money_cost": 0, "blocking": True, "untargeted": True, "icon": "Skull",
-     "desc": "Head to the wrong side of town. Risky — a chance to meet a Shady Contact who can open the door to the Underworld.",
-     "requires": {}, "success": {"base": 0.6, "charisma_factor": 0.25}},
+]
+
+
+# Meeting places (Socials 3.0). Fully DB-driven & admin-editable: each location defines who you
+# can meet (npcs) and with what weight. See /app/docs/SOCIAL_SYSTEM_LOGIC.md.
+LOCATIONS = [
+    {"id": "loc_bar", "name": "The Neon Tap", "category": "bar", "icon": "Beer", "active": True, "order": 1,
+     "desc": "A busy downtown bar. A chance to meet regulars, managers or suppliers over a drink.",
+     "money_cost": 25, "duration_minutes": 90, "cooldown_minutes": 120, "requires_job": False,
+     "suspicion_gain": 0, "success_base": 0.72, "charisma_factor": 0.35,
+     "npcs": [{"archetype_id": "bar_regular", "weight": 0.5}, {"archetype_id": "manager", "weight": 0.25}, {"archetype_id": "wholesaler", "weight": 0.25}]},
+    {"id": "loc_gym", "name": "Iron Temple Gym", "category": "gym", "icon": "Dumbbell", "active": True, "order": 2,
+     "desc": "Train and socialize. A chance to meet a fellow athlete or a coach.",
+     "money_cost": 15, "duration_minutes": 90, "cooldown_minutes": 120, "requires_job": False,
+     "suspicion_gain": 0, "success_base": 0.75, "charisma_factor": 0.3,
+     "npcs": [{"archetype_id": "athlete", "weight": 0.6}, {"archetype_id": "gym_coach", "weight": 0.4}]},
+    {"id": "loc_work", "name": "Around the Workplace", "category": "work", "icon": "Briefcase", "active": True, "order": 3,
+     "desc": "Chat with people at your job. A chance to meet colleagues or a manager. Requires a job.",
+     "money_cost": 0, "duration_minutes": 60, "cooldown_minutes": 120, "requires_job": True,
+     "suspicion_gain": 0, "success_base": 0.78, "charisma_factor": 0.3,
+     "npcs": [{"archetype_id": "coworker", "weight": 0.65}, {"archetype_id": "manager", "weight": 0.35}]},
+    {"id": "loc_streets", "name": "The Backstreets", "category": "street", "icon": "Skull", "active": True, "order": 4,
+     "desc": "The wrong side of town. Risky — a chance to meet a Shady Contact who opens the door to the Underworld.",
+     "money_cost": 0, "duration_minutes": 90, "cooldown_minutes": 180, "requires_job": False,
+     "suspicion_gain": 3, "success_base": 0.6, "charisma_factor": 0.25,
+     "npcs": [{"archetype_id": "shady_dealer", "weight": 0.7}, {"archetype_id": "bar_regular", "weight": 0.3}]},
+    {"id": "loc_park", "name": "Riverside Park", "category": "park", "icon": "Trees", "active": True, "order": 5,
+     "desc": "A relaxed public park. Meet friendly faces and unwind.",
+     "money_cost": 0, "duration_minutes": 60, "cooldown_minutes": 120, "requires_job": False,
+     "suspicion_gain": 0, "success_base": 0.7, "charisma_factor": 0.35,
+     "npcs": [{"archetype_id": "bar_regular", "weight": 0.6}, {"archetype_id": "athlete", "weight": 0.4}]},
 ]
 
 GIFT_TYPES = [
@@ -740,6 +755,7 @@ CONTENT_MAP = {
     "gift_types": ("gift_types", GIFT_TYPES),
     "social_events": ("social_events", SOCIAL_EVENTS),
     "market_assets": ("market_assets", MARKET_ASSETS),
+    "locations": ("locations", LOCATIONS),
 }
 
 
