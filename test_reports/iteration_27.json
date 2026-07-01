@@ -1,0 +1,26 @@
+{
+  "summary": "Frontend-only QA of the Realistic Shop Overhaul + Admin City Shops Sandbox. Verified end-to-end: (1) player Shop nav shows City Shops browser with all 5 store cards + correct item counts + category labels, (2) Kaeldor Fresh Foods shows 'STREET KIOSK' business-type pill, (3) entering each shop filters to its category (grocery → Coffee/Energy Drink/Protein Bar; hardware → Athletic Gear/Pro Toolbelt — disjoint sets), (4) Back to City Shops navigation works, (5) Buy to Inventory deducts cash ($203 → $199 after $4 Coffee) and item appears in Inventory tab (Coffee x1 in Items panel), (6) Admin ▸ City Shops tab lists 5 shops with proper data-testids, (7) Create/Edit/Delete CRUD all work (created TEST_QA_Shop, edited desc, deleted successfully with toast). No console errors, no pageerror, no broken images observed across the whole flow.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Shop.jsx (line 65): The `act()` helper is used to POST /shop/buy but there is no local optimistic state — the cash/inventory refresh relies on `act()` re-fetching player state. Confirmed working in this run but worth noting as a subtle coupling.",
+    "Admin.jsx CityShopsPanel (line 578): destructuring `_id` from draft to strip Mongo id is defensive and correct; keeps this pattern consistent with other panels.",
+    "Admin.jsx (line 588): `del` uses window.confirm — acceptable for admin but consider a Kaeldor-styled confirm dialog for consistency with rest of the app.",
+    "TabBtn data-testid uses lowercased children (`admin-tab-city shops` — with a SPACE). Works but space in testid is fragile; recommend slugifying (e.g. `admin-tab-city-shops`).",
+    "Shop.jsx line 86: `player.cash + player.bank >= it.price` treats bank funds as spendable at shop; verify backend actually pulls from bank too or player will see 'Can afford' but get a 400. (Not encountered in this test since cash alone was sufficient.)"
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
+  "test_credentials": "admin@kaeldor.com/admin123, player@kaeldor.com/player123 (both used, both worked)",
+  "seed_data_creation": "Created and then deleted a TEST_QA_Shop during admin CRUD test. No residual test data left.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Player 'Neo' (player@kaeldor.com) is IN HOSPITAL but that does NOT block Shop navigation or purchases as expected. All 5 seeded city shops are shop_grocery (3 items), shop_pharmacy (3), shop_clothing (3), shop_electronics (2), shop_hardware (2). Grocery shop is linked to 'Street Kiosk' business type and shows the pill. Admin tab testid is `admin-tab-city shops` (with a space).",
+  "rca of the issue": "No bugs found in this iteration; Shop overhaul + Admin City Shops CRUD both work end-to-end."
+}
