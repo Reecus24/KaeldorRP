@@ -256,22 +256,51 @@ for _it in ITEMS:
     _it.setdefault("store_type", ITEM_STORE_TYPE.get(_it["id"], "grocery"))
 
 # Default city shops (admin-editable via the Sandbox → City Shops tab).
+# Default per-shop stock capacity when an item has no explicit config.
+SHOP_DEFAULT_CAPACITY = 25
+
+# City Shops. Each shop has opening_hours (players can only buy while OPEN),
+# and items_config: per-item daily stock capacity + a manual discount (%) for sale events.
+# Stock refreshes to capacity at game midnight (00:00) every game day.
 CITY_SHOPS = [
     {"id": "shop_grocery", "name": "Kaeldor Fresh Foods", "category": "grocery", "icon": "ShoppingBasket",
      "desc": "Grocery Store — daily food and beverages to keep your needs topped up.",
-     "business_type_id": "kiosk", "location_id": None, "active": True, "order": 1},
+     "business_type_id": "kiosk", "location_id": None, "active": True, "order": 1,
+     "opening_hours": {"open": "07:00", "close": "22:00"},
+     "items_config": {
+         "coffee": {"capacity": 60, "discount_pct": 0},
+         "energy_drink": {"capacity": 60, "discount_pct": 0},
+         "protein_bar": {"capacity": 60, "discount_pct": 0}}},
     {"id": "shop_pharmacy", "name": "MediCare Pharmacy", "category": "pharmacy", "icon": "Cross",
      "desc": "Pharmacy — painkillers, first aid and recovery items for your health.",
-     "business_type_id": None, "location_id": None, "active": True, "order": 2},
+     "business_type_id": None, "location_id": None, "active": True, "order": 2,
+     "opening_hours": {"open": "00:00", "close": "24:00"},
+     "items_config": {
+         "painkillers": {"capacity": 40, "discount_pct": 0},
+         "first_aid_kit": {"capacity": 15, "discount_pct": 0},
+         "sleeping_pills": {"capacity": 25, "discount_pct": 0}}},
     {"id": "shop_clothing", "name": "Vantage Apparel", "category": "clothing", "icon": "Shirt",
      "desc": "Clothing Boutique — outfits and accessories that boost your social standing.",
-     "business_type_id": None, "location_id": None, "active": True, "order": 3},
+     "business_type_id": None, "location_id": None, "active": True, "order": 3,
+     "opening_hours": {"open": "10:00", "close": "20:00"},
+     "items_config": {
+         "nice_clothes": {"capacity": 12, "discount_pct": 0},
+         "business_suit": {"capacity": 6, "discount_pct": 0},
+         "luxury_watch": {"capacity": 4, "discount_pct": 0}}},
     {"id": "shop_electronics", "name": "Circuit City", "category": "electronics", "icon": "Laptop",
      "desc": "Electronics Store — smartphones and laptops for comms and work.",
-     "business_type_id": None, "location_id": None, "active": True, "order": 4},
+     "business_type_id": None, "location_id": None, "active": True, "order": 4,
+     "opening_hours": {"open": "09:00", "close": "21:00"},
+     "items_config": {
+         "smartphone": {"capacity": 10, "discount_pct": 0},
+         "laptop": {"capacity": 6, "discount_pct": 0}}},
     {"id": "shop_hardware", "name": "Ironworks Hardware & Sports", "category": "hardware", "icon": "Hammer",
      "desc": "Hardware & Sports — pro tools and fitness gear for the grind.",
-     "business_type_id": None, "location_id": None, "active": True, "order": 5},
+     "business_type_id": None, "location_id": None, "active": True, "order": 5,
+     "opening_hours": {"open": "08:00", "close": "18:00"},
+     "items_config": {
+         "toolbelt": {"capacity": 8, "discount_pct": 0},
+         "athletic_gear": {"capacity": 10, "discount_pct": 0}}},
 ]
 
 

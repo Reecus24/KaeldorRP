@@ -696,6 +696,36 @@ async def enroll_course(course_id: str, user: dict = Depends(current_user)):
 
 
 # ============================ SHOP ============================
+SHOP_DEFAULT_CAPACITY = seed_data.SHOP_DEFAULT_CAPACITY
+
+
+def _default_opening():
+    return {"open": "08:00", "close": "20:00"}
+
+
+def _eff_price(base, discount_pct):
+    d = max(0, min(95, int(discount_pct or 0)))
+    return max(1, int(round(float(base) * (1 - d / 100.0))))
+
+
+async def _resolve_shop_stock(shop, cfg):
+    """Lazily refresh a shop's stock to per-item capacity at the game-day (00:00) boundary.
+    Persists the reset. Returns the (mutated) shop dict."""
+    day = game_day_index(cfg, now_utc())
+    if shop.get("last_refresh_day") == day:
+        return shop
+    cat_items = await db.items.find({"store_type": shop.get("category")}, {"_id": 0, "id": 1}).to_list(200)
+    cfgmap = shop.get("items_config") or {}
+    stock = {}
+    for it in cat_items:
+        cap = int((cfgmap.get(it["id"]) or {}).get("capacity", SHOP_DEFAULT_CAPACITY))
+        stock[it["id"]] = max(0, cap)
+    shop["stock"] = stock
+    shop["last_refresh_day"] = day
+    await db.city_shops.update_one({"id": shop["id"]}, {"$set": {"stock": stock, "last_refresh_day": day}})
+    return shop
+
+
 @api.get("/shop/items")
 async def shop_items(user: dict = Depends(current_user)):
     return await db.items.find({}, {"_id": 0}).to_list(200)
@@ -704,6 +734,8 @@ async def shop_items(user: dict = Depends(current_user)):
 @api.get("/shop/stores")
 async def shop_stores(user: dict = Depends(current_user)):
     await get_state(user)
+    cfg = await get_config(db)
+    g_now = game_now(cfg, now_utc())
     shops = await db.city_shops.find({"active": True}, {"_id": 0}).to_list(100)
     shops.sort(key=lambda s: (s.get("order", 99), s.get("name", "")))
     counts = {}
@@ -711,41 +743,85 @@ async def shop_stores(user: dict = Depends(current_user)):
         counts[it.get("store_type")] = counts.get(it.get("store_type"), 0) + 1
     btypes = {b["id"]: b["name"] for b in await db.business_types.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(100)}
     for s in shops:
+        await _resolve_shop_stock(s, cfg)
         s["item_count"] = counts.get(s.get("category"), 0)
         s["business_type_name"] = btypes.get(s.get("business_type_id"))
+        s["opening_hours"] = s.get("opening_hours") or _default_opening()
+        s["is_open_now"] = employment.is_open_now(s["opening_hours"], g_now)
+        stock = s.get("stock") or {}
+        s["in_stock_count"] = sum(1 for v in stock.values() if v > 0)
+        s["on_sale"] = any(int((c or {}).get("discount_pct", 0)) > 0 for c in (s.get("items_config") or {}).values())
     return shops
 
 
 @api.get("/shop/stores/{store_id}/items")
 async def shop_store_items(store_id: str, user: dict = Depends(current_user)):
     await get_state(user)
+    cfg = await get_config(db)
+    g_now = game_now(cfg, now_utc())
     shop = await db.city_shops.find_one({"id": store_id, "active": True}, {"_id": 0})
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
+    await _resolve_shop_stock(shop, cfg)
+    shop["opening_hours"] = shop.get("opening_hours") or _default_opening()
+    is_open = employment.is_open_now(shop["opening_hours"], g_now)
+    shop["is_open_now"] = is_open
+    cfgmap = shop.get("items_config") or {}
+    stock = shop.get("stock") or {}
     items = await db.items.find({"store_type": shop.get("category")}, {"_id": 0}).to_list(200)
     items.sort(key=lambda x: x["name"])
-    return {"shop": shop, "items": items}
+    out = []
+    for it in items:
+        ic = cfgmap.get(it["id"]) or {}
+        disc = int(ic.get("discount_pct", 0))
+        remaining = int(stock.get(it["id"], 0))
+        out.append({**it, "base_price": it["price"], "price": _eff_price(it["price"], disc),
+                    "discount_pct": disc, "stock": remaining,
+                    "capacity": int(ic.get("capacity", SHOP_DEFAULT_CAPACITY)),
+                    "sold_out": remaining <= 0})
+    return {"shop": shop, "is_open_now": is_open, "items": out}
 
 
 class BuyBody(BaseModel):
     item_id: str
     qty: int = 1
+    store_id: Optional[str] = None
 
 
 @api.post("/shop/buy")
 async def shop_buy(body: BuyBody, user: dict = Depends(current_user)):
     p = await get_state(user)
+    cfg = await get_config(db)
+    g_now = game_now(cfg, now_utc())
     it = await db.items.find_one({"id": body.item_id}, {"_id": 0})
     if not it:
         raise HTTPException(status_code=404, detail="Item not found")
+    # Locate the shop: prefer the explicit store, else the active shop for this item's category.
+    shop = None
+    if body.store_id:
+        shop = await db.city_shops.find_one({"id": body.store_id, "active": True}, {"_id": 0})
+    if not shop:
+        shop = await db.city_shops.find_one({"category": it.get("store_type"), "active": True}, {"_id": 0})
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    await _resolve_shop_stock(shop, cfg)
+    if not employment.is_open_now(shop.get("opening_hours") or _default_opening(), g_now):
+        raise HTTPException(status_code=400, detail=f"{shop['name']} is closed right now. Come back during opening hours.")
     qty = max(1, body.qty)
-    total = it["price"] * qty
+    remaining = int((shop.get("stock") or {}).get(body.item_id, 0))
+    if remaining < qty:
+        raise HTTPException(status_code=400, detail=f"Out of stock — only {remaining} left. Restocks at midnight.")
+    disc = int(((shop.get("items_config") or {}).get(body.item_id) or {}).get("discount_pct", 0))
+    unit = _eff_price(it["price"], disc)
+    total = unit * qty
     if p["cash"] + p["bank"] < total:
         raise HTTPException(status_code=400, detail="Not enough money")
     charge(p, total)
     p.setdefault("inventory", {})
     p["inventory"][body.item_id] = p["inventory"].get(body.item_id, 0) + qty
-    await add_event(db, p["id"], f"Bought {qty}x {it['name']} for ${total} — added to your inventory.", "shop", "info")
+    await db.city_shops.update_one({"id": shop["id"]}, {"$set": {f"stock.{body.item_id}": remaining - qty}})
+    sale = f" (−{disc}% sale)" if disc > 0 else ""
+    await add_event(db, p["id"], f"Bought {qty}x {it['name']} for ${total}{sale} at {shop['name']} — added to your inventory.", "shop", "info")
     await save_player(p)
     return {"ok": True}
 
@@ -2346,10 +2422,29 @@ class CityShopBody(BaseModel):
     location_id: Optional[str] = None
     active: Optional[bool] = True
     order: Optional[int] = 50
+    opening_hours: Optional[dict] = None
+    items_config: Optional[dict] = None
+
+
+def _norm_opening(oh):
+    if not oh:
+        return _default_opening()
+    return {"open": str(oh.get("open") or "08:00"), "close": str(oh.get("close") or "20:00")}
+
+
+def _norm_items_config(cfg):
+    out = {}
+    for iid, c in (cfg or {}).items():
+        c = c or {}
+        out[iid] = {"capacity": max(0, int(c.get("capacity", SHOP_DEFAULT_CAPACITY))),
+                    "discount_pct": max(0, min(95, int(c.get("discount_pct", 0))))}
+    return out
 
 
 @api.get("/admin/city-shops")
 async def admin_city_shops(admin: dict = Depends(admin_user)):
+    cfg = await get_config(db)
+    g_now = game_now(cfg, now_utc())
     shops = await db.city_shops.find({}, {"_id": 0}).to_list(200)
     shops.sort(key=lambda s: (s.get("order", 99), s.get("name", "")))
     counts = {}
@@ -2358,24 +2453,50 @@ async def admin_city_shops(admin: dict = Depends(admin_user)):
     btypes = await db.business_types.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(100)
     locs = await db.locations.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
     bmap = {b["id"]: b["name"] for b in btypes}
+    all_items = await db.items.find({}, {"_id": 0, "id": 1, "name": 1, "price": 1, "store_type": 1}).to_list(300)
+    items_by_cat = {}
+    for it in all_items:
+        items_by_cat.setdefault(it.get("store_type"), []).append(it)
     for s in shops:
         s["item_count"] = counts.get(s.get("category"), 0)
         s["business_type_name"] = bmap.get(s.get("business_type_id"))
+        s["opening_hours"] = s.get("opening_hours") or _default_opening()
+        s["is_open_now"] = employment.is_open_now(s["opening_hours"], g_now)
+        cfgmap = s.get("items_config") or {}
+        stock = s.get("stock") or {}
+        # Editor-friendly per-item config for THIS shop's category.
+        s["items"] = [{
+            "id": it["id"], "name": it["name"], "base_price": it["price"],
+            "capacity": int((cfgmap.get(it["id"]) or {}).get("capacity", SHOP_DEFAULT_CAPACITY)),
+            "discount_pct": int((cfgmap.get(it["id"]) or {}).get("discount_pct", 0)),
+            "stock": int(stock.get(it["id"], 0)),
+        } for it in sorted(items_by_cat.get(s.get("category"), []), key=lambda x: x["name"])]
     return {"shops": shops, "category_options": seed_data.ITEM_CATEGORY_OPTIONS,
-            "business_types": btypes, "locations": locs}
+            "business_types": btypes, "locations": locs,
+            "items_by_category": {k: sorted(v, key=lambda x: x["name"]) for k, v in items_by_cat.items()},
+            "default_capacity": SHOP_DEFAULT_CAPACITY}
 
 
 @api.post("/admin/city-shops")
 async def admin_create_city_shop(body: CityShopBody, admin: dict = Depends(admin_user)):
     shop = body.model_dump()
+    shop["opening_hours"] = _norm_opening(shop.get("opening_hours"))
+    shop["items_config"] = _norm_items_config(shop.get("items_config"))
     shop["id"] = uuid.uuid4().hex
+    shop["stock"] = {}
+    shop["last_refresh_day"] = -1  # forces a stock refresh to capacity on first access
     await db.city_shops.insert_one({**shop})
     return {"ok": True, "id": shop["id"]}
 
 
 @api.put("/admin/city-shops/{shop_id}")
 async def admin_update_city_shop(shop_id: str, body: CityShopBody, admin: dict = Depends(admin_user)):
-    await db.city_shops.update_one({"id": shop_id}, {"$set": body.model_dump()})
+    body_set = body.model_dump()
+    body_set["opening_hours"] = _norm_opening(body_set.get("opening_hours"))
+    body_set["items_config"] = _norm_items_config(body_set.get("items_config"))
+    # Capacities/discounts may have changed — force a stock refresh on next access.
+    body_set["last_refresh_day"] = -1
+    await db.city_shops.update_one({"id": shop_id}, {"$set": body_set})
     return {"ok": True}
 
 
@@ -3274,6 +3395,18 @@ async def migrate_business_supply_chain():
         }})
 
 
+async def migrate_city_shops():
+    """Backfill opening_hours + items_config onto existing city_shops from seed defaults (one-time)."""
+    seed_map = {s["id"]: s for s in seed_data.CITY_SHOPS}
+    async for s in db.city_shops.find({"opening_hours": {"$exists": False}}, {"_id": 0, "id": 1, "category": 1}):
+        seed = seed_map.get(s["id"], {})
+        oh = seed.get("opening_hours") or {"open": "08:00", "close": "20:00"}
+        ic = seed.get("items_config") or {}
+        await db.city_shops.update_one({"id": s["id"]}, {"$set": {
+            "opening_hours": oh, "items_config": ic, "last_refresh_day": -1}})
+
+
+
 @app.on_event("startup")
 async def startup():
     await db.users.create_index("email", unique=True)
@@ -3293,6 +3426,7 @@ async def startup():
     await migrate_hours_based_promotions()
     await migrate_player_employment_hourly()
     await migrate_business_supply_chain()
+    await migrate_city_shops()
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@kaeldor.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

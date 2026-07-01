@@ -3,7 +3,7 @@ import { api, errMessage } from "@/lib/api";
 import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/primitives";
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
-import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge, MapPin, Store } from "lucide-react";
+import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge, MapPin, Store, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -567,31 +567,47 @@ function CityShopsPanel() {
     const [data, setData] = useState(null);
     const [draft, setDraft] = useState(null);
     const [saving, setSaving] = useState(false);
-    const load = useCallback(() => api.get("/admin/city-shops").then(({ data }) => setData(data)).catch(() => setData({ shops: [], category_options: [], business_types: [], locations: [] })), []);
+    const load = useCallback(() => api.get("/admin/city-shops").then(({ data }) => setData(data)).catch(() => setData({ shops: [], category_options: [], business_types: [], locations: [], items_by_category: {}, default_capacity: 25 })), []);
     useEffect(() => { load(); }, [load]);
 
-    const emptyShop = () => ({ name: "", category: data?.category_options?.[0] || "grocery", desc: "", icon: "Store", business_type_id: "", location_id: "", active: true, order: 50 });
+    const defCap = data?.default_capacity || 25;
+    const emptyShop = () => ({ name: "", category: data?.category_options?.[0] || "grocery", desc: "", icon: "Store", business_type_id: "", location_id: "", active: true, order: 50, opening_hours: { open: "08:00", close: "20:00" }, items_config: {} });
     const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+    const setHours = (k, v) => setDraft((d) => ({ ...d, opening_hours: { ...(d.opening_hours || {}), [k]: v } }));
+    const setItemCfg = (iid, k, v) => setDraft((d) => {
+        const ic = { ...(d.items_config || {}) };
+        const cur = { capacity: defCap, discount_pct: 0, ...(ic[iid] || {}) };
+        ic[iid] = { ...cur, [k]: v };
+        return { ...d, items_config: ic };
+    });
     const save = async () => {
         setSaving(true);
         try {
-            const { id, item_count, business_type_name, _id, ...body } = draft;
-            body.business_type_id = body.business_type_id || null;
-            body.location_id = body.location_id || null;
-            if (id) await api.put(`/admin/city-shops/${id}`, body);
+            const body = {
+                name: draft.name, category: draft.category, desc: draft.desc || "",
+                icon: draft.icon || "Store",
+                business_type_id: draft.business_type_id || null,
+                location_id: draft.location_id || null,
+                active: !!draft.active, order: Number(draft.order) || 50,
+                opening_hours: { open: draft.opening_hours?.open || "08:00", close: draft.opening_hours?.close || "20:00" },
+                items_config: draft.items_config || {},
+            };
+            if (draft.id) await api.put(`/admin/city-shops/${draft.id}`, body);
             else await api.post("/admin/city-shops", body);
-            toast.success("Shop saved — live in the Shop tab immediately");
+            toast.success("Shop saved — live in the Shop tab immediately (stock restocks to new capacity)");
             setDraft(null); await load();
         } catch (e) { toast.error(errMessage(e)); }
         setSaving(false);
     };
     const del = async (s) => { if (!window.confirm(`Delete "${s.name}"?`)) return; try { await api.delete(`/admin/city-shops/${s.id}`); toast.success("Deleted"); await load(); } catch (e) { toast.error(errMessage(e)); } };
+    const editShop = (s) => setDraft({ ...s, opening_hours: s.opening_hours || { open: "08:00", close: "20:00" }, items_config: s.items_config || {} });
 
     if (!data) return <Spinner />;
+    const catItems = (data.items_by_category || {})[draft?.category] || [];
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">City shops the players browse. Assign an item Category (the shop sells only items of that category) and optionally link a business type or location.</p>
+                <p className="text-sm text-muted-foreground">City shops the players browse. Set the item Category (the shop sells only items of that category), the Opening Hours (players can only buy while OPEN), and per-item daily Stock + optional Discount for sale events. Stock restocks to capacity at game midnight.</p>
                 {!draft && <KButton variant="green" onClick={() => setDraft(emptyShop())} data-testid="shop-new"><Plus className="w-4 h-4" /> New Shop</KButton>}
             </div>
 
@@ -628,6 +644,40 @@ function CityShopsPanel() {
                                 <input type="checkbox" checked={!!draft.active} onChange={(e) => set("active", e.target.checked)} data-testid="shop-active" /> Active</label>
                         </div>
                     </div>
+
+                    <div className="grid sm:grid-cols-2 gap-3 pt-1">
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1"><Clock className="w-3 h-3 inline mr-1" />Opens
+                            <KInput type="time" value={draft.opening_hours?.open || "08:00"} onChange={(e) => setHours("open", e.target.value)} testid="shop-open-time" /></label>
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Closes <span className="text-muted-foreground/50">(use 24:00 for round-the-clock)</span>
+                            <KInput type="time" value={(draft.opening_hours?.close === "24:00" ? "00:00" : draft.opening_hours?.close) || "20:00"} onChange={(e) => setHours("close", e.target.value)} testid="shop-close-time" /></label>
+                    </div>
+
+                    <div className="pt-2">
+                        <div className="text-[11px] font-mono uppercase tracking-wider text-neon-cyan/80 mb-2">Stock & Discounts ({draft.category})</div>
+                        {catItems.length === 0 ? (
+                            <p className="text-[11px] text-muted-foreground">No items in this category yet. Add items with store_type "{draft.category}" in the Items tab.</p>
+                        ) : (
+                            <div className="space-y-2" data-testid="shop-items-config">
+                                <div className="grid grid-cols-[1fr_auto_auto] gap-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 px-1">
+                                    <span>Item</span><span className="w-24 text-center">Daily stock</span><span className="w-24 text-center">Discount %</span>
+                                </div>
+                                {catItems.map((it) => {
+                                    const c = draft.items_config?.[it.id] || {};
+                                    return (
+                                        <div key={it.id} className="grid grid-cols-[1fr_auto_auto] gap-3 items-center" data-testid={`shop-itemcfg-${it.id}`}>
+                                            <div className="min-w-0">
+                                                <span className="text-xs text-white">{it.name}</span>
+                                                <span className="ml-2 text-[10px] font-mono text-muted-foreground">${it.base_price}</span>
+                                            </div>
+                                            <KInput type="number" className="w-24" value={c.capacity ?? defCap} onChange={(e) => setItemCfg(it.id, "capacity", Math.max(0, Number(e.target.value)))} testid={`cfg-cap-${it.id}`} />
+                                            <KInput type="number" className="w-24" value={c.discount_pct ?? 0} onChange={(e) => setItemCfg(it.id, "discount_pct", Math.max(0, Math.min(95, Number(e.target.value))))} testid={`cfg-disc-${it.id}`} />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
                     <div className="flex gap-2 pt-2">
                         <KButton variant="green" loading={saving} disabled={!draft.name} onClick={save} data-testid="shop-save">Save Shop</KButton>
                         <KButton variant="ghost" onClick={() => setDraft(null)} data-testid="shop-cancel">Cancel</KButton>
@@ -640,18 +690,24 @@ function CityShopsPanel() {
                     {data.shops.map((s) => (
                         <Panel key={s.id} className="p-4" data-testid={`admin-shop-${s.id}`}>
                             <div className="flex items-start justify-between mb-1">
-                                <div>
+                                <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-display font-bold text-white">{s.name}</span>
-                                    <span className="ml-2 text-[10px] uppercase text-neon-cyan/80 font-mono">{s.category}</span>
-                                    {!s.active && <Pill tone="red" className="ml-2">Inactive</Pill>}
+                                    <span className="text-[10px] uppercase text-neon-cyan/80 font-mono">{s.category}</span>
+                                    <Pill tone={s.is_open_now ? "green" : "red"} className="!text-[9px]">{s.is_open_now ? "Open" : "Closed"}</Pill>
+                                    {!s.active && <Pill tone="red">Inactive</Pill>}
                                 </div>
                                 <div className="flex gap-1">
-                                    <button onClick={() => setDraft({ ...s })} className="text-muted-foreground hover:text-white" data-testid={`shop-edit-${s.id}`}><Pencil className="w-4 h-4" /></button>
+                                    <button onClick={() => editShop(s)} className="text-muted-foreground hover:text-white" data-testid={`shop-edit-${s.id}`}><Pencil className="w-4 h-4" /></button>
                                     <button onClick={() => del(s)} className="text-neon-red hover:text-neon-red/70" data-testid={`shop-del-${s.id}`}><Trash2 className="w-4 h-4" /></button>
                                 </div>
                             </div>
                             <p className="text-[11px] text-muted-foreground mb-2">{s.desc}</p>
-                            <div className="text-[10px] font-mono text-muted-foreground">{s.item_count} items{s.business_type_name ? ` · linked to ${s.business_type_name}` : ""}</div>
+                            <div className="text-[10px] font-mono text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                                <span><Clock className="w-2.5 h-2.5 inline mr-0.5" />{s.opening_hours?.open}–{s.opening_hours?.close}</span>
+                                <span>·</span>
+                                <span>{s.item_count} items</span>
+                                {s.business_type_name ? <><span>·</span><span>linked to {s.business_type_name}</span></> : null}
+                            </div>
                         </Panel>
                     ))}
                 </div>
