@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend-only testing of the Admin Dashboard hierarchical overhaul (6 main-tab groups + sub-tabs + drag reorder + show/hide + backend persistence). All flows PASS. Login as admin@kaeldor.com works; /admin renders 6 main groups (Overview/Economy/Gameplay Tuning/Player Management/City Infrastructure/Underworld & Finance). Clicking each group swaps sub-tabs and the DASHBOARD SUMMARY strip. Values come from real /api/admin/overview data (Players 61, Employed 7, Businesses 12, Active Workers 30, Market Value $3.77M compact form, Total Debt $5.1K, Liquidity $3.74M, City Shops 5/5, Job Sectors 7, Locations 6, Illegal 8, etc). Sub-panel regression OK: City Shops shows 5 admin-shop-* cards, Job Sectors shows 7 admin-sector-* cards, Economy > Businesses lists 10 items. Customize mode reveals 6 drag handles + admin-customize-panel + 6 show/hide toggles; admin-toggle-overview is disabled and cannot be clicked (correct). Hiding Underworld removes it from admin-main-tabs. Reset restores default order/visibility. REAL drag-and-drop worked: dragged admin-drag-economy over admin-group-players -> order became [overview, tuning, players, economy, city, underworld]. Persistence verified: after page reload the new order stayed AND GET /api/admin/layout returned {order:[overview,tuning,players,economy,city,underworld],hidden:[]}. Layout was RESET at end - backend confirms {order:[overview,economy,tuning,players,city,underworld],hidden:[]}.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin summary cards", "issues": ["SummaryCard label uses CSS 'truncate' so long labels like 'ACTIVE WORKERS' render as 'ACTIVE WORKE...' in the Overview strip (visible at 1920px). Cosmetic only; value below is fully readable."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Admin.jsx is 1095 lines - close to the 700-line split guideline. Consider extracting ADMIN_GROUPS/ADMIN_SUMMARY/SortableMainTab/SummaryCard/renderAdminLeaf into a separate module (e.g., src/pages/admin/) for maintainability.",
+    "SummaryCard label truncates long labels ('ACTIVE WORKE...') - consider allowing 2-line labels or shorter copy for the Overview strip.",
+    "In useEffect, byKey is captured from ADMIN_GROUPS but the dependency array is empty with a lint-ignore comment; acceptable since ADMIN_GROUPS is module-level, but the eslint disable comment is a smell.",
+    "Persistence: api.put('/admin/layout') has empty .catch(()=>{}) - failures are silently swallowed; a toast/log on failure would improve UX."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "test_credentials": "admin@kaeldor.com / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Layout persistence is per-admin-user (users.admin_layout) and was reset to default at end of test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The Admin overhaul is fully functional end-to-end. Testids verified: admin-main-tabs, admin-group-{overview,economy,tuning,players,city,underworld}, admin-subtabs, admin-tab-<label lowercased with spaces> (e.g., 'admin-tab-city shops', 'admin-tab-job sectors', 'admin-tab-economy sandbox'), admin-summary, admin-customize-toggle, admin-customize-panel, admin-drag-<key>, admin-toggle-<key> (overview is disabled), admin-layout-reset. Real Playwright drag works when using PointerSensor's 5px activation distance - move handle >5px in a step, then multi-step move to target, then release. Backend endpoint GET/PUT /api/admin/layout works via same-origin fetch with credentials.",
+  "rca of the issue": "No issues found - this iteration confirms feature is production-ready."
+}

@@ -1818,6 +1818,62 @@ async def admin_stats(admin: dict = Depends(admin_user)):
     }
 
 
+@api.get("/admin/overview")
+async def admin_overview(admin: dict = Depends(admin_user)):
+    """City-wide metrics for the Admin Dashboard summary strips."""
+    agg = await db.players.aggregate([{"$group": {"_id": None,
+        "nw": {"$sum": "$net_worth"}, "cash": {"$sum": "$cash"},
+        "bank": {"$sum": "$bank"}, "debt": {"$sum": "$debt"},
+        "susp": {"$avg": "$criminal_suspicion"}}}]).to_list(1)
+    a = agg[0] if agg else {}
+    players_total = await db.players.count_documents({})
+    npc_workers = await db.employees.count_documents({"status": {"$in": ["active", "sick"]}})
+    player_workers = await db.player_employment.count_documents({"status": "active"})
+    return {
+        "players_total": players_total,
+        "players_employed": await db.players.count_documents({"job": {"$ne": None}}),
+        "businesses_total": await db.businesses.count_documents({}),
+        "businesses_hiring": await db.businesses.count_documents({"hiring_open": True}),
+        "active_workers": npc_workers + player_workers,
+        "npc_workers": npc_workers,
+        "player_workers": player_workers,
+        "market_value": round(a.get("nw", 0) or 0, 2),
+        "total_cash": round(a.get("cash", 0) or 0, 2),
+        "total_bank": round(a.get("bank", 0) or 0, 2),
+        "total_debt": round(a.get("debt", 0) or 0, 2),
+        "avg_net_worth": round((a.get("nw", 0) or 0) / players_total, 2) if players_total else 0,
+        "avg_suspicion": round(a.get("susp", 0) or 0, 1),
+        "jobs_total": await db.jobs.count_documents({}),
+        "actions_total": await db.actions.count_documents({}),
+        "courses_total": await db.courses.count_documents({}),
+        "events_total": await db.random_events.count_documents({}),
+        "illegal_total": await db.illegal_actions.count_documents({}),
+        "market_assets_total": await db.market_assets.count_documents({}),
+        "shops_total": await db.city_shops.count_documents({}),
+        "shops_active": await db.city_shops.count_documents({"active": True}),
+        "sectors_total": await db.job_sectors.count_documents({}),
+        "locations_total": await db.locations.count_documents({}),
+    }
+
+
+class AdminLayoutBody(BaseModel):
+    order: Optional[List[str]] = None
+    hidden: Optional[List[str]] = None
+
+
+@api.get("/admin/layout")
+async def get_admin_layout(admin: dict = Depends(admin_user)):
+    u = await db.users.find_one({"_id": ObjectId(admin["id"])}, {"_id": 0, "admin_layout": 1})
+    return (u or {}).get("admin_layout") or {"order": [], "hidden": []}
+
+
+@api.put("/admin/layout")
+async def put_admin_layout(body: AdminLayoutBody, admin: dict = Depends(admin_user)):
+    layout = {"order": body.order or [], "hidden": body.hidden or []}
+    await db.users.update_one({"_id": ObjectId(admin["id"])}, {"$set": {"admin_layout": layout}})
+    return {"ok": True, "layout": layout}
+
+
 # ---------------- ADMIN SANDBOX: business economy tuning ----------------
 class BizEconomyBody(BaseModel):
     price: float | None = None
