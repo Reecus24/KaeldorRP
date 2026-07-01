@@ -88,3 +88,17 @@ linked stats). Status + action per tab.
 - **Messages sidebar tab** (`Layout.jsx`): existing `msgUnread` badge restyled from `bg-neon-red/text-black`
   to vibrant `#EF4444` + white text + red glow (`nav-messages-badge`), hidden when 0.
 - **Notification bell** restyled to the same vibrant-red + white-text badge for consistency.
+
+## Job Center working hours on cards (2026-07-01)
+- `JobCenter.jsx` JobCard now shows a "Working Hours" block (clock icon) listing every shift's window +
+  duration BEFORE the Apply button — e.g. "Day Shift: 07:00–16:00 · 6h", using fmtWindow(start_window).
+  High-risk shifts render red. Legacy int shift_options fall back to "Nh shift"; empty → "Flexible hours".
+  data-testid `working-hours-<jobId>`. Verified: 3 blocks render per sector card (English only).
+
+## Notification badge moved to LEFT of label (2026-07-01)
+- World Chat button (`ChatWidget.jsx`): red unread badge changed from an absolute top-right corner badge
+  to an inline element rendered FIRST (left of the MessageSquare icon / "World Chat" label), vertically
+  centered via the button's flex + gap-2.
+- Messages sidebar tab (`Layout.jsx`): `nav-messages-badge` moved from the row's right edge (after the
+  flex-1 label) to sit right after the icon, before the label (left side).
+- Both remain vibrant #EF4444 + white text; consistent left-side placement everywhere unread badges show.

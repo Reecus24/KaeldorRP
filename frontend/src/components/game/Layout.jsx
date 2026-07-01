@@ -71,10 +71,10 @@ function NavItems({ onNavigate, isAdmin }) {
                         }
                     >
                         <item.icon className="w-4 h-4 shrink-0" strokeWidth={1.7} />
-                        <span className="flex-1">{item.label}</span>
                         {item.to === "/messages" && msgUnread > 0 && (
-                            <span data-testid="nav-messages-badge" className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#EF4444] text-[10px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(239,68,68,0.7)]">{msgUnread > 9 ? "9+" : msgUnread}</span>
+                            <span data-testid="nav-messages-badge" className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#EF4444] text-[10px] font-bold text-white flex items-center justify-center shadow-[0_0_8px_rgba(239,68,68,0.7)] shrink-0">{msgUnread > 9 ? "9+" : msgUnread}</span>
                         )}
+                        <span className="flex-1">{item.label}</span>
                     </NavLink>
                 ),
             )}

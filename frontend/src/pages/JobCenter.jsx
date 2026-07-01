@@ -5,7 +5,7 @@ import { api, errMessage } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { SKILL_LABELS, fmtDuration } from "@/lib/helpers";
+import { SKILL_LABELS, fmtDuration, fmtWindow } from "@/lib/helpers";
 import {
     Briefcase, Lock, CheckCircle2, Flame, Brain, Clock, FileText, Hourglass, ChevronRight, ArrowLeft,
     ShoppingBag, UtensilsCrossed, Truck, Building2, Wrench, Shield, Landmark, X,
@@ -78,12 +78,23 @@ function JobCard({ j, isCurrent, pending, busy, onApply, onGoto }) {
                 <span className="flex items-center gap-1"><Brain className="w-3 h-3 text-neon-cyan" /> {Object.keys(j.skill_xp || {}).map((s) => SKILL_LABELS[s] || s).join(", ")}</span>
             </div>
 
-            <div className="flex items-center gap-2 text-[11px] font-mono mb-3 flex-wrap">
-                <span className="text-muted-foreground">Shifts:</span>
-                {(j.shift_options || []).map((s) => {
-                    const isObj = typeof s === "object" && s !== null;
-                    return <Pill key={isObj ? s.id : s}>{isObj ? `${s.duration_hours}h` : `${s}h`}</Pill>;
-                })}
+            <div className="mb-3" data-testid={`working-hours-${j.id}`}>
+                <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground mb-1">
+                    <Clock className="w-3 h-3 text-neon-cyan" /> Working Hours
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                    {(j.shift_options || []).filter((s) => typeof s === "object" && s !== null).map((s) => (
+                        <Pill key={s.id} tone={(s.injury_risk || 0) >= 0.1 ? "red" : "cyan"}>
+                            {s.name}: {fmtWindow(s.start_window)} · {s.duration_hours}h
+                        </Pill>
+                    ))}
+                    {(j.shift_options || []).filter((s) => typeof s !== "object").map((s) => (
+                        <Pill key={s}>{s}h shift</Pill>
+                    ))}
+                    {(!j.shift_options || j.shift_options.length === 0) && (
+                        <span className="text-[11px] text-muted-foreground/60 font-mono">Flexible hours</span>
+                    )}
+                </div>
             </div>
 
             {j.requirements && Object.keys(j.requirements).length > 0 && (

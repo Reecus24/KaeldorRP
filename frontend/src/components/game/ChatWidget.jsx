@@ -74,14 +74,14 @@ export default function ChatWidget() {
         return (
             <button onClick={() => setOpen(true)} data-testid="chat-widget-open"
                 className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2.5 bg-neon-cyan text-black font-display font-bold text-sm rounded-full shadow-[0_0_20px_rgba(0,243,255,0.4)] hover:scale-105 transition-transform">
-                <MessageSquare className="w-4 h-4" /> World Chat
-                <span className="flex items-center gap-1 text-[11px] bg-black/20 px-1.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse-dot" />{data.online_count}</span>
                 {unread > 0 && (
                     <span data-testid="chat-unread-badge"
-                        className="absolute -top-1.5 -right-1.5 min-w-[20px] h-[20px] px-1 rounded-full bg-[#EF4444] text-[11px] font-bold text-white flex items-center justify-center ring-2 ring-[#0A0A0A] shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse-dot">
+                        className="min-w-[20px] h-[20px] px-1 rounded-full bg-[#EF4444] text-[11px] font-bold text-white flex items-center justify-center ring-2 ring-[#0A0A0A] shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse-dot shrink-0">
                         {unread > 9 ? "9+" : unread}
                     </span>
                 )}
+                <MessageSquare className="w-4 h-4" /> World Chat
+                <span className="flex items-center gap-1 text-[11px] bg-black/20 px-1.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse-dot" />{data.online_count}</span>
             </button>
         );
     }
