@@ -8,7 +8,7 @@ load_dotenv(ROOT_DIR / ".env")
 import uuid
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Optional, List
 
 import bcrypt
 import jwt
@@ -542,6 +542,56 @@ async def list_jobs(user: dict = Depends(current_user)):
         ok, reason = meets_requirements(p, j.get("requirements"))
         out.append({**j, "qualified": ok, "reason": reason})
     return sorted(out, key=lambda x: x.get("tier", 1))
+
+
+@api.get("/jobs/sectors")
+async def list_job_sectors(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    sectors = await db.job_sectors.find({"active": True}, {"_id": 0}).to_list(100)
+    sectors.sort(key=lambda s: (s.get("order", 99), s.get("name", "")))
+    all_jobs = {j["id"]: j for j in await db.jobs.find({}, {"_id": 0}).to_list(300)}
+    out = []
+    covered = set()
+    for s in sectors:
+        jids = [jid for jid in (s.get("job_ids") or []) if jid in all_jobs]
+        covered.update(jids)
+        open_count = sum(1 for jid in jids if meets_requirements(p, all_jobs[jid].get("requirements"))[0])
+        out.append({**s, "job_count": len(jids), "open_count": open_count})
+    # Safety net: surface any job not assigned to a sector so nothing is unreachable.
+    unassigned = [j for jid, j in all_jobs.items() if jid not in covered]
+    if unassigned:
+        open_count = sum(1 for j in unassigned if meets_requirements(p, j.get("requirements"))[0])
+        out.append({"id": "unassigned", "name": "General Listings", "icon": "Briefcase",
+                    "desc": "Other openings across the city that aren't in a dedicated sector yet.",
+                    "order": 999, "active": True, "virtual": True,
+                    "job_count": len(unassigned), "open_count": open_count})
+    return out
+
+
+@api.get("/jobs/sectors/{sector_id}")
+async def job_sector_detail(sector_id: str, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    all_jobs = {j["id"]: j for j in await db.jobs.find({}, {"_id": 0}).to_list(300)}
+    if sector_id == "unassigned":
+        sectors = await db.job_sectors.find({"active": True}, {"_id": 0, "job_ids": 1}).to_list(100)
+        covered = {jid for s in sectors for jid in (s.get("job_ids") or [])}
+        s = {"id": "unassigned", "name": "General Listings", "icon": "Briefcase",
+             "desc": "Other openings across the city that aren't in a dedicated sector yet.", "virtual": True}
+        job_ids = [jid for jid in all_jobs if jid not in covered]
+    else:
+        s = await db.job_sectors.find_one({"id": sector_id, "active": True}, {"_id": 0})
+        if not s:
+            raise HTTPException(status_code=404, detail="Sector not found")
+        job_ids = s.get("job_ids") or []
+    jobs = []
+    for jid in job_ids:
+        j = all_jobs.get(jid)
+        if not j:
+            continue
+        ok, reason = meets_requirements(p, j.get("requirements"))
+        jobs.append({**j, "qualified": ok, "reason": reason})
+    jobs.sort(key=lambda x: x.get("tier", 1))
+    return {"sector": s, "jobs": jobs}
 
 
 @api.get("/jobs/current")
@@ -2506,6 +2556,55 @@ async def admin_delete_city_shop(shop_id: str, admin: dict = Depends(admin_user)
     return {"ok": True}
 
 
+# ---- Admin: Job Sectors management ----
+class JobSectorBody(BaseModel):
+    name: str
+    desc: Optional[str] = ""
+    icon: Optional[str] = "Briefcase"
+    active: Optional[bool] = True
+    order: Optional[int] = 50
+    job_ids: Optional[List[str]] = None
+
+
+@api.get("/admin/job-sectors")
+async def admin_job_sectors(admin: dict = Depends(admin_user)):
+    sectors = await db.job_sectors.find({}, {"_id": 0}).to_list(200)
+    sectors.sort(key=lambda s: (s.get("order", 99), s.get("name", "")))
+    jobs = await db.jobs.find({}, {"_id": 0, "id": 1, "title": 1, "category": 1, "tier": 1}).to_list(300)
+    jobs.sort(key=lambda x: (x.get("tier", 1), x.get("title", "")))
+    assigned = {}
+    for s in sectors:
+        for jid in (s.get("job_ids") or []):
+            assigned[jid] = s["id"]
+        s["job_count"] = len(s.get("job_ids") or [])
+    return {"sectors": sectors, "jobs": jobs, "assigned": assigned}
+
+
+@api.post("/admin/job-sectors")
+async def admin_create_job_sector(body: JobSectorBody, admin: dict = Depends(admin_user)):
+    sector = body.model_dump()
+    sector["job_ids"] = list(sector.get("job_ids") or [])
+    sector["id"] = uuid.uuid4().hex
+    await db.job_sectors.insert_one({**sector})
+    return {"ok": True, "id": sector["id"]}
+
+
+@api.put("/admin/job-sectors/{sector_id}")
+async def admin_update_job_sector(sector_id: str, body: JobSectorBody, admin: dict = Depends(admin_user)):
+    body_set = body.model_dump()
+    body_set["job_ids"] = list(body_set.get("job_ids") or [])
+    await db.job_sectors.update_one({"id": sector_id}, {"$set": body_set})
+    return {"ok": True}
+
+
+@api.delete("/admin/job-sectors/{sector_id}")
+async def admin_delete_job_sector(sector_id: str, admin: dict = Depends(admin_user)):
+    await db.job_sectors.delete_one({"id": sector_id})
+    return {"ok": True}
+
+
+
+
 
 @api.post("/social/contacts/{cid}/block")
 async def social_block(cid: str, user: dict = Depends(current_user)):
@@ -3406,6 +3505,14 @@ async def migrate_city_shops():
             "opening_hours": oh, "items_config": ic, "last_refresh_day": -1}})
 
 
+async def migrate_job_sectors():
+    """Insert any seed job sector whose id is missing (covers DBs seeded before new sectors were added)."""
+    for s in seed_data.JOB_SECTORS:
+        existing = await db.job_sectors.find_one({"id": s["id"]}, {"_id": 0, "id": 1})
+        if not existing:
+            await db.job_sectors.insert_one({**s})
+
+
 
 @app.on_event("startup")
 async def startup():
@@ -3427,6 +3534,7 @@ async def startup():
     await migrate_player_employment_hourly()
     await migrate_business_supply_chain()
     await migrate_city_shops()
+    await migrate_job_sectors()
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@kaeldor.com")
     admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
     existing = await db.users.find_one({"email": admin_email})

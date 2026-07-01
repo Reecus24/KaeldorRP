@@ -101,7 +101,7 @@ export default function Shop() {
                 {!open && (
                     <Panel className="p-4 border-neon-red/30 bg-neon-red/5 flex items-center gap-3" data-testid="shop-closed-banner">
                         <Lock className="w-5 h-5 text-neon-red shrink-0" />
-                        <div className="text-sm text-white">This shop is <span className="text-neon-red font-bold">closed</span> right now. It opens {fmtHours(s.opening_hours)}. You can browse but can't buy until it reopens.</div>
+                        <div className="text-sm text-white">This shop is <span className="text-neon-red font-bold">closed</span> right now. It opens daily {fmtHours(s.opening_hours)}. You can browse but can't buy until it reopens.</div>
                     </Panel>
                 )}
                 {loadingItems ? <Spinner /> : entered.items.length === 0 ? (

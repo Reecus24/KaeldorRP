@@ -93,6 +93,33 @@ JOBS = [
      "promotion_to": None, "promotion_req": {}},
 ]
 
+# Job Sectors / Agencies. The Job Center groups jobs into sectors; players browse a
+# sector, then see only the jobs assigned to it. Admin-editable via Sandbox -> Job Sectors.
+JOB_SECTORS = [
+    {"id": "sector_retail", "name": "Retail & Sales", "icon": "ShoppingBag", "order": 1, "active": True,
+     "desc": "Shop floors, tills and commission — serve customers and climb toward store management.",
+     "job_ids": ["cashier", "sales_assistant", "store_manager"]},
+    {"id": "sector_hospitality", "name": "Food & Hospitality", "icon": "UtensilsCrossed", "order": 2, "active": True,
+     "desc": "Kitchens, cafes and restaurants — feed the city and rise from prep cook to running the place.",
+     "job_ids": ["kitchen_helper", "barista", "restaurant_manager"]},
+    {"id": "sector_logistics", "name": "Logistics & Transport", "icon": "Truck", "order": 3, "active": True,
+     "desc": "Deliveries, warehouses and depots — keep Kaeldor's goods moving day and night.",
+     "job_ids": ["delivery_driver", "warehouse_worker", "logistics_manager"]},
+    {"id": "sector_corporate", "name": "Corporate & Office", "icon": "Building2", "order": 4, "active": True,
+     "desc": "Phones, desks and admin — steady indoor work with a path into the back office.",
+     "job_ids": ["call_center", "office_assistant"]},
+    {"id": "sector_trades", "name": "Trades & Manual Labor", "icon": "Wrench", "order": 5, "active": True,
+     "desc": "Hands-on graft — cleaning, repairs and workshops for those who'd rather build than sit.",
+     "job_ids": ["cleaner", "mechanic_apprentice"]},
+    {"id": "sector_military", "name": "Military & Defense", "icon": "Shield", "order": 6, "active": True,
+     "desc": "Join the defense forces — enlist and rise through the ranks of Kaeldor's army.",
+     "job_ids": ["army_private", "army_corporal", "army_sergeant"]},
+    {"id": "sector_public", "name": "Public Services", "icon": "Landmark", "order": 7, "active": True,
+     "desc": "Serve the city — policing and municipal work that keep Kaeldor running.",
+     "job_ids": ["police_officer", "garbageman", "garbageman_2"]},
+]
+
+
 ACTIONS = [
     {"id": "sleep", "name": "Sleep", "category": "rest", "duration_minutes": 480,
      "requirements": {}, "money_cost": 0, "money_reward": 0,
@@ -856,6 +883,7 @@ CONTENT_MAP = {
     "market_assets": ("market_assets", MARKET_ASSETS),
     "locations": ("locations", LOCATIONS),
     "city_shops": ("city_shops", CITY_SHOPS),
+    "job_sectors": ("job_sectors", JOB_SECTORS),
 }
 
 

@@ -3,7 +3,7 @@ import { api, errMessage } from "@/lib/api";
 import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/primitives";
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
-import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge, MapPin, Store, Clock } from "lucide-react";
+import { Settings, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge, MapPin, Store, Clock, Briefcase } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -716,6 +716,124 @@ function CityShopsPanel() {
     );
 }
 
+const SECTOR_ICON_OPTIONS = ["Briefcase", "ShoppingBag", "UtensilsCrossed", "Truck", "Building2", "Wrench", "Shield", "Landmark"];
+
+function JobSectorsPanel() {
+    const [data, setData] = useState(null);
+    const [draft, setDraft] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const load = useCallback(() => api.get("/admin/job-sectors").then(({ data }) => setData(data)).catch(() => setData({ sectors: [], jobs: [], assigned: {} })), []);
+    useEffect(() => { load(); }, [load]);
+
+    const emptySector = () => ({ name: "", desc: "", icon: "Briefcase", active: true, order: 50, job_ids: [] });
+    const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+    const toggleJob = (jid) => setDraft((d) => {
+        const has = (d.job_ids || []).includes(jid);
+        return { ...d, job_ids: has ? d.job_ids.filter((x) => x !== jid) : [...(d.job_ids || []), jid] };
+    });
+    const save = async () => {
+        setSaving(true);
+        try {
+            const body = {
+                name: draft.name, desc: draft.desc || "", icon: draft.icon || "Briefcase",
+                active: !!draft.active, order: Number(draft.order) || 50, job_ids: draft.job_ids || [],
+            };
+            if (draft.id) await api.put(`/admin/job-sectors/${draft.id}`, body);
+            else await api.post("/admin/job-sectors", body);
+            toast.success("Sector saved — live in the Job Center immediately");
+            setDraft(null); await load();
+        } catch (e) { toast.error(errMessage(e)); }
+        setSaving(false);
+    };
+    const del = async (s) => { if (!window.confirm(`Delete "${s.name}"?`)) return; try { await api.delete(`/admin/job-sectors/${s.id}`); toast.success("Deleted"); await load(); } catch (e) { toast.error(errMessage(e)); } };
+    const editSector = (s) => setDraft({ ...s, job_ids: [...(s.job_ids || [])] });
+
+    if (!data) return <Spinner />;
+    // which sector each job is currently assigned to (excluding the one being edited)
+    const otherAssigned = {};
+    (data.sectors || []).forEach((s) => { if (!draft || s.id !== draft.id) (s.job_ids || []).forEach((jid) => { otherAssigned[jid] = s.name; }); });
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">Job sectors / agencies the players browse in the Job Center. Create sectors, then assign jobs to them. A job assigned here shows only under its sector. Any job left unassigned appears under a "General Listings" fallback so nothing is unreachable.</p>
+                {!draft && <KButton variant="green" onClick={() => setDraft(emptySector())} data-testid="sector-new"><Plus className="w-4 h-4" /> New Sector</KButton>}
+            </div>
+
+            {draft && (
+                <Panel className="p-5 space-y-3 border-neon-cyan/30" data-testid="jobsector-editor">
+                    <div className="grid sm:grid-cols-2 gap-3">
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Sector name
+                            <KInput value={draft.name} onChange={(e) => set("name", e.target.value)} testid="sector-name" /></label>
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Icon
+                            <select value={draft.icon} onChange={(e) => set("icon", e.target.value)} data-testid="sector-icon"
+                                className="bg-black/40 border border-white/15 rounded-sm px-2 py-2 text-xs text-white">
+                                {SECTOR_ICON_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select></label>
+                    </div>
+                    <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Description
+                        <KInput value={draft.desc} onChange={(e) => set("desc", e.target.value)} testid="sector-desc" /></label>
+                    <div className="flex items-center gap-4">
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1 w-20">Order
+                            <KInput type="number" value={draft.order} onChange={(e) => set("order", Number(e.target.value))} testid="sector-order" /></label>
+                        <label className="text-[11px] text-muted-foreground flex items-center gap-2 mt-4">
+                            <input type="checkbox" checked={!!draft.active} onChange={(e) => set("active", e.target.checked)} data-testid="sector-active" /> Active</label>
+                    </div>
+
+                    <div className="pt-2">
+                        <div className="text-[11px] font-mono uppercase tracking-wider text-neon-cyan/80 mb-2">Assign Jobs ({(draft.job_ids || []).length} selected)</div>
+                        <div className="grid sm:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1" data-testid="sector-jobs-picker">
+                            {data.jobs.map((j) => {
+                                const checked = (draft.job_ids || []).includes(j.id);
+                                const takenBy = otherAssigned[j.id];
+                                return (
+                                    <label key={j.id} className={cn("flex items-center gap-2 p-2 border rounded-sm cursor-pointer transition-colors",
+                                        checked ? "border-neon-cyan/50 bg-neon-cyan/5" : "border-white/10 hover:border-white/25")} data-testid={`sector-job-${j.id}`}>
+                                        <input type="checkbox" checked={checked} onChange={() => toggleJob(j.id)} data-testid={`sector-job-cb-${j.id}`} />
+                                        <div className="min-w-0 flex-1">
+                                            <span className="text-xs text-white">{j.title}</span>
+                                            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">T{j.tier} · {j.category}</span>
+                                            {takenBy && !checked && <span className="block text-[9px] text-neon-yellow/80 font-mono">in {takenBy}</span>}
+                                        </div>
+                                    </label>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                        <KButton variant="green" loading={saving} disabled={!draft.name} onClick={save} data-testid="sector-save">Save Sector</KButton>
+                        <KButton variant="ghost" onClick={() => setDraft(null)} data-testid="sector-cancel">Cancel</KButton>
+                    </div>
+                </Panel>
+            )}
+
+            {!draft && (
+                <div className="grid md:grid-cols-2 gap-3">
+                    {data.sectors.map((s) => (
+                        <Panel key={s.id} className="p-4" data-testid={`admin-sector-${s.id}`}>
+                            <div className="flex items-start justify-between mb-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-display font-bold text-white">{s.name}</span>
+                                    <span className="text-[10px] uppercase text-neon-cyan/80 font-mono">{s.icon}</span>
+                                    {!s.active && <Pill tone="red">Inactive</Pill>}
+                                </div>
+                                <div className="flex gap-1">
+                                    <button onClick={() => editSector(s)} className="text-muted-foreground hover:text-white" data-testid={`sector-edit-${s.id}`}><Pencil className="w-4 h-4" /></button>
+                                    <button onClick={() => del(s)} className="text-neon-red hover:text-neon-red/70" data-testid={`sector-del-${s.id}`}><Trash2 className="w-4 h-4" /></button>
+                                </div>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mb-2">{s.desc}</p>
+                            <div className="text-[10px] font-mono text-muted-foreground">{s.job_count} job{s.job_count === 1 ? "" : "s"} assigned</div>
+                        </Panel>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+
 export default function Admin() {
     const [tab, setTab] = useState("stats");
 
@@ -730,6 +848,7 @@ export default function Admin() {
                 <TabBtn active={tab === "tuning"} onClick={() => setTab("tuning")} icon={Gauge}>Tuning</TabBtn>
                 <TabBtn active={tab === "locations"} onClick={() => setTab("locations")} icon={MapPin}>Locations</TabBtn>
                 <TabBtn active={tab === "cityshops"} onClick={() => setTab("cityshops")} icon={Store}>City Shops</TabBtn>
+                <TabBtn active={tab === "jobsectors"} onClick={() => setTab("jobsectors")} icon={Briefcase}>Job Sectors</TabBtn>
                 <TabBtn active={tab === "players"} onClick={() => setTab("players")} icon={Users}>Players</TabBtn>
                 <TabBtn active={tab === "config"} onClick={() => setTab("config")} icon={SlidersHorizontal}>Config</TabBtn>
                 {CONTENT_TYPES.map((c) => <TabBtn key={c.key} active={tab === c.key} onClick={() => setTab(c.key)}>{c.label}</TabBtn>)}
@@ -741,6 +860,7 @@ export default function Admin() {
                 {tab === "tuning" && <TuningPanel />}
                 {tab === "locations" && <LocationsPanel />}
                 {tab === "cityshops" && <CityShopsPanel />}
+                {tab === "jobsectors" && <JobSectorsPanel />}
                 {tab === "config" && <ConfigEditor />}
                 {tab === "players" && <PlayersTable />}
                 {CONTENT_TYPES.some((c) => c.key === tab) && <ContentEditor ctype={tab} />}
