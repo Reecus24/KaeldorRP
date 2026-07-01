@@ -205,7 +205,7 @@ def apply_tuning(cfg):
 
 # Daily-summary ledger: signed per-day money buckets (expenses stored negative).
 LEDGER_KEYS = [
-    "wages_earned", "crime_income", "social_income", "savings_interest",   # income (+)
+    "wages_earned", "business_income", "crime_income", "social_income", "savings_interest",   # income (+)
     "rent", "bills", "vehicle_costs", "fines", "medical", "living_costs", "taxes",  # expenses (-)
     "loan_interest", "business_pnl", "employee_wages",      # info / debt
 ]

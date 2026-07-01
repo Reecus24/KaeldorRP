@@ -433,12 +433,12 @@ async def interact_now(db, p, cfg, c, a, gift):
     return {"message": msg, "severity": sev}
 
 
-async def complete_social_activity(db, p, cfg, payload, eff):
+async def complete_social_activity(db, p, cfg, payload, eff, visit_token=None):
     loc_id = payload.get("location_id")
     if loc_id:
         loc = await db.locations.find_one({"id": loc_id}, {"_id": 0})
         if loc:
-            await _visit_location(db, p, cfg, loc, eff)
+            await _visit_location(db, p, cfg, loc, eff, visit_token)
         return
     aid = payload.get("action_id")
     a = await db.relationship_actions.find_one({"id": aid}, {"_id": 0})
@@ -468,9 +468,21 @@ def _discover_success(p, a, eff):
     return random.random() < min(0.97, chance) * (0.85 + 0.15 * eff)
 
 
-async def _do_meet_at(db, p, cfg, a, eff, archetype_ids, weights, place_label):
+async def _do_meet_at(db, p, cfg, a, eff, archetype_ids, weights, place_label, visit_token=None):
     """Roleplay meeting: at a venue you have a CHANCE to meet a specific kind of NPC.
-    New contacts are added to your circle only through these location actions."""
+    New contacts are added to your circle only through these location actions.
+    SINGLE-ENCOUNTER RULE: exactly 0 or 1 NPC per location visit. An atomic per-visit claim
+    (visit_token = the activity's started_at) guarantees that concurrent /game/state resolvers
+    can never resolve the same visit twice (which previously let players meet 2 NPCs at once)."""
+    if visit_token:
+        claim = await db.players.update_one(
+            {"id": p["id"], "social_visit_claims": {"$ne": visit_token}},
+            {"$push": {"social_visit_claims": {"$each": [visit_token], "$slice": -30}}})
+        if claim.modified_count == 0:
+            return  # this visit's encounter was already resolved by a concurrent request
+        claims = p.get("social_visit_claims") or []
+        claims.append(visit_token)
+        p["social_visit_claims"] = claims[-30:]
     if archetype_ids and _discover_success(p, a, eff):
         aid = random.choices(archetype_ids, weights=weights)[0]
         c = await create_contact(db, p, archetype_id=aid, announce=False)
@@ -523,7 +535,7 @@ def location_pool(loc, archetypes):
     return list(pool.values())
 
 
-async def _visit_location(db, p, cfg, loc, eff):
+async def _visit_location(db, p, cfg, loc, eff, visit_token=None):
     """Resolve a Socials 3.0 location visit: filter the eligible NPC pool, then roll by weight."""
     if loc.get("suspicion_gain"):
         p["criminal_suspicion"] = clamp(p.get("criminal_suspicion", 0) + loc["suspicion_gain"])
@@ -532,7 +544,7 @@ async def _visit_location(db, p, cfg, loc, eff):
     ids = [n["archetype_id"] for n in pool]
     weights = [n["weight"] for n in pool]
     a = {"success": {"base": loc.get("success_base", 0.72), "charisma_factor": loc.get("charisma_factor", 0.3)}}
-    await _do_meet_at(db, p, cfg, a, eff, ids, weights, loc.get("name", "the venue"))
+    await _do_meet_at(db, p, cfg, a, eff, ids, weights, loc.get("name", "the venue"), visit_token)
 
 
 # ----------------------------- serialization for the API -----------------------------

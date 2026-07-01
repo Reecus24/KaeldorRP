@@ -138,6 +138,7 @@ async def collect_business(biz_id: str, user: dict = Depends(current_user)):
     b["cash"] = 0.0
     await db.businesses.update_one({"id": biz_id}, {"$set": {"cash": 0.0}})
     add_money(p, amount)
+    ledger_add(p, "business_income", amount)
     await add_event(db, p["id"], f"Collected ${amount} profit from {b['name']}.", "business", "success")
     await save_player(p)
     return {"ok": True, "amount": amount}

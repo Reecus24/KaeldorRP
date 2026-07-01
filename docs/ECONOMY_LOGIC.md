@@ -79,3 +79,36 @@ is what matters and is enforced by the engine regardless of the pph value.
 - Materials: 60 * $6.50 = $390
 - Wages: $10 * 6h = $60
 - NET: **$270/day** (half coverage = half profit)
+
+## 00:00 Daily Deduction Cycle & Ledger Refactor (2026-07-01)
+**Timing change.** Fixed **RENT** and **VEHICLE costs** (fuel + insurance + maintenance) are NO LONGER
+prorated hourly. They are now charged as a single lump **once per day at the 00:00 game-day boundary**
+via `game_engine._charge_daily_fixed(db, p, cfg, days, housing_doc)`, invoked from `resolve_player`
+right before the daily summary flush. `days = cur_day - last_day`, so N offline days charge N× rent +
+N× vehicle in one pass.
+
+**Still hourly (continuous flows) in `accrue_recurring`:** utility **bills**, **loan interest**,
+**savings interest**, skill decay, and vehicle **condition wear** (wear is physical, not a cash cost).
+
+**Boundary = in-game 00:00.** The cycle fires at the game clock's midnight (`game_day_index`, anchored to
+`world_start_game`). At `time_scale=1` (1 game hour = 1 real hour) this tracks real time; align
+`world_start_game` to a CEST-midnight anchor if you need 00:00 to coincide with real CEST.
+
+**Concurrency-safe.** The boundary is claimed atomically:
+`players.update_one({id, last_summary_day: last_day}, {$set:{last_summary_day: cur_day}})`. Only the
+resolver whose `modified_count == 1` charges rent/vehicle and writes the summary, so concurrent
+`/api/game/state` polls can never double-charge or create duplicate summaries.
+
+**Daily Summary (the Ledger).** `_flush_daily_summary` writes one `daily_summaries` doc per boundary:
+- Income buckets summed: `wages_earned` (Total Wages) + `business_income` (Business Dividends/Profits,
+  logged on `POST /businesses/{id}/collect`) + `crime_income` + `social_income` + `savings_interest`.
+- Expense buckets summed: `rent` + `bills` (Utilities) + `vehicle_costs` + `living_costs` (Social
+  Spending) + `fines` + `medical` + `taxes` + `loan_interest`.
+- `events`: up to 25 significant events (severity success/warning/danger, or type job/legal/crime/social/
+  housing/health/business/finance) pulled from the `events` collection for the covered window — powers
+  the UI "Event Log".
+- New ledger key `business_income` added to `game_models.LEDGER_KEYS`.
+
+**Verified.** Unit checks: mid-day resolve charges NO rent/vehicle (only bills); 00:00 charges rent+vehicle
+once; owned home skips rent; 3 offline days = 3× costs; full `resolve_player` crossing writes a summary
+with correct income/expense totals, net cash, and event log. `verify_economy.py` + `verify_markets.py` pass.

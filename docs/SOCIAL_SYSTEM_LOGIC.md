@@ -78,3 +78,26 @@ Locations gain optional filter fields:
 Example: *The Platinum Lounge* uses `include_filtered` + whitelist `[Wealthy, Corporate]` + `min_attrs {social_status: 60}` → auto-populates Manager/Wholesaler/Boss/Mentor/Business Contact. *The Backstreets* whitelists `[Criminal]` + `max_attrs {legal_standing: 40}` while still manually pinning the Shady Dealer.
 
 **Admin UI (Admin ▸ Locations ▸ editor):** a "Auto-include NPCs matching filters" toggle reveals tag chips, min/max attribute inputs and a filter weight. Location cards show the active filter summary and mark filter-sourced NPCs with `*`.
+
+## Single-Encounter Rule — Location Visits (P0 fix, 2026-07-01)
+**Rule:** A single "Visit Location" action resolves to **exactly 0 or 1** newly met NPC. Never more.
+
+**Where:** `social_engine._do_meet_at()` performs ONE `_discover_success` roll and, on success, ONE
+`random.choices(...)` weighted pick → one `create_contact`. It does NOT loop over the pool.
+
+**Concurrency guard (the actual bug):** `/api/game/state` is polled concurrently (5s poll + user
+actions). When a visit's `ends_at` passed, two overlapping resolvers could each `fetch → resolve →
+save` and both run `_visit_location`, inserting **2 contacts** (contacts live in a separate collection,
+so last-writer-wins on the player doc did NOT dedupe them). Fixed with an **atomic per-visit claim**:
+- `visit_token = activity.started_at` is threaded `complete_activity → complete_social_activity →
+  _visit_location → _do_meet_at`.
+- Before rolling, `_do_meet_at` runs an atomic `players.update_one({id, social_visit_claims:{$ne:token}},
+  {$push:{social_visit_claims:{$each:[token], $slice:-30}}})`. Because single-document updates are
+  atomic in MongoDB, only the FIRST resolver's push succeeds (`modified_count==1`); any concurrent
+  resolver sees the token already present (`modified_count==0`) and returns silently — no roll, no
+  contact, no event. The in-memory `p` also carries the token so `save_player` persists it.
+- `player.social_visit_claims` keeps the last 30 visit tokens (bounded).
+
+**Validation:** 12 concurrent `/game/state` completions of one Backstreets visit (success_base forced to
+0.99) produced exactly **1** contact and one claim token; activity cleared. Non-race single visits are
+unchanged (still 0 or 1 by the single roll).

@@ -1,27 +1,31 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { SectionTitle, Spinner, Panel, Pill, EmptyState } from "@/components/game/primitives";
-import { ScrollText, TrendingUp, TrendingDown, AlertTriangle, Sparkles } from "lucide-react";
+import { ScrollText, TrendingUp, TrendingDown, AlertTriangle, Sparkles, ListTree } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const INCOME = [
-    ["wages_earned", "Wages earned"],
-    ["crime_income", "Crime income"],
-    ["social_income", "Social & deals"],
+    ["wages_earned", "Total Wages"],
+    ["business_income", "Business Dividends / Profits"],
+    ["crime_income", "Crime Income"],
+    ["social_income", "Social & Deals"],
+    ["savings_interest", "Savings Interest"],
 ];
 const EXPENSE = [
-    ["rent", "Rent"],
-    ["bills", "Bills & utilities"],
-    ["vehicle_costs", "Vehicle costs"],
-    ["fines", "Fines & bail"],
+    ["rent", "Housing Rent"],
+    ["vehicle_costs", "Vehicle Expenses (Fuel / Ins / Maint)"],
+    ["bills", "Utilities"],
+    ["living_costs", "Social Spending"],
+    ["fines", "Fines & Bail"],
     ["medical", "Medical"],
-    ["living_costs", "Social spending"],
+    ["taxes", "Taxes"],
+    ["loan_interest", "Loan Interest"],
 ];
 const INFO = [
-    ["business_pnl", "Business profit / loss"],
+    ["business_pnl", "Business P&L (info)"],
     ["employee_wages", "Staff wages (paid by business)"],
-    ["loan_interest", "Loan interest accrued"],
 ];
+const SEV_DOT = { success: "bg-neon-green", warning: "bg-neon-yellow", danger: "bg-neon-red", info: "bg-neon-cyan" };
 
 const fmt = (v) => `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v || 0)).toLocaleString()}`;
 
@@ -60,11 +64,15 @@ function SummaryCard({ s }) {
 
             <div className="grid sm:grid-cols-2 gap-4">
                 <div>
-                    <div className="text-[10px] uppercase tracking-wider text-neon-green mb-1">Income</div>
+                    <div className="flex justify-between items-center text-[10px] uppercase tracking-wider text-neon-green mb-1">
+                        <span>Income</span><span className="font-mono">{fmt(s.income_total)}</span>
+                    </div>
                     {hasIncome ? INCOME.map(([k, label]) => <Line key={k} label={label} value={L[k]} positive />) : <div className="text-xs text-muted-foreground/60 py-1">No income</div>}
                 </div>
                 <div>
-                    <div className="text-[10px] uppercase tracking-wider text-neon-red mb-1">Expenses</div>
+                    <div className="flex justify-between items-center text-[10px] uppercase tracking-wider text-neon-red mb-1">
+                        <span>Expenses</span><span className="font-mono">{fmt(s.expense_total)}</span>
+                    </div>
                     {hasExpense ? EXPENSE.map(([k, label]) => <Line key={k} label={label} value={L[k]} />) : <div className="text-xs text-muted-foreground/60 py-1">No expenses</div>}
                 </div>
             </div>
@@ -85,6 +93,20 @@ function SummaryCard({ s }) {
                 <div className="mt-3 pt-3 border-t border-white/8">
                     <div className="text-[10px] uppercase tracking-wider text-neon-purple mb-1 flex items-center gap-1"><Sparkles className="w-3 h-3" /> Social events</div>
                     {L.rel_events.slice(0, 6).map((e, i) => <div key={i} className="text-xs text-muted-foreground py-0.5">› {e}</div>)}
+                </div>
+            )}
+
+            {s.events?.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-white/8" data-testid={`summary-events-${s.id}`}>
+                    <div className="text-[10px] uppercase tracking-wider text-neon-cyan mb-1 flex items-center gap-1"><ListTree className="w-3 h-3" /> Event Log</div>
+                    <div className="max-h-56 overflow-y-auto pr-1">
+                        {s.events.slice(-18).reverse().map((e, i) => (
+                            <div key={i} className="flex items-start gap-2 text-xs py-0.5">
+                                <span className={cn("mt-1.5 w-1.5 h-1.5 rounded-full shrink-0", SEV_DOT[e.severity] || "bg-white/30")} />
+                                <span className="text-muted-foreground leading-snug">{e.message}</span>
+                            </div>
+                        ))}
+                    </div>
                 </div>
             )}
 
@@ -116,7 +138,7 @@ export default function DailySummary() {
     return (
         <div className="space-y-6">
             <SectionTitle icon={ScrollText} kicker="Your ledger" title="Daily Summary"
-                sub="A report of everything that hit your wallet each in-game day — income, expenses, business P&L, social events and warnings. This is a record, not a charge: your money moves in real time." />
+                sub="A 100% transparent receipt of every in-game day — income (wages, business dividends), expenses (housing rent, vehicle, utilities, social), business P&L, the day's event log and warnings. Fixed rent & vehicle costs are charged as one daily sum at 00:00; continuous flows (bills, interest) accrue through the day." />
             {items.length === 0 ? (
                 <EmptyState icon={ScrollText} title="No summaries yet" sub="Your first daily report will appear after the next in-game midnight. Keep living your life — it's all being tracked." />
             ) : (

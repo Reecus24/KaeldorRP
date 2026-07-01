@@ -112,12 +112,23 @@ def ledger_event(p, text):
 
 async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
     L = p.get("day_ledger") or empty_ledger()
-    income = L.get("wages_earned", 0) + L.get("crime_income", 0) + L.get("social_income", 0) + L.get("savings_interest", 0)
+    income = (L.get("wages_earned", 0) + L.get("business_income", 0) + L.get("crime_income", 0)
+              + L.get("social_income", 0) + L.get("savings_interest", 0))
     expense = (L.get("rent", 0) + L.get("bills", 0) + L.get("vehicle_costs", 0)
                + L.get("fines", 0) + L.get("medical", 0) + L.get("living_costs", 0)
                + L.get("taxes", 0) + L.get("loan_interest", 0))
     net = round(income + expense, 2)
     gnow = game_now(cfg, now)
+    # Collect the day's significant events for the ledger's Event Log (job/legal/social/finance...).
+    since_iso = p.get("last_summary_real_ts")
+    since = parse_dt(since_iso) if since_iso else (now - timedelta(hours=max(1, to_day - from_day) * 24 / max(0.01, cfg.get("time_scale", 1.0))))
+    ev_rows = await db.events.find(
+        {"player_id": p["id"], "ts": {"$gte": since.isoformat()}},
+        {"_id": 0, "ts": 1, "type": 1, "severity": 1, "message": 1}).sort("ts", 1).to_list(300)
+    significant = [e for e in ev_rows
+                   if e.get("severity") in ("success", "warning", "danger")
+                   or e.get("type") in ("job", "legal", "crime", "social", "housing", "health", "business", "finance")]
+    significant = [e for e in significant if e.get("type") != "system"][-25:]
     doc = {
         "id": uuid.uuid4().hex, "player_id": p["id"],
         "day_index": from_day, "days_covered": to_day - from_day,
@@ -126,6 +137,7 @@ async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
         "ledger": {k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in L.items()},
         "income_total": round(income, 2), "expense_total": round(expense, 2), "net_cash": net,
         "cash": round(p["cash"], 2), "bank": round(p["bank"], 2), "debt": round(p["debt"], 2),
+        "events": significant,
     }
     await db.daily_summaries.insert_one({**doc})
     if p.get("credit_missed_flag"):
@@ -134,6 +146,7 @@ async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
     elif int(p.get("credit_missed", 0)) > 0:
         p["credit_missed"] = max(0, int(p["credit_missed"]) - 1)  # rebuild creditworthiness on a clean day
     p["day_ledger"] = empty_ledger()
+    p["last_summary_real_ts"] = now.isoformat()
     sign = "+" if net >= 0 else ""
     await add_notification(db, p["id"], "daily_summary", "Daily summary ready",
                            f"Net cash for the day: {sign}${round(net)}",
@@ -379,7 +392,7 @@ async def complete_activity(db, p, cfg):
 
     elif kind == "social":
         import social_engine
-        await social_engine.complete_social_activity(db, p, cfg, payload, eff)
+        await social_engine.complete_social_activity(db, p, cfg, payload, eff, act.get("started_at"))
 
     p["current_activity"] = None
     p["status"] = "jail" if parse_dt(p.get("jail_until")) and parse_dt(p["jail_until"]) > now_utc() else \
@@ -460,16 +473,18 @@ def _decay_skills(p, gh):
 
 
 async def accrue_recurring(db, p, cfg, gh, housing_doc):
+    """Hourly-accruing money flows: utility bills, loan/savings interest, skill & vehicle wear.
+    NOTE: fixed RENT and VEHICLE costs (fuel/insurance/maintenance) are NO LONGER charged here —
+    they are deducted once per day as a single sum at the 00:00 game-day boundary
+    (see _charge_daily_fixed). This keeps continuous flows (interest/bills) hourly while making
+    the big fixed costs land at midnight, matching the Daily Summary receipt."""
     if gh <= 0:
         return
-    rent = bills = veh = 0.0
+    bills = 0.0
     if housing_doc:
-        if not p.get("housing", {}).get("owned"):
-            rent += housing_doc.get("rent_per_day", 0) * gh / 24.0
         bills += housing_doc.get("bills_per_day", 0) * gh / 24.0
+    # vehicle condition WEAR is continuous (this is not a cash cost — the cash cost is charged at 00:00)
     for v in p.get("vehicles", []):
-        vt = v.get("spec", {})
-        veh += (vt.get("fuel_per_day", 0) + vt.get("insurance_per_day", 0) + vt.get("maintenance_per_day", 0)) * gh / 24.0
         v["condition"] = clamp(v.get("condition", 100) - 0.4 * gh, 0, 100)
     if p["debt"] > 0:
         rate = cfg.get("economy", {}).get("loan_interest_daily", 0.015)
@@ -485,18 +500,48 @@ async def accrue_recurring(db, p, cfg, gh, housing_doc):
                 p["bank"] = round(p["bank"] + si, 2)
                 ledger_add(p, "savings_interest", si)
     _decay_skills(p, gh)
-    total = rent + bills + veh
-    if total > 0:
+    if bills > 0:
         before_debt = p["debt"]
-        charge(p, total)
-        ledger_add(p, "rent", -round(rent, 2))
+        charge(p, round(bills, 2))
         ledger_add(p, "bills", -round(bills, 2))
-        ledger_add(p, "vehicle_costs", -round(veh, 2))
         if p["debt"] > before_debt + 1:
             p["credit_missed_flag"] = True
-            ledger_warn(p, "Couldn't fully cover living costs — slipping into debt.")
-            if random.random() < 0.3:
-                await add_event(db, p["id"], "You couldn't cover your bills and slid deeper into debt.", "finance", "warning")
+            ledger_warn(p, "Couldn't fully cover utility bills — slipping into debt.")
+
+
+async def _charge_daily_fixed(db, p, cfg, days, housing_doc):
+    """00:00 GAME-DAY BOUNDARY: charge the day's fixed RENT and VEHICLE costs
+    (fuel + insurance + maintenance) as a single daily lump, once per day crossed.
+    Replaces the old hourly proration so these land exactly at midnight."""
+    if days <= 0:
+        return
+    rent = 0.0
+    if housing_doc and not (p.get("housing") or {}).get("owned"):
+        rent = housing_doc.get("rent_per_day", 0) * days
+    veh = 0.0
+    for v in p.get("vehicles", []):
+        vt = v.get("spec", {})
+        veh += (vt.get("fuel_per_day", 0) + vt.get("insurance_per_day", 0) + vt.get("maintenance_per_day", 0)) * days
+    total = round(rent + veh, 2)
+    if total <= 0:
+        return
+    before_debt = p["debt"]
+    charge(p, total)
+    if rent > 0:
+        ledger_add(p, "rent", -round(rent, 2))
+    if veh > 0:
+        ledger_add(p, "vehicle_costs", -round(veh, 2))
+    if p["debt"] > before_debt + 1:
+        p["credit_missed_flag"] = True
+        ledger_warn(p, "Your 00:00 rent & vehicle bill pushed you into debt.")
+        await add_event(db, p["id"], "Your daily rent & vehicle costs pushed you into debt.", "finance", "warning")
+    else:
+        parts = []
+        if rent > 0:
+            parts.append(f"rent ${round(rent)}")
+        if veh > 0:
+            parts.append(f"vehicle ${round(veh)}")
+        await add_event(db, p["id"], f"00:00 daily charge: {', '.join(parts)} (${round(total)} total).", "finance", "info")
 
 
 async def accrue_businesses(db, p, cfg, gh, now):
@@ -570,15 +615,22 @@ async def resolve_player(db, p):
     await employment.resolve_worked_businesses(db, p, cfg, now)
     await employment.sweep_player_earnings(db, p, cfg, now)
 
-    # daily summary at each in-game midnight boundary (report only, no double billing)
+    # daily summary + 00:00 fixed-cost deduction at each in-game midnight boundary
     if cfg.get("world_start_real"):
         cur_day = game_day_index(cfg, now)
         last_day = p.get("last_summary_day")
         if last_day is None:
             p["last_summary_day"] = cur_day
         elif cur_day > last_day:
-            await _flush_daily_summary(db, p, cfg, last_day, cur_day, now)
+            # Claim the boundary atomically so exactly ONE resolver charges rent/vehicle and
+            # writes the summary — concurrent /game/state polls can't double-charge or duplicate it.
+            claim = await db.players.update_one(
+                {"id": p["id"], "last_summary_day": last_day},
+                {"$set": {"last_summary_day": cur_day}})
             p["last_summary_day"] = cur_day
+            if claim.modified_count == 1:
+                await _charge_daily_fixed(db, p, cfg, cur_day - last_day, housing_doc)
+                await _flush_daily_summary(db, p, cfg, last_day, cur_day, now)
 
     # finalize status
     if p.get("status") not in ("jail", "hospital"):

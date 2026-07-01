@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 const APP_TONE = { pending: "yellow", accepted: "green", rejected: "red", hired: "cyan", withdrawn: "default", expired: "default" };
 const SECTOR_ICONS = { ShoppingBag, UtensilsCrossed, Truck, Building2, Wrench, Shield, Landmark, Briefcase };
 
-function ApplicationsPanel({ apps, onAccept, onWithdraw, onDismiss, busy }) {
+function ApplicationsPanel({ apps, onAccept, onRemove, busy }) {
     const live = apps.filter((a) => ["pending", "accepted", "rejected"].includes(a.status));
     if (live.length === 0) return null;
     return (
@@ -23,7 +23,7 @@ function ApplicationsPanel({ apps, onAccept, onWithdraw, onDismiss, busy }) {
             <div className="font-display font-bold text-white mb-3 flex items-center gap-2"><FileText className="w-4 h-4 text-neon-cyan" /> Your Applications</div>
             <div className="space-y-2">
                 {live.map((a) => {
-                    const terminal = !["pending", "accepted"].includes(a.status);
+                    const active = ["pending", "accepted"].includes(a.status);
                     return (
                     <div key={a.id} className="flex items-center justify-between gap-3 p-2.5 border border-white/10 rounded-sm" data-testid={`application-${a.id}`}>
                         <div className="min-w-0">
@@ -37,14 +37,13 @@ function ApplicationsPanel({ apps, onAccept, onWithdraw, onDismiss, busy }) {
                         </div>
                         <div className="flex gap-2 shrink-0 items-center">
                             {a.status === "accepted" && <KButton variant="green" loading={busy === a.id} onClick={() => onAccept(a)} data-testid={`accept-offer-${a.id}`}>Accept</KButton>}
-                            {(a.status === "pending" || a.status === "accepted") && <KButton variant="ghost" loading={busy === a.id + "w"} onClick={() => onWithdraw(a)} data-testid={`withdraw-${a.id}`}>Withdraw</KButton>}
-                            {terminal && (
-                                <button onClick={() => onDismiss(a)} disabled={busy === a.id + "d"}
-                                    className="text-muted-foreground hover:text-neon-cyan hover:bg-neon-cyan/10 transition-colors p-1.5 rounded-sm disabled:opacity-40"
-                                    title="Dismiss" aria-label="Dismiss application" data-testid={`dismiss-application-${a.id}`}>
-                                    <X className="w-4 h-4" />
-                                </button>
-                            )}
+                            <button onClick={() => onRemove(a)} disabled={busy === a.id + "d"}
+                                className="text-muted-foreground hover:text-neon-cyan hover:bg-neon-cyan/10 border border-white/10 hover:border-neon-cyan/40 transition-colors p-1.5 rounded-sm disabled:opacity-40"
+                                title={active ? "Withdraw application" : "Dismiss application"}
+                                aria-label={active ? "Withdraw application" : "Dismiss application"}
+                                data-testid={`dismiss-application-${a.id}`}>
+                                <X className="w-4 h-4" />
+                            </button>
                         </div>
                     </div>
                     );
@@ -171,16 +170,19 @@ export default function JobCenter() {
         setBusyId(null);
     };
 
-    const withdraw = async (a) => {
-        setBusyId(a.id + "w");
-        try { await api.post(`/jobs/applications/${a.id}/withdraw`); await loadApps(); } catch (e) { toast.error(errMessage(e)); }
-        setBusyId(null);
-    };
-
-    const dismiss = async (a) => {
+    const removeApp = async (a) => {
+        const active = ["pending", "accepted"].includes(a.status);
         setBusyId(a.id + "d");
-        try { await api.post(`/jobs/applications/${a.id}/dismiss`); await loadApps(); toast.success("Application dismissed"); }
-        catch (e) { toast.error(errMessage(e)); }
+        try {
+            if (active) {
+                await api.post(`/jobs/applications/${a.id}/withdraw`);
+                toast.success("Application withdrawn");
+            } else {
+                await api.post(`/jobs/applications/${a.id}/dismiss`);
+                toast.success("Application dismissed");
+            }
+            await loadApps();
+        } catch (e) { toast.error(errMessage(e)); }
         setBusyId(null);
     };
 
@@ -199,7 +201,7 @@ export default function JobCenter() {
                 <SectionTitle icon={Icon} kicker={s.desc} title={s.name}
                     sub="Submit an application — employers decide in real time based on your skills, education, reputation and record. Accept the offer to start working shifts." />
 
-                <ApplicationsPanel apps={apps} onAccept={acceptOffer} onWithdraw={withdraw} onDismiss={dismiss} busy={busyId} />
+                <ApplicationsPanel apps={apps} onAccept={acceptOffer} onRemove={removeApp} busy={busyId} />
 
                 {loadingJobs ? <Spinner /> : entered.jobs.length === 0 ? (
                     <Panel className="p-6 text-center text-sm text-muted-foreground">No open listings in this sector right now.</Panel>
@@ -221,7 +223,7 @@ export default function JobCenter() {
             <SectionTitle icon={Briefcase} kicker="Earn a living" title="Job Center"
                 sub="Kaeldor's employment agencies, organised by sector. Pick a sector to see its open listings, then apply — employers decide in real time." />
 
-            <ApplicationsPanel apps={apps} onAccept={acceptOffer} onWithdraw={withdraw} onDismiss={dismiss} busy={busyId} />
+            <ApplicationsPanel apps={apps} onAccept={acceptOffer} onRemove={removeApp} busy={busyId} />
 
             <div className="grid sm:grid-cols-2 gap-3" data-testid="sector-browser">
                 {sectors.map((s) => {
