@@ -267,3 +267,8 @@ User decisions: 1b (named ingredient recipes), 2a (auto-restock + manual buy but
 - Overview ▸ Live Feed sub-tab: real-time city-wide activity ticker from the events collection across all players, enriched with player names.
 - GET /admin/feed?limit&types (CSV filter). Frontend LiveCityFeed: 6s auto-refresh, LIVE indicator, filter chips (All/Purchases/Work/Crime/Finance/Social), per-type colored icons + relative time.
 - Verified: backend curl (name join + type filter) + screenshots (render + filter switch). Read-only monitoring view.
+
+## 2026-07-01 — Live Feed Game Master enhancements (COMPLETE ✓)
+- Clickable player names in the Live Feed → quick-jump to Player Management: pre-fills player search, highlights row, auto-opens Edit modal (immediate cash/stats edit). Added a name search box + X/Y count to PlayersTable.
+- Danger highlighting: events with severity=="danger" (arrests, hospitalization, collapse, bankruptcy) pulse in Danger Red #FF4444 with AlertTriangle icon + "DANGER" pill (.danger-pulse keyframe). Standard events unaffected.
+- Wiring: Admin() onFeedPlayerClick + renderAdminLeaf ctx (focusPlayer). Verified: testing_agent iteration_31 frontend 100%, 0 bugs (quick-jump, danger pulse on 10 crime/health danger events, search, save+revert, auto-refresh). Docs: ADMIN_SANDBOX.md updated.
