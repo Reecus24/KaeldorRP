@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 17 re-test of iteration_16 fixes for Kaeldor RPG. FRONTEND: 100% of the 10 acceptance checks pass — business-activity-banner and activity-remaining now render on Dovan's Kiosk with 'Marketing Campaign... Day 1/3'; marketing button uses cyan primary style (border-neon-cyan text-neon-cyan) and is disabled with label 'CAMPAIGN RUNNING…'; ov-upgrade also disabled; Reputation and Satisfaction Tiles both show info (i) icons whose hover tooltips render the exact spec text ('Reputation acts as a multiplier for market demand. Higher reputation attracts more customers.' / 'Staff satisfaction determines work efficiency. Unhappy workers produce or sell at a slower pace.'); pnl-footer is context-aware ('Currently producing 57 units/day. Market demand is 183. Hire more staff or upgrade to increase output.'); active-staff-count reads '1/1 slots · 0% covered' (X/Y match, no more 2/1); OwnedBusinesses list card shows ONLY 'Manage Business' (no forbidden buttons visible); Header NET tile has networth-info tooltip and hover shows 'NET = Cash + Bank - Debt + 50% Asset Resell Value.'; Shop /shop shows inventory-panel, buy adds to inventory (X2→X3), use-<itemId> button appears and clicking it decrements qty and shows 'Used Energy Drink' toast; RealEstate /real-estate shows 'MOVE OUT' button on current Tiny Studio rental; no German text found on Manage/Shop/RealEstate/Dashboard. BACKEND market-estimate sanity: 10/10 business types within ±20% of targets (biggest diff kiosk -13.1% at $191 vs target $220 — within ±20%). Iteration_16's two open defects are now RESOLVED.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "BusinessManage tiles", "issues": ["Reputation and Satisfaction Tiles have functional info icons and correct tooltip text, but no data-testid on the (i) button (Tile component only wires testid-info when tile itself has testid). Non-blocking — user-visible functionality meets spec, only automated selectors are missing 'reputation-info'/'satisfaction-info'. Could pass testid='reputation'/'satisfaction' to those Tiles in BusinessManage.jsx lines 440-441 to auto-generate reputation-info/satisfaction-info."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration16_features.py",
+    "/tmp/mkt.py (market profit_day sanity script)"
+  ],
+  "action_items": [
+    "OPTIONAL: pass testid=\"reputation\" and testid=\"satisfaction\" to the Reputation/Satisfaction <Tile /> instances in BusinessManage.jsx to auto-produce data-testid='reputation-info' and 'satisfaction-info' via the InfoTip wire-up (StatTile does `${testid}-info`). Purely a testability nice-to-have — the user-visible tooltip text is already exact-match."
+  ],
+  "critical_code_review_comments": [
+    "BizActivityBanner (BusinessManage.jsx L277-300) cleanly conditional on b.activity and picks yellow border for upgrade vs cyan for marketing — consistent with button colors. Good.",
+    "Marketing/Upgrade button disabled logic (costs.activity_in_progress) is consistent across ov-marketing and ov-upgrade — matches spec.",
+    "server.py market estimate now uses heads=1 for the profit_day preview so market comparisons reflect a 1-NPC-worker baseline; matches business-market UX where the user considers a fresh purchase.",
+    "employee_engine.satisfaction_mult narrowed to 0.85+0.15x brings the compound multiplier ceiling back to 1.0 and floor to 0.85 (vs previous 0.60x floor). Combined with starting satisfaction=80, the level-1 kiosk metrics.net_day should climb to $130-$150 (observed $134 live), still under the internal $200 target but within ±20% of the market-preview target of $220. Consider bumping base production_per_worker_hour if a stronger level-1 economy is desired."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (10/10 market-estimate profit_day within ±20% of targets)",
+    "frontend": "100% (all 10 acceptance checks pass)"
+  },
+  "test_credentials": "dovan@kaeldor.com/demo123 (kiosk owner with active marketing), player@kaeldor.com/player123 (used for shop buy/use test), admin@kaeldor.com/admin123 — all verified.",
+  "seed_data_creation": "None; used existing dovan (kiosk marketing activity was already active per hand-off) and player accounts. Player bought +1 Energy Drink and used 1 during the test — small state change on player@kaeldor.com.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iteration_16 defects fully resolved. Banner renders 'Marketing Campaign... Day X/3' or 'Upgrading... Day X/7 (-50% income)' as spec'd; buttons disabled with 'CAMPAIGN RUNNING…' / 'UPGRADING…'. Only optional nit is missing data-testid='reputation-info'/'satisfaction-info' (the info icons and tooltip text themselves work). Shop use-<itemId> requires having consumables in inventory — dovan started with none, hence a second login as player@kaeldor.com (who already had Energy Drink X2) was used to exercise buy→X3→use→X2 flow. market-estimate profit_day sanity: kiosk $191.2 (target 220, -13.1%), delivery_service $441.1 (-2.0%), online_shop $282.9 (-5.7%), cleaning_co $337.6 (-3.5%), bistro $479.7 (-4.1%), pet_shop $474.4 (-5.1%), clothing_store $771.8 (-3.5%), auto_repair $791.8 (-1.0%), gym $478.1 (-4.4%), real_estate_agency $1068.3 (-2.9%). All within ±20%.",
+  "rca of the issue": "No blocking issues found in iteration 17. Fixes from iteration 16 verified: (a) BizActivityBanner component was added at BusinessManage.jsx L277 and rendered at L415 when b.activity is truthy, using data-testid='business-activity-banner' and inner data-testid='activity-remaining' — dovan's kiosk has an active marketing campaign so the banner shows 'Marketing Campaign... Day 1/3' immediately on Manage page load. (b) satisfaction_mult narrowed to 0.85-1.0 (from 0.60-1.0) plus starting satisfaction 80 plus market estimate using heads=1 brings all 10 business types' profit_day within ±20% of the spec targets (100% pass)."
+}

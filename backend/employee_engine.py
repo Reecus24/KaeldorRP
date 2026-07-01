@@ -105,8 +105,8 @@ def reputation_mult(b):
 
 
 def satisfaction_mult(b):
-    """SATISFACTION = team morale/efficiency. Scales PRODUCTION output from 0.65x to 1.0x."""
-    return round(0.65 + 0.35 * (b.get("satisfaction", 60) / 100.0), 4)
+    """SATISFACTION = team morale/efficiency. Scales PRODUCTION output from 0.85x to 1.0x."""
+    return round(0.85 + 0.15 * (b.get("satisfaction", 80) / 100.0), 4)
 
 
 def effective_price(b):

@@ -277,7 +277,7 @@ async def net_worth_parts(p):
     if (p.get("housing") or {}).get("owned"):
         hd = await db.housing.find_one({"id": p["housing"]["id"]}, {"_id": 0})
         if hd:
-            prop = hd.get("buy_price", 0) * 0.8
+            prop = hd.get("buy_price", 0) * 0.5
     business = 0.0
     bizs = await db.businesses.find({"player_id": p["id"], "bankrupt": {"$ne": True}}, {"_id": 0}).to_list(100)
     for b in bizs:
@@ -975,24 +975,22 @@ async def sell_vehicle(instance_id: str, user: dict = Depends(current_user)):
 
 # ============================ BUSINESSES ============================
 def _estimate_market_pnl(t, reqs, roles):
-    """Baseline supply-chain P&L estimate for an UNOWNED business, assuming recommended NPC staffing
-    (1 shift/day each, ~0.85 productivity) and a fresh-business reputation of 50."""
+    """Conservative Level-1 P&L estimate for an UNOWNED business: ONE starting NPC worker
+    (1 shift/day, ~0.71 productivity, ~0.9 team morale) at a fresh-business reputation."""
     recipe = t.get("recipe") or []
     mc = round(sum(r.get("qty", 1) * r.get("cost", 0) for r in recipe), 2)
     price = (t.get("product") or {}).get("price", 0) or 0
     pph = t.get("production_per_worker_hour", 0) or 0
     PROD, HOURS, SAT = 0.71, 8.0, 0.9  # realistic NPC productivity, one shift, representative team morale
-    heads = sum(r.get("recommended", 1) for r in reqs) if reqs else 1
+    heads = 1  # conservative estimate: one starting worker (matches the Level-1 profit baseline)
     prod_hours = heads * HOURS * PROD
     capacity = pph * prod_hours * SAT
     demand = (t.get("daily_demand", 0) or 0) * 0.79  # rep ~58, no marketing, level 1
     sold = min(capacity, demand)
-    wages = 0.0
     if reqs:
-        for r in reqs:
-            rd = roles.get(r["role"], {})
-            hourly = ((rd.get("wage_min", 80) + rd.get("wage_max", 120)) / 2.0) / 8.0
-            wages += r.get("recommended", 1) * HOURS * hourly
+        rd = roles.get(reqs[0]["role"], {})
+        hourly = ((rd.get("wage_min", 80) + rd.get("wage_max", 120)) / 2.0) / 8.0
+        wages = HOURS * hourly
     else:
         wages = HOURS * 12.0
     rev = round(sold * price, 2)
@@ -1059,7 +1057,7 @@ async def buy_business(type_id: str, user: dict = Depends(current_user)):
         "rev_day": 0.0, "material_day": 0.0, "wages_day": 0.0, "net_day": 0.0, "exp_day": 0.0,
         "demand_day": 0.0, "produced_day": 0.0, "sold_day": 0.0,
         "bankrupt": False, "history": [], "created_at": now.isoformat(), "last_resolved_at": now.isoformat(),
-        "satisfaction": 60.0, "last_applicant_at": now.isoformat(), "morale_avg": 0, "hiring_open": False,
+        "satisfaction": 80.0, "last_applicant_at": now.isoformat(), "morale_avg": 0, "hiring_open": False,
     }
     await db.businesses.insert_one({**biz})
     cfg = await get_config(db)
@@ -2507,7 +2505,7 @@ async def seed_demo_players():
                     "rev_day": 0.0, "material_day": 0.0, "wages_day": 0.0, "net_day": 0.0, "exp_day": 0.0,
                     "demand_day": 0.0, "produced_day": 0.0, "sold_day": 0.0,
                     "bankrupt": False, "history": [], "created_at": now.isoformat(), "last_resolved_at": now.isoformat(),
-                    "satisfaction": 62.0, "last_applicant_at": now.isoformat(), "morale_avg": 0, "hiring_open": True,
+                    "satisfaction": 80.0, "last_applicant_at": now.isoformat(), "morale_avg": 0, "hiring_open": True,
                 }
                 await db.businesses.insert_one({**biz})
     logger.info("Demo players seeded (mara/dovan/kiri @kaeldor.com / demo123)")
@@ -2571,6 +2569,8 @@ async def migrate_business_supply_chain():
             "product": t.get("product") or {}, "recipe": t.get("recipe") or [],
             "production_per_worker_hour": t.get("production_per_worker_hour", 0),
             "daily_demand": t.get("daily_demand", 0)}})
+    # Lift existing businesses' starting satisfaction so a well-run shop reaches its profit target
+    await db.businesses.update_many({"satisfaction": {"$lt": 80}}, {"$set": {"satisfaction": 80.0}})
     now_iso = now_utc().isoformat()
     async for b in db.businesses.find({"recipe": {"$exists": False}}, {"_id": 0}):
         t = seed_types.get(b.get("type_id")) or {}

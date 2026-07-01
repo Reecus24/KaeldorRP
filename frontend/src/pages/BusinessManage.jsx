@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import {
     Boxes, ArrowLeft, Users, UserPlus, GraduationCap, ScrollText, LineChart, LayoutGrid,
     TrendingUp, TrendingDown, AlertTriangle, Megaphone, ArrowUpCircle, Smile, Gauge,
-    Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck,
+    Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck, Hammer,
 } from "lucide-react";
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -274,6 +274,36 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
     );
 }
 
+function BizActivityBanner({ activity }) {
+    const start = new Date(activity.started_at).getTime();
+    const end = new Date(activity.ends_at).getTime();
+    const pct = Math.max(0, Math.min(100, ((Date.now() - start) / Math.max(1, end - start)) * 100));
+    const dayNow = Math.min(activity.duration_days, Math.max(1, Math.ceil(activity.duration_days * pct / 100)));
+    const upgrade = activity.type === "upgrade";
+    const Icon = upgrade ? Hammer : Megaphone;
+    return (
+        <Panel className={cn("p-4 border", upgrade ? "border-neon-yellow/40 bg-neon-yellow/5" : "border-neon-cyan/40 bg-neon-cyan/5")} data-testid="business-activity-banner">
+            <div className="flex items-center justify-between mb-2">
+                <span className="font-display font-bold text-white flex items-center gap-2">
+                    <Icon className={cn("w-4 h-4", upgrade ? "text-neon-yellow" : "text-neon-cyan")} />
+                    {upgrade ? "Upgrading Business" : "Marketing Campaign"}
+                </span>
+                <span className="font-mono text-xs text-neon-cyan" data-testid="activity-remaining">
+                    {upgrade ? `Upgrading... Day ${dayNow}/${activity.duration_days} (-50% income)` : `Marketing Campaign... Day ${dayNow}/${activity.duration_days}`}
+                </span>
+            </div>
+            <div className="h-2 bg-white/8 rounded-full overflow-hidden">
+                <div className={cn("h-full transition-all", upgrade ? "bg-neon-yellow" : "bg-neon-cyan")} style={{ width: `${pct}%` }} />
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-2">
+                {upgrade
+                    ? "Construction disrupts trade — income is reduced 50% until it's done. On completion: +1 level and a new staff slot."
+                    : "Your campaign is rolling out. The +25% demand and +10% price boost apply the moment it completes."}
+            </p>
+        </Panel>
+    );
+}
+
 export default function BusinessManage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -381,6 +411,8 @@ export default function BusinessManage() {
             </Link>
             <SectionTitle icon={Boxes} kicker={`${b.category} · Level ${b.level}/${b.max_level}${b.bankrupt ? " · BANKRUPT" : ""}`} title={b.name}
                 right={<Pill tone={net >= 0 ? "green" : "red"} className="text-sm py-1">{net >= 0 ? "+" : ""}{money(net)}/day</Pill>} />
+
+            {b.activity && <BizActivityBanner activity={b.activity} />}
 
             <div className="flex flex-wrap gap-2">
                 <Tab active={tab === "overview"} onClick={() => setTab("overview")} icon={LayoutGrid} testid="tab-overview">Overview</Tab>
