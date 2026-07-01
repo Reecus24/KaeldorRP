@@ -304,6 +304,146 @@ function BizActivityBanner({ activity }) {
     );
 }
 
+function parseHM(s) {
+    if (!s) return 0;
+    const [h, m] = String(s).split(":").map(Number);
+    return h + (m || 0) / 60;
+}
+const KIND_COLOR = { npc: "#00F3FF", player: "#B026FF" };
+
+function ScheduleTab({ id, m, reload }) {
+    const opening = m.opening_hours || { open: "08:00", close: "20:00" };
+    const openH = parseHM(opening.open);
+    const closeH = opening.close === "24:00" ? 24 : parseHM(opening.close);
+    const roster = m.roster || [];
+    const [busy, setBusy] = useState(null);
+    const [openSel, setOpenSel] = useState(opening.open);
+    const [closeSel, setCloseSel] = useState(opening.close);
+
+    const hourOpts = Array.from({ length: 25 }, (_, i) => `${pad2(i)}:00`);
+    const covered = m.covered_hours ?? 0;
+    const openHours = m.open_hours ?? (closeH - openH);
+    const fullyCovered = covered >= openHours - 0.01;
+
+    const saveOpening = async () => {
+        setBusy("opening");
+        try {
+            await api.patch(`/businesses/${id}/opening-hours`, { open: openSel, close: closeSel });
+            toast.success("Opening hours updated");
+            await reload();
+        } catch (e) { toast.error(errMessage(e)); }
+        setBusy(null);
+    };
+    const saveShift = async (empId, start, end) => {
+        setBusy(empId);
+        try {
+            await api.patch(`/businesses/${id}/employees/${empId}/shift`, { start, end });
+            toast.success("Shift updated");
+            await reload();
+        } catch (e) { toast.error(errMessage(e)); }
+        setBusy(null);
+    };
+
+    // dropdown options limited to the opening window
+    const shiftOpts = hourOpts.filter((h) => parseHM(h === "24:00" ? "24:00" : h) >= openH - 0.01 && parseHM(h) <= closeH + 0.01);
+
+    return (
+        <div className="space-y-4" data-testid="schedule-tab">
+            <Panel className="p-5">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                    <div className="font-display font-bold text-white flex items-center gap-1.5">
+                        <Clock className="w-4 h-4 text-neon-cyan" /> Opening Hours
+                        <InfoTip text="The business only produces & sells while it's open. Staff shifts must fall within these hours. Set them here." testid="opening-info" />
+                    </div>
+                    <Pill tone={m.is_open_now ? "green" : "red"} data-testid="open-now-pill">{m.is_open_now ? "Open now" : "Closed now"}</Pill>
+                </div>
+                <div className="flex items-end gap-2 flex-wrap">
+                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Opens
+                        <select value={openSel} onChange={(e) => setOpenSel(e.target.value)} data-testid="opening-open-select"
+                            className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-sm text-white font-mono focus:outline-none focus:border-neon-cyan/50">
+                            {hourOpts.slice(0, 24).map((h) => <option key={h} value={h} className="bg-[#0d0d12]">{h}</option>)}
+                        </select>
+                    </label>
+                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Closes
+                        <select value={closeSel} onChange={(e) => setCloseSel(e.target.value)} data-testid="opening-close-select"
+                            className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-sm text-white font-mono focus:outline-none focus:border-neon-cyan/50">
+                            {hourOpts.slice(1).map((h) => <option key={h} value={h} className="bg-[#0d0d12]">{h}</option>)}
+                        </select>
+                    </label>
+                    <KButton variant="primary" loading={busy === "opening"} onClick={saveOpening} data-testid="save-opening-hours">Save Hours</KButton>
+                    <span className="text-[11px] text-muted-foreground ml-1">Open {openHours}h/day</span>
+                </div>
+            </Panel>
+
+            <Panel className="p-5">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                    <div className="font-display font-bold text-white">Staff Schedule</div>
+                    <div className="text-[11px] font-mono flex items-center gap-3">
+                        <span className={fullyCovered ? "text-neon-green" : "text-neon-yellow"} data-testid="coverage-indicator">
+                            Coverage: {covered}/{openHours}h {fullyCovered ? "✓" : `— ${Math.round((openHours - covered) * 10) / 10}h uncovered!`}
+                        </span>
+                        <span className="text-neon-red" data-testid="daily-wages">Daily Wages: {money(m.daily_wage_total || 0)}</span>
+                    </div>
+                </div>
+
+                {/* 24h timeline */}
+                <div className="mb-4">
+                    <div className="relative h-9 rounded-sm bg-white/5 border border-white/10 overflow-hidden" data-testid="schedule-timeline">
+                        <div className="absolute inset-y-0 bg-neon-cyan/10 border-x border-neon-cyan/30"
+                            style={{ left: `${(openH / 24) * 100}%`, width: `${((closeH - openH) / 24) * 100}%` }} />
+                        {roster.map((w, i) => {
+                            const s = parseHM(w.shift_start), e = w.shift_end === "24:00" ? 24 : parseHM(w.shift_end);
+                            return (
+                                <div key={w.id} className="absolute rounded-sm text-[9px] font-mono text-black flex items-center justify-center px-1 overflow-hidden"
+                                    title={`${w.name}: ${w.shift_start}-${w.shift_end}`}
+                                    style={{ left: `${(s / 24) * 100}%`, width: `${((e - s) / 24) * 100}%`, top: `${4 + (i % 2) * 15}px`, height: "13px", background: KIND_COLOR[w.kind] || "#00F3FF", opacity: 0.85 }}>
+                                    {w.name.split(" ")[0]}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <div className="flex justify-between text-[9px] text-muted-foreground font-mono mt-1 px-0.5">
+                        {[0, 6, 12, 18, 24].map((h) => <span key={h}>{pad2(h % 24)}:00</span>)}
+                    </div>
+                </div>
+
+                {/* per-worker shift editor */}
+                <div className="space-y-2">
+                    {roster.length === 0 && <div className="text-sm text-muted-foreground">No staff scheduled. Hire employees in the Applicants tab.</div>}
+                    {roster.map((w) => (
+                        <div key={w.id} className="flex items-center justify-between gap-2 flex-wrap border-b border-white/5 pb-2 last:border-0" data-testid={`shift-row-${w.id}`}>
+                            <div className="flex items-center gap-2 min-w-[160px]">
+                                <span className="w-2 h-2 rounded-full" style={{ background: KIND_COLOR[w.kind] }} />
+                                <span className="text-white text-sm">{w.name}</span>
+                                <Pill tone={w.kind === "npc" ? "cyan" : "purple"} className="capitalize !text-[9px]">{(w.role || "").replace(/_/g, " ")}</Pill>
+                                {w.on_shift && <Pill tone="green" className="!text-[9px]">On shift</Pill>}
+                            </div>
+                            {w.kind === "npc" ? (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    <select defaultValue={w.shift_start} onChange={(e) => saveShift(w.id, e.target.value, w.shift_end)} disabled={busy === w.id} data-testid={`shift-start-${w.id}`}
+                                        className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-neon-cyan/50">
+                                        {shiftOpts.slice(0, -1).map((h) => <option key={h} value={h} className="bg-[#0d0d12]">{h}</option>)}
+                                    </select>
+                                    <span className="text-muted-foreground text-xs">–</span>
+                                    <select defaultValue={w.shift_end} onChange={(e) => saveShift(w.id, w.shift_start, e.target.value)} disabled={busy === w.id} data-testid={`shift-end-${w.id}`}
+                                        className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-neon-cyan/50">
+                                        {shiftOpts.slice(1).map((h) => <option key={h} value={h} className="bg-[#0d0d12]">{h}</option>)}
+                                    </select>
+                                    <span className="text-[11px] text-neon-green font-mono ml-1">${w.hourly_wage}/hr · {w.shift_hours}h</span>
+                                </div>
+                            ) : (
+                                <div className="text-[11px] font-mono text-muted-foreground">
+                                    {w.shift_start}–{w.shift_end} · ${w.hourly_wage}/hr <span className="text-neon-purple/70">(player — adjust via Player Hiring)</span>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </Panel>
+        </div>
+    );
+}
+
 export default function BusinessManage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -418,6 +558,7 @@ export default function BusinessManage() {
                 <Tab active={tab === "overview"} onClick={() => setTab("overview")} icon={LayoutGrid} testid="tab-overview">Overview</Tab>
                 <Tab active={tab === "finances"} onClick={() => setTab("finances")} icon={LineChart} testid="tab-finances">Finances</Tab>
                 <Tab active={tab === "employees"} onClick={() => setTab("employees")} icon={Users} testid="tab-employees">Employees ({m.employee_count})</Tab>
+                <Tab active={tab === "schedule"} onClick={() => setTab("schedule")} icon={Clock} testid="tab-schedule">Schedule</Tab>
                 <Tab active={tab === "applicants"} onClick={() => setTab("applicants")} icon={UserPlus} testid="tab-applicants">Applicants ({m.applicant_count})</Tab>
                 <Tab active={tab === "hiring"} onClick={() => setTab("hiring")} icon={Users} testid="tab-hiring">Player Hiring</Tab>
                 <Tab active={tab === "training"} onClick={() => setTab("training")} icon={GraduationCap} testid="tab-training">Training</Tab>
@@ -625,7 +766,8 @@ export default function BusinessManage() {
                                             {e.wants_raise && <Pill tone="yellow">Wants Raise</Pill>}
                                             {inTraining && <Pill tone="purple">Training {fmtDuration(trainLeft)}</Pill>}
                                         </div>
-                                        <div className="text-[11px] text-muted-foreground font-mono mt-1">Age {e.age} · Skill {e.skill}/10 · Loyalty {Math.round(e.loyalty)} · <span className="text-neon-green">${e.daily_wage}/day</span></div>
+                                        <div className="text-[11px] text-muted-foreground font-mono mt-1">Age {e.age} · Skill {e.skill}/10 · Loyalty {Math.round(e.loyalty)} · <span className="text-neon-green">${e.hourly_wage ?? Math.round((e.daily_wage || 0) / 8 * 100) / 100}/hr</span></div>
+                                        <div className="text-[11px] text-neon-cyan flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {e.shift_start || "08:00"}–{e.shift_end || "16:00"} · {e.shift_hours ?? 0}h/day</div>
                                         <ProjLine proj={e.projection} label="Est. contribution" testid={`npc-proj-${e.id}`} />
                                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 max-w-xs">
                                             <StatBar label="Morale" value={e.morale} color="#B026FF" />
@@ -670,6 +812,8 @@ export default function BusinessManage() {
                     )}
                 </div>
             )}
+            {tab === "schedule" && <ScheduleTab id={id} m={m} reload={loadAll} />}
+
             {tab === "applicants" && (
                 <div className="space-y-3">
                     <KButton variant="green" loading={busy === "recruit"} onClick={() => run(() => api.post(`/businesses/${id}/recruit`), "Premium candidate recruited", "recruit")} data-testid="recruit-button">

@@ -153,26 +153,31 @@ async def gather_workers(db, b, cfg, traits_map=None):
 
 
 def _day_rates(b, workers, upgrade_penalty=1.0):
-    """Steady-state per-day P&L forecast (transparent; independent of tick size)."""
+    """Steady-state per-day P&L forecast (transparent; independent of tick size).
+    Production is driven by COVERED opening-hours (union of worker shifts), not head-count."""
     pph = b.get("production_per_worker_hour", 0)
     mkt = marketing_demand_mult(b)
     rep = reputation_mult(b)
     lvl = 1 + 0.6 * (b.get("level", 1) - 1)
+    opening = b.get("opening_hours")
+    scheds = [w["schedule"] for w in workers]
+    covered_hours = employment.covered_hours_per_day(opening, scheds)
+    open_hours = employment.open_hours_total(opening)
     demand_day = b.get("daily_demand", 0) * mkt * rep * lvl
-    prod_hours_day = sum(w["productivity"] * employment.schedule_hours_per_day(w["schedule"]) for w in workers)
-    capacity_day = pph * prod_hours_day * satisfaction_mult(b)
+    capacity_day = pph * covered_hours * satisfaction_mult(b) * lvl
     sold_day = min(capacity_day, demand_day)
     mc = material_cost_per_unit(b)
     eprice = effective_price(b)
     rev_day = round(sold_day * eprice * upgrade_penalty, 2)
     material_day = round(sold_day * mc, 2)
-    wages_day = round(sum(w["wage_per_hour"] * employment.schedule_hours_per_day(w["schedule"]) for w in workers), 2)
+    wages_day = round(sum(w["wage_per_hour"] * employment.worker_shift_hours(w["schedule"], opening) for w in workers), 2)
     net_day = round(rev_day - material_day - wages_day, 2)
     return {
         "demand_day": round(demand_day, 1), "capacity_day": round(capacity_day, 1),
         "produced_day": round(sold_day, 1), "sold_day": round(sold_day, 1),
         "rev_day": rev_day, "material_day": material_day,
         "wages_day": wages_day, "net_day": net_day, "effective_price": eprice,
+        "covered_hours": covered_hours, "open_hours": open_hours,
     }
 
 
@@ -227,17 +232,19 @@ async def business_metrics(db, b):
     applicants = await db.employees.count_documents({"business_id": b["id"], "status": "applicant"})
     pemps = await db.player_employment.find({"business_id": b["id"], "status": "active"}, {"_id": 0}).to_list(100)
 
+    opening = b.get("opening_hours")
+    open_now = employment.is_open_now(opening, g_now)
     npc_by_role, npc_active_by_role = {}, {}
     for e in npcs:
         r = e.get("role")
         npc_by_role[r] = npc_by_role.get(r, 0) + 1
-        if employment.emp_on_shift({**e, "status": "active"}, g_now):
+        if employment.on_shift_now(e.get("schedule"), opening, g_now):
             npc_active_by_role[r] = npc_active_by_role.get(r, 0) + 1
     p_by_role, p_active_by_role = {}, {}
     for pe in pemps:
         r = pe.get("role")
         p_by_role[r] = p_by_role.get(r, 0) + 1
-        if employment.emp_on_shift(pe, g_now):
+        if employment.on_shift_now(pe.get("schedule"), opening, g_now, parse_dt(pe.get("clocked_out_until"))):
             p_active_by_role[r] = p_active_by_role.get(r, 0) + 1
 
     base_slots = max(1, sum(r.get("recommended", 1) for r in reqs))
@@ -248,7 +255,9 @@ async def business_metrics(db, b):
         rec = scaled_rec[idx]
         assigned = npc_by_role.get(r["role"], 0) + p_by_role.get(r["role"], 0)
         active = npc_active_by_role.get(r["role"], 0) + p_active_by_role.get(r["role"], 0)
-        if active > 0:
+        if not open_now:
+            status = "Closed"
+        elif active > 0:
             status = "Working now"
         elif assigned > 0:
             status = "Off shift"
@@ -263,6 +272,33 @@ async def business_metrics(db, b):
     coverage = round(sum(active_ratios) / len(active_ratios), 2) if active_ratios else 1.0
     staff_count = len(npcs) + len(sick) + len(pemps)
 
+    # unified shift roster (NPCs + player employees) for the Schedule tab
+    all_scheds = [e.get("schedule") for e in npcs] + [pe.get("schedule") for pe in pemps]
+    covered_hours = employment.covered_hours_per_day(opening, all_scheds)
+    open_hours = employment.open_hours_total(opening)
+    o_h, c_h = employment.opening_bounds(opening)
+    roster = []
+    for e in npcs:
+        sh = e.get("schedule") or {}
+        s_h, e_h = employment.shift_bounds(sh)
+        roster.append({
+            "id": e["id"], "kind": "npc", "name": e["name"], "role": e.get("role"),
+            "shift_start": employment.float_to_hhmm(s_h), "shift_end": employment.float_to_hhmm(e_h),
+            "hourly_wage": npc_hourly_wage(e), "shift_hours": employment.worker_shift_hours(sh, opening),
+            "on_shift": employment.on_shift_now(sh, opening, g_now),
+        })
+    for pe in pemps:
+        sh = pe.get("schedule") or {}
+        s_h, e_h = employment.shift_bounds(sh)
+        roster.append({
+            "id": pe["id"], "kind": "player", "name": pe.get("employee_name") or "Player", "role": pe.get("role"),
+            "shift_start": employment.float_to_hhmm(s_h), "shift_end": employment.float_to_hhmm(e_h),
+            "hourly_wage": pe.get("wage_per_hour") or round(pe.get("wage_per_shift", 60) / 4.0, 2),
+            "shift_hours": employment.worker_shift_hours(sh, opening),
+            "on_shift": employment.on_shift_now(sh, opening, g_now, parse_dt(pe.get("clocked_out_until"))),
+        })
+    daily_wage_total = round(sum(w["hourly_wage"] * w["shift_hours"] for w in roster), 2)
+
     allp = npcs + sick
     morale_avg = round(sum(e.get("morale", 60) for e in allp) / len(allp)) if allp else 0
     materials = b.get("materials") or {}
@@ -274,6 +310,11 @@ async def business_metrics(db, b):
         "slots_free": max(0, max_slots - staff_count),
         "employee_count": len(npcs), "sick_count": len(sick), "applicant_count": applicants,
         "player_employee_count": len(pemps),
+        # opening hours + shift coverage
+        "opening_hours": {"open": employment.float_to_hhmm(o_h), "close": employment.float_to_hhmm(c_h)},
+        "is_open_now": open_now, "open_hours": open_hours, "covered_hours": covered_hours,
+        "coverage_hours_pct": round(min(1.0, covered_hours / open_hours) * 100) if open_hours else 100,
+        "roster": roster, "daily_wage_total": daily_wage_total,
         "morale_avg": morale_avg, "satisfaction": round(b.get("satisfaction", 60)),
         # supply-chain P&L (per-day forecast)
         "rev_day": round(b.get("rev_day", 0), 2), "material_day": round(b.get("material_day", 0), 2),
@@ -516,17 +557,19 @@ async def resolve_business(db, cfg, now, b):
     sold = 0.0
     player_bookings = []  # (emp, wage, hours, productivity)
     if gh > 0:
-        labor_hours = 0.0
+        opening = b.get("opening_hours")
+        scheds = [w["schedule"] for w in workers]
+        covered = employment.covered_hours_in_range(opening, scheds, g_last, g_now)
+        lvl_mult = 1 + 0.6 * (b.get("level", 1) - 1)
         for w in workers:
-            hrs = employment.active_hours_in_range(w["schedule"], g_last, g_now, w["clocked_out_until"])
-            if hrs <= 0.0001:
+            whrs = employment.worker_hours_in_range(w["schedule"], opening, g_last, g_now, w["clocked_out_until"])
+            if whrs <= 0.0001:
                 continue
-            labor_hours += hrs * w["productivity"]
-            wg = round(w["wage_per_hour"] * hrs, 2)
+            wg = round(w["wage_per_hour"] * whrs, 2)
             wages += wg
             if w["is_player"]:
-                player_bookings.append((w["emp"], wg, hrs, w["productivity"]))
-        capacity = b.get("production_per_worker_hour", 0) * labor_hours * satisfaction_mult(b)
+                player_bookings.append((w["emp"], wg, whrs, w["productivity"]))
+        capacity = b.get("production_per_worker_hour", 0) * covered * satisfaction_mult(b) * lvl_mult
         # restock enough materials to cover this window's production (+buffer), auto if enabled
         if b.get("auto_restock", True) and capacity > 0:
             material_spend += _auto_restock(b, capacity, None)
@@ -579,11 +622,11 @@ async def resolve_business(db, cfg, now, b):
     b["exp_day"] = round(rates["material_day"] + rates["wages_day"], 2)
 
     # satisfaction + reputation drift from how well demand is met
-    # SATISFACTION = team morale/efficiency: driven by shift coverage and worker quality (drives production)
-    needed = max(1, sum(r.get("recommended", 1) for r in reqs))
-    coverage_ratio = min(1.0, len(workers) / needed)
+    # SATISFACTION = team morale/efficiency: driven by opening-hour COVERAGE and worker quality (drives production)
+    open_h = rates.get("open_hours", 0) or 0
+    hour_coverage = min(1.0, (rates.get("covered_hours", 0) / open_h)) if open_h else 1.0
     avg_prod = (sum(w["productivity"] for w in workers) / len(workers)) if workers else 0.5
-    sat_target = clamp(35 + 35 * coverage_ratio + 40 * avg_prod)
+    sat_target = clamp(35 + 35 * hour_coverage + 40 * avg_prod)
     # REPUTATION = market reach: grows while you keep shelves stocked, fades on stock-outs (drives demand)
     met_demand = rates["sold_day"] >= rates["demand_day"] - 0.5
     in_stock = 1.0 if (b.get("products", 0) > 0.5 or met_demand) else 0.4

@@ -126,6 +126,169 @@ def active_hours_in_range(schedule, g_start, g_end, clocked_out_until=None):
     return round(span, 4)
 
 
+# ----------------------------- business opening hours & shift coverage -----------------------------
+def hhmm_to_float(s):
+    try:
+        h, m = str(s).split(":")
+        return int(h) + int(m) / 60.0
+    except Exception:
+        return 0.0
+
+
+def float_to_hhmm(f):
+    f = max(0.0, min(24.0, float(f)))
+    h = int(f)
+    m = int(round((f - h) * 60))
+    if m == 60:
+        h += 1
+        m = 0
+    return f"{h:02d}:{m:02d}"
+
+
+def opening_bounds(opening):
+    """(open_h, close_h) floats for a business; defaults to 08:00-20:00."""
+    if not opening:
+        return 8.0, 20.0
+    o = hhmm_to_float(opening.get("open", "08:00"))
+    c = hhmm_to_float(opening.get("close", "20:00"))
+    if c <= o:
+        c = 24.0
+    return o, c
+
+
+def open_hours_total(opening):
+    o, c = opening_bounds(opening)
+    return round(c - o, 4)
+
+
+def shift_bounds(schedule):
+    """(start_h, end_h) floats from a worker schedule dict."""
+    if not schedule:
+        return 8.0, 16.0
+    return float(schedule.get("start", 8)), float(schedule.get("end", 16))
+
+
+def make_shift(start_h, end_h):
+    return {"start": round(float(start_h), 2), "end": round(float(end_h), 2),
+            "label": f"{float_to_hhmm(start_h)}-{float_to_hhmm(end_h)}"}
+
+
+def _merge_intervals(ivals):
+    ivals = sorted([iv for iv in ivals if iv[1] > iv[0]])
+    out = []
+    for s, e in ivals:
+        if out and s <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], e))
+        else:
+            out.append((s, e))
+    return out
+
+
+def coverage_intervals(opening, worker_schedules):
+    """Merged covered intervals (hour-of-day floats) clipped to the opening window."""
+    o, c = opening_bounds(opening)
+    ivals = []
+    for sch in worker_schedules:
+        s, e = shift_bounds(sch)
+        s = max(o, s)
+        e = min(c, e)
+        if e > s:
+            ivals.append((s, e))
+    return _merge_intervals(ivals)
+
+
+def covered_hours_per_day(opening, worker_schedules):
+    """Distinct opening-hours covered by at least one worker (capped at opening length)."""
+    return round(sum(e - s for s, e in coverage_intervals(opening, worker_schedules)), 4)
+
+
+def is_open_now(opening, g_now):
+    o, c = opening_bounds(opening)
+    h = g_now.hour + g_now.minute / 60.0
+    return o <= h < c
+
+
+def covered_hours_in_range(opening, worker_schedules, g_start, g_end):
+    """Game-hours in [g_start,g_end] covered by >=1 worker within the opening window."""
+    if g_end <= g_start:
+        return 0.0
+    merged = coverage_intervals(opening, worker_schedules)
+    if not merged:
+        return 0.0
+    total = 0.0
+    day = g_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_day = g_end.replace(hour=0, minute=0, second=0, microsecond=0)
+    guard = 0
+    while day <= end_day and guard < 4000:
+        for s, e in merged:
+            ws = day + timedelta(hours=s)
+            we = day + timedelta(hours=e)
+            lo = max(ws, g_start)
+            hi = min(we, g_end)
+            if hi > lo:
+                total += (hi - lo).total_seconds() / 3600.0
+        day += timedelta(days=1)
+        guard += 1
+    return round(total, 4)
+
+
+def worker_shift_hours(schedule, opening):
+    """A worker's paid shift length per day, clipped to the opening window."""
+    o, c = opening_bounds(opening)
+    s, e = shift_bounds(schedule)
+    s = max(o, s)
+    e = min(c, e)
+    return round(max(0.0, e - s), 4)
+
+
+def worker_hours_in_range(schedule, opening, g_start, g_end, clocked_out_until=None):
+    """A single worker's paid hours in [g_start,g_end], clipped to the opening window."""
+    o, c = opening_bounds(opening)
+    s, e = shift_bounds(schedule)
+    s = max(o, s)
+    e = min(c, e)
+    if e <= s:
+        return 0.0
+    return active_hours_in_range({"start": s, "end": e}, g_start, g_end, clocked_out_until)
+
+
+def first_uncovered_shift(opening, worker_schedules):
+    """Largest uncovered interval within opening (full opening if nothing is staffed)."""
+    o, c = opening_bounds(opening)
+    merged = coverage_intervals(opening, worker_schedules)
+    if not merged:
+        return make_shift(o, c)
+    gaps = []
+    cursor = o
+    for s, e in merged:
+        if s > cursor:
+            gaps.append((cursor, s))
+        cursor = max(cursor, e)
+    if cursor < c:
+        gaps.append((cursor, c))
+    if not gaps:
+        return make_shift(o, c)  # already fully covered -> overlap the full window
+    best = max(gaps, key=lambda g: g[1] - g[0])
+    return make_shift(best[0], best[1])
+
+
+def on_shift_now(schedule, opening, g_now, clocked_out_until=None):
+    """True if the worker's shift covers the current game hour and the business is open."""
+    if not is_open_now(opening, g_now):
+        return False
+    o, c = opening_bounds(opening)
+    s, e = shift_bounds(schedule)
+    s = max(o, s)
+    e = min(c, e)
+    h = g_now.hour + g_now.minute / 60.0
+    if not (s <= h < e):
+        return False
+    if clocked_out_until and g_now < clocked_out_until:
+        return False
+    return True
+
+
+
 # ----------------------------- NPC job applications -----------------------------
 def application_delay_minutes(job, cfg):
     e = cfg.get("employment", {})

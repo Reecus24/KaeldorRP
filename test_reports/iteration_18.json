@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 18 — Backend Scheduling architecture is fully working. 9/10 pytest cases pass, 1 skipped (Dovan's kiosk has no NPC employee — same scenario is covered end-to-end by TestHireDefaultShift which registers a fresh player, buys a kiosk, hires an applicant, verifies the auto-assigned full-coverage default shift, then halves the shift and confirms covered_hours halves 12h→6h and net_day drops 205→102). FRONTEND acceptance passes: all 8 required Schedule-tab testids (tab-schedule, opening-open-select, opening-close-select, save-opening-hours, open-now-pill, schedule-timeline, coverage-indicator, daily-wages) are present and rendered on /businesses/{id} for dovan@kaeldor.com; the 24h timeline renders Mara Vance's segment 08:00–16:00; coverage indicator reads 'Coverage: 8/12h — 4h uncovered!' (Kiosk is currently 08–20 open); daily-wages reads '$180'; open-now-pill shows 'OPEN NOW' (green). Employees tab renders player Mara Vance with '$22.5/hr' (per-hour, not per-day) and 'Early Shift · 08:00–16:00' plus read-only note '(player — adjust via Player Hiring)'. Opening-hours save triggers 'Opening hours updated' toast. Zero German UI strings detected. Market-estimate profit_day for all 10 business types is within ±1% of spec targets (kiosk $219.83, delivery_service $449.19, bistro $500.46, gym $498.99, pet_shop $500.50, clothing_store $801.04, auto_repair $800.94, online_shop $302.46, cleaning_co $348.55, real_estate_agency $1096.78). Live L1 kiosk 1-NPC full-coverage net_day observed = $205.11/day (target $220, -6.8%, well within ±20%).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_business_scheduling.py",
+    "/app/test_reports/pytest/iteration18.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:1518 set_opening_hours cleanly (a) validates open<close, (b) accepts '24:00' as 24.0, and (c) clamps each active employee's schedule to the new window (falls back to full opening if the clamp collapses). Solid ghost-worker preventer.",
+    "server.py:1583 hire_applicant uses employment.first_uncovered_shift(opening, existing_schedules ∪ player_schedules) — first NPC hire gets the full opening window, subsequent hires fill the largest uncovered slice. Correct default per spec.",
+    "server.py PATCH endpoints use Pydantic StringBody (OpeningHoursBody/ShiftBody) — inputs are 'HH:MM' strings, not floats. This is worth documenting in the frontend contract; the ScheduleTab already uses string values via `select value=w.shift_start`, so it is consistent.",
+    "employee_engine covered_hours capped at opening length means overlapping worker shifts don't stack production but DO stack wages (via per-worker worker_hours_in_range). Correctly matches the review-request specification.",
+    "GET /businesses/{id}/employees returns {employees, metrics} envelope (with hourly_wage, shift_start='HH:MM', shift_end='HH:MM', shift_hours) — the pytest legacy expectation of a bare list was updated in this iteration's test file.",
+    "Market-estimate profit_day at heads=1 is calibrated within ±1% of every target — best economy calibration seen across iterations 15–18."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_business_scheduling.py (new)"
+  ],
+  "success_rate": {
+    "backend": "90% (9/10 pytest; 1 skipped because Dovan's kiosk has no NPC — covered by TestHireDefaultShift end-to-end)",
+    "frontend": "100% (all 8 Schedule-tab testids present + functional, Employees tab shows $/hr and shift range, opening-hours save persists, no German strings, no console errors)"
+  },
+  "test_credentials": "dovan@kaeldor.com/demo123 (kiosk id 249566f3664b40a9b9934c150c713de2), admin@kaeldor.com/admin123, plus one throwaway TEST_sched_*@kaeldor.com created per hire-test run.",
+  "seed_data_creation": "TestHireDefaultShift registers a fresh player each run, funds it directly via pymongo (players.cash=50000, players.bank=50000 keyed on user_id → players.id), then buys a kiosk ($4000) and hires an applicant. Test player is left behind (name prefix TEST_sched_*). No mutation of dovan/player/mara/kiri seed data beyond opening-hours toggles (test resets Dovan opening back to 08:00–20:00 at the end).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run: `cd /app/backend && MONGO_URL=mongodb://localhost:27017 DB_NAME=test_database python -m pytest tests/test_business_scheduling.py -v --tb=short -o addopts='' -p no:cacheprovider --junitxml=/app/test_reports/pytest/iteration18.xml`. Endpoint gotchas: (1) `/api/businesses/owned` (NOT `/api/businesses`) lists player businesses; (2) buy is `POST /api/businesses/{type_id}/buy` (path param, no body); (3) market listings expose the business-type key in the top-level `id` field (not `type`); (4) opening-hours + shift PATCHes take STRING 'HH:MM' values, not floats — sending a float returns 422; (5) `/businesses/{id}/employees` returns a dict envelope `{employees:[...], metrics:{...}}`, not a raw list. Dovan's kiosk has only a player employee (Mara Vance) — for NPC shift-editing UX flows a fresh player must be created and funded via pymongo (no /api/admin cash grant endpoint exists as of this iteration).",
+  "rca of the issue": "No blocking issues in this iteration. The one test that ends 'skipped' (TestShiftPatch.test_reset_opening_and_patch_shift) is expected: it targets Dovan's kiosk where no NPC exists — the shift PATCH validation for NPCs is instead exercised in TestHireDefaultShift where a fresh player buys a kiosk, hires an NPC, and successfully PATCHes the shift to half-coverage; covered_hours drops 12→6 and net_day drops 205→102 as spec'd. Backend and frontend integration for the entire opening-hours / staff-shift roster feature is verified working."
+}

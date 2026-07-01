@@ -975,32 +975,31 @@ async def sell_vehicle(instance_id: str, user: dict = Depends(current_user)):
 
 # ============================ BUSINESSES ============================
 def _estimate_market_pnl(t, reqs, roles):
-    """Conservative Level-1 P&L estimate for an UNOWNED business: ONE starting NPC worker
-    (1 shift/day, ~0.71 productivity, ~0.9 team morale) at a fresh-business reputation."""
+    """Level-1 P&L estimate for an UNOWNED business: ONE NPC worker covering the FULL
+    opening-hours window (coverage-based production), at a representative reputation."""
     recipe = t.get("recipe") or []
     mc = round(sum(r.get("qty", 1) * r.get("cost", 0) for r in recipe), 2)
     price = (t.get("product") or {}).get("price", 0) or 0
     pph = t.get("production_per_worker_hour", 0) or 0
-    PROD, HOURS, SAT = 0.71, 8.0, 0.9  # realistic NPC productivity, one shift, representative team morale
-    heads = 1  # conservative estimate: one starting worker (matches the Level-1 profit baseline)
-    prod_hours = heads * HOURS * PROD
-    capacity = pph * prod_hours * SAT
-    demand = (t.get("daily_demand", 0) or 0) * 0.79  # rep ~58, no marketing, level 1
+    open_hours = employment.open_hours_total(t.get("opening_hours"))
+    SAT = 0.9775  # representative team morale (satisfaction ~85)
+    capacity = pph * open_hours * SAT  # one worker covering the whole opening window
+    demand = (t.get("daily_demand", 0) or 0) * 0.85  # rep ~70, no marketing, level 1
     sold = min(capacity, demand)
     if reqs:
         rd = roles.get(reqs[0]["role"], {})
         hourly = ((rd.get("wage_min", 80) + rd.get("wage_max", 120)) / 2.0) / 8.0
-        wages = HOURS * hourly
     else:
-        wages = HOURS * 12.0
+        hourly = 12.0
+    wages = round(open_hours * hourly, 2)
     rev = round(sold * price, 2)
     material = round(sold * mc, 2)
-    wages = round(wages, 2)
     return {
         "product": t.get("product") or {}, "material_cost_per_unit": mc, "margin_per_unit": round(price - mc, 2),
         "sold_day": round(sold, 1), "demand_day": round(demand, 1),
         "revenue_day": rev, "material_day": material, "wage_day": wages,
         "profit_day": round(rev - material - wages, 2),
+        "open_hours": open_hours, "opening_hours": t.get("opening_hours") or {"open": "08:00", "close": "20:00"},
         "staff_needed": [{"role": r["role"], "recommended": r.get("recommended", 1)} for r in reqs],
     }
 
@@ -1048,6 +1047,7 @@ async def buy_business(type_id: str, user: dict = Depends(current_user)):
         "id": uuid.uuid4().hex, "player_id": p["id"], "type_id": type_id, "name": t["name"],
         "category": t.get("category", ""), "purchase_price": t["purchase_price"],
         "max_level": t.get("max_level", 5), "level": 1, "marketing_level": 0, "reputation": 50.0,
+        "opening_hours": t.get("opening_hours") or {"open": "08:00", "close": "20:00"},
         # supply chain
         "product": t.get("product") or {}, "recipe": recipe,
         "production_per_worker_hour": t.get("production_per_worker_hour", 0),
@@ -1486,6 +1486,16 @@ async def business_detail(biz_id: str, user: dict = Depends(current_user)):
     return {"business": b, "metrics": await employee_engine.business_metrics(db, b), "costs": costs}
 
 
+class OpeningHoursBody(BaseModel):
+    open: str
+    close: str
+
+
+class ShiftBody(BaseModel):
+    start: str
+    end: str
+
+
 @api.get("/businesses/{biz_id}/employees")
 async def biz_employees(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
@@ -1493,9 +1503,56 @@ async def biz_employees(biz_id: str, user: dict = Depends(current_user)):
     cfg = await get_config(db)
     tmap = {t["id"]: t for t in await db.employee_traits.find({}, {"_id": 0}).to_list(100)}
     emps = await db.employees.find({"business_id": biz_id, "status": {"$in": ["active", "sick"]}}, {"_id": 0}).sort("hire_date", 1).to_list(200)
+    opening = b.get("opening_hours")
     for e in emps:
         e["projection"] = employment.npc_employee_projection(e, cfg, tmap, b)
+        sh = e.get("schedule") or {}
+        s_h, e_h = employment.shift_bounds(sh)
+        e["hourly_wage"] = employee_engine.npc_hourly_wage(e)
+        e["shift_start"] = employment.float_to_hhmm(s_h)
+        e["shift_end"] = employment.float_to_hhmm(e_h)
+        e["shift_hours"] = employment.worker_shift_hours(sh, opening)
     return {"employees": emps, "metrics": await employee_engine.business_metrics(db, b)}
+
+
+@api.patch("/businesses/{biz_id}/opening-hours")
+async def set_opening_hours(biz_id: str, body: OpeningHoursBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    o = employment.hhmm_to_float(body.open)
+    c = employment.hhmm_to_float(body.close)
+    if body.close == "24:00":
+        c = 24.0
+    if not (0 <= o < c <= 24):
+        raise HTTPException(status_code=400, detail="Opening time must be before closing time (00:00–24:00).")
+    opening = {"open": employment.float_to_hhmm(o), "close": ("24:00" if c >= 24 else employment.float_to_hhmm(c))}
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"opening_hours": opening}})
+    # clamp any worker shifts that now fall outside the new opening window
+    for e in await db.employees.find({"business_id": biz_id, "status": {"$in": ["active", "sick"]}}, {"_id": 0, "id": 1, "schedule": 1}).to_list(300):
+        s, e2 = employment.shift_bounds(e.get("schedule"))
+        ns, ne = max(o, s), min(c, e2)
+        if ne <= ns:
+            ns, ne = o, c
+        await db.employees.update_one({"id": e["id"]}, {"$set": {"schedule": employment.make_shift(ns, ne)}})
+    return {"ok": True, "opening_hours": opening}
+
+
+@api.patch("/businesses/{biz_id}/employees/{emp_id}/shift")
+async def set_employee_shift(biz_id: str, emp_id: str, body: ShiftBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    emp = await db.employees.find_one({"id": emp_id, "business_id": biz_id, "status": {"$in": ["active", "sick"]}}, {"_id": 0})
+    if not emp:
+        raise HTTPException(status_code=404, detail="Employee not found")
+    o, c = employment.opening_bounds(b.get("opening_hours"))
+    s = employment.hhmm_to_float(body.start)
+    e = 24.0 if body.end == "24:00" else employment.hhmm_to_float(body.end)
+    if e <= s:
+        raise HTTPException(status_code=400, detail="Shift start must be before shift end.")
+    if s < o - 1e-6 or e > c + 1e-6:
+        raise HTTPException(status_code=400, detail=f"Shift must be within opening hours ({employment.float_to_hhmm(o)}–{employment.float_to_hhmm(c)}).")
+    await db.employees.update_one({"id": emp_id}, {"$set": {"schedule": employment.make_shift(s, e)}})
+    return {"ok": True, "schedule": employment.make_shift(s, e)}
 
 
 @api.get("/businesses/{biz_id}/applicants")
@@ -1525,9 +1582,14 @@ async def hire_applicant(biz_id: str, emp_id: str, user: dict = Depends(current_
         raise HTTPException(status_code=400, detail=f"No free staff slots ({m['staff_count']}/{m['max_staff_slots']}). Upgrade the business to add a slot.")
     sched_key = (emp.get("schedule") or {}).get("preset") or "early"
     wph = emp.get("wage_per_hour") or round(emp.get("daily_wage", 90) / 8.0, 2)
+    # default shift: cover the largest currently-uncovered slice of opening hours
+    existing = await db.employees.find({"business_id": biz_id, "status": "active"}, {"_id": 0, "schedule": 1}).to_list(300)
+    pe_existing = await db.player_employment.find({"business_id": biz_id, "status": "active"}, {"_id": 0, "schedule": 1}).to_list(100)
+    scheds = [x.get("schedule") for x in existing + pe_existing]
+    shift = employment.first_uncovered_shift(b.get("opening_hours"), scheds)
     await db.employees.update_one({"id": emp_id}, {"$set": {
         "status": "active", "hire_date": now_utc().isoformat(), "last_paid": now_utc().isoformat(),
-        "wage_per_hour": wph, "schedule": employment.make_schedule(sched_key)}})
+        "wage_per_hour": wph, "schedule": shift}})
     await add_event(db, p["id"], f"You hired {emp['name']} as {emp['role'].replace('_', ' ')}.", "business", "success", biz_id)
     return {"ok": True}
 
@@ -2560,7 +2622,8 @@ async def migrate_business_supply_chain():
         await db.business_types.update_one({"id": tid}, {"$set": {
             "product": t.get("product"), "recipe": t.get("recipe"),
             "production_per_worker_hour": t.get("production_per_worker_hour"),
-            "daily_demand": t.get("daily_demand")},
+            "daily_demand": t.get("daily_demand"),
+            "opening_hours": t.get("opening_hours") or {"open": "08:00", "close": "20:00"}},
             "$unset": {"rent_per_day": "", "base_revenue_per_day": "", "base_expenses_per_day": ""}})
     # Refresh the economic definition on ALL existing businesses from seed so re-balances take effect
     # (runtime state — cash/level/reputation/materials/products — is preserved).
@@ -2568,7 +2631,8 @@ async def migrate_business_supply_chain():
         await db.businesses.update_many({"type_id": tid}, {"$set": {
             "product": t.get("product") or {}, "recipe": t.get("recipe") or [],
             "production_per_worker_hour": t.get("production_per_worker_hour", 0),
-            "daily_demand": t.get("daily_demand", 0)}})
+            "daily_demand": t.get("daily_demand", 0),
+            "opening_hours": t.get("opening_hours") or {"open": "08:00", "close": "20:00"}}})
     # Lift existing businesses' starting satisfaction so a well-run shop reaches its profit target
     await db.businesses.update_many({"satisfaction": {"$lt": 80}}, {"$set": {"satisfaction": 80.0}})
     now_iso = now_utc().isoformat()
@@ -2587,6 +2651,18 @@ async def migrate_business_supply_chain():
     async for e in db.employees.find({"status": {"$in": ["active", "sick"]}, "schedule": {"$exists": False}}, {"_id": 0, "id": 1, "daily_wage": 1}):
         await db.employees.update_one({"id": e["id"]}, {"$set": {
             "schedule": employment.make_schedule("early"), "wage_per_hour": round(e.get("daily_wage", 90) / 8.0, 2)}})
+    # One-time: re-slot existing NPC shifts into non-overlapping blocks across each business's opening hours
+    async for b in db.businesses.find({"opening_shift_migrated": {"$ne": True}}, {"_id": 0, "id": 1, "opening_hours": 1}):
+        o_h, c_h = employment.opening_bounds(b.get("opening_hours"))
+        npcs = await db.employees.find({"business_id": b["id"], "status": {"$in": ["active", "sick"]}}, {"_id": 0, "id": 1}).sort("hire_date", 1).to_list(300)
+        n = len(npcs)
+        if n:
+            block = (c_h - o_h) / n
+            for i, e in enumerate(npcs):
+                s = o_h + i * block
+                e2 = c_h if i == n - 1 else o_h + (i + 1) * block
+                await db.employees.update_one({"id": e["id"]}, {"$set": {"schedule": employment.make_shift(s, e2)}})
+        await db.businesses.update_one({"id": b["id"]}, {"$set": {"opening_shift_migrated": True}})
 
 
 @app.on_event("startup")
