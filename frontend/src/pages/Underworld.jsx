@@ -6,7 +6,7 @@ import { SectionTitle, Spinner, Panel, Pill, StatBar } from "@/components/game/p
 import { KButton } from "@/components/game/controls";
 import { realDurationLabel } from "@/lib/helpers";
 import { MarketPanel } from "@/components/game/MarketPanel";
-import { Skull, AlertTriangle, Clock, Lock, XCircle, Gavel, Bitcoin, Users } from "lucide-react";
+import { Skull, AlertTriangle, Clock, Lock, XCircle, Gavel, Bitcoin, Users, Flame, Star } from "lucide-react";
 
 const HERO = "https://images.unsplash.com/photo-1688377051459-aebb99b42bff?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwzfHxjeWJlcnB1bmslMjBuZW9uJTIwZGFzaGJvYXJkJTIwZWxlbWVudHN8ZW58MHx8fHwxNzgyNzg4NTY4fDA&ixlib=rb-4.1.0&q=85";
 
@@ -84,6 +84,7 @@ export default function Underworld() {
     const { state, player, act } = useGame();
     const [data, setData] = useState(null);
     const [status, setStatus] = useState(null);
+    const [wanted, setWanted] = useState(null);
     const [busyId, setBusyId] = useState(null);
     const [tab, setTab] = useState("crime");
 
@@ -94,6 +95,7 @@ export default function Underworld() {
         ]);
         setStatus(st);
         setData(acts);
+        api.get("/underworld/most-wanted").then(({ data: w }) => setWanted(w)).catch(() => {});
     };
     useEffect(() => { load().catch(() => { setData({ access: false, actions: [] }); setStatus({ access: false }); }); }, []);
 
@@ -134,6 +136,7 @@ export default function Underworld() {
             <div className="flex gap-2">
                 <KButton variant={tab === "crime" ? "danger" : "ghost"} onClick={() => setTab("crime")} data-testid="tab-crime"><Skull className="w-4 h-4" /> Jobs</KButton>
                 <KButton variant={tab === "crypto" ? "danger" : "ghost"} onClick={() => setTab("crypto")} data-testid="tab-crypto"><Bitcoin className="w-4 h-4" /> Crypto Market</KButton>
+                <KButton variant={tab === "wanted" ? "danger" : "ghost"} onClick={() => setTab("wanted")} data-testid="tab-wanted"><Flame className="w-4 h-4" /> Most Wanted</KButton>
             </div>
 
             {tab === "crime" ? (
@@ -142,7 +145,7 @@ export default function Underworld() {
                         <CrimeCard key={a.id} a={a} blocked={blocked} busy={busyId === a.id} onCommit={commit} />
                     ))}
                 </div>
-            ) : (
+            ) : tab === "crypto" ? (
                 <div>
                     <div className="flex items-center gap-1.5 mb-3">
                         <Bitcoin className="w-4 h-4 text-neon-yellow" />
@@ -150,6 +153,70 @@ export default function Underworld() {
                         <span className="text-[11px] text-muted-foreground">— unregulated, wildly volatile. High risk, high reward.</span>
                     </div>
                     <MarketPanel endpoint="/market/crypto" kind="crypto" accent="#FFC300" />
+                </div>
+            ) : (
+                <MostWantedBoard wanted={wanted} />
+            )}
+        </div>
+    );
+}
+
+function WantedStars({ level }) {
+    return (
+        <span className="inline-flex gap-0.5" title={`Wanted level ${level}/5`}>
+            {[1, 2, 3, 4, 5].map((i) => (
+                <Star key={i} className={`w-3 h-3 ${i <= level ? "text-neon-red fill-neon-red" : "text-white/15"}`} />
+            ))}
+        </span>
+    );
+}
+
+function MostWantedBoard({ wanted }) {
+    if (!wanted) return <Spinner />;
+    const board = wanted.board || [];
+    return (
+        <div className="space-y-4" data-testid="most-wanted-board">
+            <Panel className="p-4 border-neon-red/30 bg-neon-red/[0.03] flex items-center gap-3">
+                <Flame className="w-5 h-5 text-neon-red shrink-0" />
+                <div className="flex-1">
+                    <div className="text-sm text-white font-medium">City Most Wanted</div>
+                    <div className="text-[11px] text-muted-foreground">
+                        Ranked by police HEAT — a blend of criminal suspicion and a fallen legal standing.
+                        {wanted.my_rank ? <span className="text-neon-red"> You are #{wanted.my_rank} of {wanted.total_wanted} (heat {wanted.my_heat}).</span>
+                            : <span className="text-neon-green"> You're off the radar — keep it that way.</span>}
+                    </div>
+                </div>
+            </Panel>
+
+            {board.length === 0 ? (
+                <Panel className="p-8 text-center text-muted-foreground text-sm" data-testid="most-wanted-empty">
+                    The streets are quiet. Nobody's drawing police heat right now.
+                </Panel>
+            ) : (
+                <div className="space-y-2">
+                    {board.map((r, i) => (
+                        <Panel key={r.id} data-testid={`wanted-row-${i}`}
+                            className={`p-3 flex items-center gap-3 ${r.is_you ? "border-neon-red/50 bg-neon-red/[0.05]" : ""}`}>
+                            <div className={`w-7 text-center font-mono font-bold ${i < 3 ? "text-neon-red" : "text-muted-foreground"}`}>#{i + 1}</div>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-display font-bold text-white truncate">{r.name}</span>
+                                    {r.is_you && <Pill tone="danger">You</Pill>}
+                                    <span className="text-[10px] font-mono text-muted-foreground">Lvl {r.level}</span>
+                                </div>
+                                <div className="flex items-center gap-3 text-[11px] text-muted-foreground font-mono mt-0.5">
+                                    <span>Susp {r.suspicion}</span>
+                                    <span>Legal {r.legal_standing}</span>
+                                    <span>{r.crimes} crimes</span>
+                                    {r.jailed > 0 && <span className="text-neon-red">{r.jailed}× jailed</span>}
+                                </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                                <WantedStars level={r.wanted_level} />
+                                <span className="font-mono text-[11px] text-neon-red flex items-center gap-1"><Flame className="w-3 h-3" /> {r.heat}</span>
+                            </div>
+                        </Panel>
+                    ))}
                 </div>
             )}
         </div>

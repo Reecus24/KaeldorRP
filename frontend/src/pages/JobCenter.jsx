@@ -8,19 +8,29 @@ import { KButton } from "@/components/game/controls";
 import { SKILL_LABELS, fmtDuration, fmtWindow } from "@/lib/helpers";
 import {
     Briefcase, Lock, CheckCircle2, Flame, Brain, Clock, FileText, Hourglass, ChevronRight, ArrowLeft,
-    ShoppingBag, UtensilsCrossed, Truck, Building2, Wrench, Shield, Landmark, X,
+    ShoppingBag, UtensilsCrossed, Truck, Building2, Wrench, Shield, Landmark, X, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const APP_TONE = { pending: "yellow", accepted: "green", rejected: "red", hired: "cyan", withdrawn: "default", expired: "default" };
 const SECTOR_ICONS = { ShoppingBag, UtensilsCrossed, Truck, Building2, Wrench, Shield, Landmark, Briefcase };
 
-function ApplicationsPanel({ apps, onAccept, onRemove, busy }) {
+function ApplicationsPanel({ apps, onAccept, onRemove, onClearAll, busy }) {
     const live = apps.filter((a) => ["pending", "accepted", "rejected"].includes(a.status));
     if (live.length === 0) return null;
+    const clearable = live.filter((a) => a.status === "rejected").length;
     return (
         <Panel className="p-4" data-testid="npc-applications">
-            <div className="font-display font-bold text-white mb-3 flex items-center gap-2"><FileText className="w-4 h-4 text-neon-cyan" /> Your Applications</div>
+            <div className="flex items-center justify-between mb-3">
+                <div className="font-display font-bold text-white flex items-center gap-2"><FileText className="w-4 h-4 text-neon-cyan" /> Your Applications</div>
+                {clearable > 0 && (
+                    <button onClick={onClearAll} disabled={busy === "clear-all"}
+                        className="text-[11px] font-mono text-muted-foreground hover:text-neon-cyan hover:bg-neon-cyan/10 border border-white/10 hover:border-neon-cyan/40 transition-colors px-2 py-1 rounded-sm disabled:opacity-40 flex items-center gap-1"
+                        data-testid="clear-all-applications">
+                        <Trash2 className="w-3 h-3" /> Clear all ({clearable})
+                    </button>
+                )}
+            </div>
             <div className="space-y-2">
                 {live.map((a) => {
                     const active = ["pending", "accepted"].includes(a.status);
@@ -205,6 +215,16 @@ export default function JobCenter() {
         setBusyId(null);
     };
 
+    const clearAll = async () => {
+        setBusyId("clear-all");
+        try {
+            const { data } = await api.post("/jobs/applications/dismiss-all");
+            toast.success(`Cleared ${data.removed} application${data.removed === 1 ? "" : "s"}`);
+            await loadApps();
+        } catch (e) { toast.error(errMessage(e)); }
+        setBusyId(null);
+    };
+
     if (!sectors) return <Spinner />;
     const appliedJobIds = new Set(apps.filter((a) => ["pending", "accepted"].includes(a.status)).map((a) => a.job_id));
 
@@ -220,7 +240,7 @@ export default function JobCenter() {
                 <SectionTitle icon={Icon} kicker={s.desc} title={s.name}
                     sub="Submit an application — employers decide in real time based on your skills, education, reputation and record. Accept the offer to start working shifts." />
 
-                <ApplicationsPanel apps={apps} onAccept={acceptOffer} onRemove={removeApp} busy={busyId} />
+                <ApplicationsPanel apps={apps} onAccept={acceptOffer} onRemove={removeApp} onClearAll={clearAll} busy={busyId} />
 
                 {loadingJobs ? <Spinner /> : entered.jobs.length === 0 ? (
                     <Panel className="p-6 text-center text-sm text-muted-foreground">No open listings in this sector right now.</Panel>
@@ -242,7 +262,7 @@ export default function JobCenter() {
             <SectionTitle icon={Briefcase} kicker="Earn a living" title="Job Center"
                 sub="Kaeldor's employment agencies, organised by sector. Pick a sector to see its open listings, then apply — employers decide in real time." />
 
-            <ApplicationsPanel apps={apps} onAccept={acceptOffer} onRemove={removeApp} busy={busyId} />
+            <ApplicationsPanel apps={apps} onAccept={acceptOffer} onRemove={removeApp} onClearAll={clearAll} busy={busyId} />
 
             <div className="grid sm:grid-cols-2 gap-3" data-testid="sector-browser">
                 {sectors.map((s) => {

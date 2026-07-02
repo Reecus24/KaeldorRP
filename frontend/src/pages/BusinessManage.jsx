@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import {
     Boxes, ArrowLeft, Users, UserPlus, GraduationCap, ScrollText, LineChart, LayoutGrid,
     TrendingUp, TrendingDown, AlertTriangle, Megaphone, ArrowUpCircle, Smile, Gauge,
-    Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck, Hammer, Handshake,
+    Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck, Hammer, Handshake, Lightbulb,
 } from "lucide-react";
 
 const pad2 = (n) => String(n).padStart(2, "0");
@@ -49,6 +49,37 @@ function ActivePerks({ perks }) {
         </Panel>
     );
 }
+
+function BusinessInsight({ insight, onAction }) {
+    const positive = (insight.gain || 0) > 0;
+    return (
+        <Panel className="p-4 border-neon-cyan/30 bg-neon-cyan/[0.03]" data-testid="business-insight-panel">
+            <div className="flex items-start gap-3">
+                <div className="shrink-0 mt-0.5 w-9 h-9 rounded-sm bg-neon-cyan/10 border border-neon-cyan/30 flex items-center justify-center">
+                    <Lightbulb className="w-[18px] h-[18px] text-neon-cyan" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] uppercase tracking-wider text-neon-cyan/70 font-mono">Best next move</span>
+                        {positive && (
+                            <span className="font-mono text-[11px] px-1.5 py-0.5 rounded-sm border text-neon-green border-neon-green/40" data-testid="insight-gain">
+                                ~+${insight.gain}/day
+                            </span>
+                        )}
+                    </div>
+                    <div className="font-display font-bold text-white mt-0.5" data-testid="insight-title">{insight.title}</div>
+                    <p className="text-[12px] text-muted-foreground mt-0.5" data-testid="insight-detail">{insight.detail}</p>
+                </div>
+                {insight.cta && insight.action !== "healthy" && (
+                    <KButton variant="ghost" className="shrink-0 self-center" onClick={onAction} data-testid="insight-cta">
+                        {insight.cta}
+                    </KButton>
+                )}
+            </div>
+        </Panel>
+    );
+}
+
 
 function Tab({ active, onClick, icon: Icon, children, testid }) {
     return (
@@ -620,6 +651,15 @@ export default function BusinessManage() {
 
                     <ActivePerks perks={player?.social_perks} />
 
+                    {detail.insight && <BusinessInsight insight={detail.insight} onAction={() => {
+                        const a = detail.insight.action;
+                        if (a === "staff" || a === "trim") setTab("schedule");
+                        else if (a === "morale") setTab("employees");
+                        else if (a === "marketing" || a === "restock" || a === "healthy") {
+                            document.getElementById("biz-actions-anchor")?.scrollIntoView({ behavior: "smooth" });
+                        }
+                    }} />}
+
                     {/* SUPPLY CHAIN — transparent P&L */}
                     <Panel className="p-5" data-testid="supply-chain-panel">
                         <div className="flex items-center gap-1.5 mb-3">
@@ -712,7 +752,7 @@ export default function BusinessManage() {
                         </div>
                     </Panel>
 
-                    <Panel className="p-4" data-testid="biz-actions">
+                    <Panel className="p-4" data-testid="biz-actions" id="biz-actions-anchor">
                         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
                                 <div className="font-display font-bold text-white text-sm mb-0.5">Collect Profit</div>

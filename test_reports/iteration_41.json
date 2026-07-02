@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 41 — Admin refactor + Most Wanted + Business Insights + Clear-all + Tab-title flash. 13/13 backend tests PASS (test_iteration41_features.py). Frontend E2E validated end-to-end: (1) Admin refactor — all 6 main tab groups (Overview / Economy / Gameplay Tuning / Player Management / City Infrastructure / Underworld & Finance) render without blank screens or console errors; Players table search finds 'Dovan Reyes' with EDIT button; City Shops sub-tabs and content editors render; Underworld & Finance shows Illegal Actions + Markets. (2) Most Wanted — /api/underworld/most-wanted returns {board,total_wanted,my_rank,my_heat}, dovan's UI shows the tab-wanted and most-wanted-board with 4 wanted players (Lucifer Cerberus / Mark Pilots / Revan Scario / Shift Player) with wanted-star icons, suspicion/legal/crimes and heat; 'off-the-radar' header shown for dovan (heat=0). When admin PUTs dovan's suspicion=90/legal=15, my_rank is populated and is_you row appears. (3) Business Insight — GET /api/businesses/{id} returns non-empty insight {action,title,detail,gain,cta}; dovan's Street Kiosk shows 'Cover 4h of open hours' insight, +$58/day gain, 'Schedule Staff' CTA in Overview tab (business-insight-panel + insight-title + insight-detail + insight-gain + insight-cta all present). (4) Clear-all — POST /api/jobs/applications/dismiss-all returns {ok:true, removed:int}; idempotent (2nd call removes 0); button correctly HIDDEN when dovan has no rejected apps (count=0). (5) Tab-title flash — dovan (msgUnread=8) shows document.title='(8) Kaeldor' on Home and /jobs; admin (unread=0) shows 'Kaeldor'. (6) Core regression — /api/game/state, /api/bank, /api/jobs, /api/businesses/owned, /api/underworld/status all 200 for admin/mara/dovan/kiri. Underworld access gate intact: dovan unlocked, mara locked.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration41_features.py",
+    "/app/test_reports/pytest/iteration41_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Admin.jsx refactor is clean — the 6 sub-panel files under /app/frontend/src/pages/admin/ import cleanly and render identically to pre-refactor. No behavior change detected in dnd-kit tab reorder, JSON content editors, or price-% controls in City Shops.",
+    "routes/player.py:most_wanted() correctly uses fetch_raw_player(user['id']) (raw, no resolve_player mutation) and computes heat = 0.7*suspicion + 0.3*max(0,40-legal)*(100/40), clamped 0-100. Board is sorted DESC by heat with top-15 slice. Wanted level mapping heat//20+1 clamped 1-5 is stars-friendly.",
+    "employee_engine.business_insight() returns a well-formed dict for every case in the priority chain (accident>debt>staffing>hiring>marketing>materials>fallback); routes/business.py:business_detail() correctly injects it as detail['insight']. Verified fallback + specific 'hours coverage' insight both render.",
+    "routes/player.py:dismiss_all_applications() correctly filters status IN [rejected, withdrawn, expired, hired] and returns {ok, removed:int}. Idempotent — 2nd invocation returns removed=0.",
+    "GameContext.jsx tab-title flash: document.title = msgUnread > 0 ? `(${n}) Kaeldor` : 'Kaeldor'. Confirmed live in browser (dovan sees '(8) Kaeldor').",
+    "TESTING NOTE for future agents: (a) admin/players returns a RAW LIST without 'email' — match players by 'name'. (b) Owned businesses endpoint is /api/businesses/owned (NOT /api/businesses). (c) pytest.ini forces -n 2 --dist loadscope so any Dovan-mutating test racing with /api/game/state calls from another worker can decay criminal_suspicion; test_most_wanted_returns_when_heated is written with a 3x retry loop + susp=90 to survive that race. Not a product bug — resolve_player() during game_state is expected to decay suspicion over time."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration41_features.py"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13)",
+    "frontend": "100% (admin refactor, most-wanted, business-insight, clear-all-hidden, tab-title flash all verified end-to-end)"
+  },
+  "test_credentials": "Admin: admin@kaeldor.com/admin123. Players (all demo123): dovan@kaeldor.com (Underworld + owns Dovan's Street Kiosk), mara@kaeldor.com (locked underworld), kiri@kaeldor.com (locked underworld).",
+  "seed_data_creation": "None. test_most_wanted_returns_when_heated temporarily mutates Dovan's criminal_suspicion/legal_reputation via admin PUT; try/finally restores originals. All Mara state untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "iteration41 file: test_iteration41_features.py covers all P1/P2/P3 features from this batch. Base pattern to reuse: (1) match admin players by 'name' since admin/players doesn't expose email; (2) use /api/businesses/owned not /api/businesses; (3) auth token field is 'token' (Bearer); (4) tests mutating a Dovan/Mara stat must live in ONE class OR add retry logic because pytest.ini xdist loadscope pins classes to workers and /api/game/state resolve_player() from other workers can decay stats mid-test. Underworld gating: dovan is UNLOCKED (has Cato Cohen contact), mara/kiri are LOCKED — this is correct per test_credentials.md.",
+  "rca of the issue": "N/A — no bugs found. All 4 batch features (admin refactor, most-wanted, business insight, clear-all + tab-title flash) work at both API and UI layer."
+}

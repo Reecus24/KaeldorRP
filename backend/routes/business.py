@@ -273,7 +273,9 @@ async def business_detail(biz_id: str, user: dict = Depends(current_user)):
         "activity_in_progress": bool(activity), "activity": activity,
         "sell_value": max(0, round(pp * 0.5 * lvl * (0.6 + 0.4 * rep / 100) - b.get("debt", 0) + b.get("cash", 0))),
     }
-    return {"business": b, "metrics": await employee_engine.business_metrics(db, b), "costs": costs}
+    metrics = await employee_engine.business_metrics(db, b)
+    insight = employee_engine.business_insight(b, metrics)
+    return {"business": b, "metrics": metrics, "costs": costs, "insight": insight}
 
 
 

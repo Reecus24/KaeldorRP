@@ -562,6 +562,42 @@ async def underworld_status(user: dict = Depends(current_user)):
             "min_score": UW_MIN_SCORE, "min_trust": UW_MIN_TRUST}
 
 
+def _wanted_level(heat):
+    """Map a 0-100 heat score to a 1-5 star wanted level."""
+    return max(1, min(5, int(heat // 20) + 1))
+
+
+@api.get("/underworld/most-wanted")
+async def most_wanted(user: dict = Depends(current_user)):
+    """City-wide 'Most Wanted' board: players ranked by police HEAT — a blend of high criminal
+    suspicion and a poor legal standing. Only genuinely 'hot' players (heat > 0) appear."""
+    me = await fetch_raw_player(user["id"])
+    rows = await db.players.find(
+        {}, {"_id": 0, "id": 1, "name": 1, "level": 1, "criminal_suspicion": 1,
+             "legal_reputation": 1, "stats_meta": 1}).to_list(2000)
+    board = []
+    for r in rows:
+        susp = float(r.get("criminal_suspicion", 0) or 0)
+        legal = float(r.get("legal_reputation", 100) or 100)
+        # heat = suspicion pressure + how far the record has fallen below the 'clean' line (40)
+        heat = round(clamp(0.7 * susp + 0.3 * max(0.0, (40 - legal)) * (100.0 / 40.0), 0.0, 100.0), 1)
+        if heat <= 0:
+            continue
+        board.append({
+            "id": r["id"], "name": r.get("name", "Unknown"), "level": r.get("level", 1),
+            "suspicion": round(susp), "legal_standing": round(legal), "heat": heat,
+            "wanted_level": _wanted_level(heat),
+            "crimes": int((r.get("stats_meta") or {}).get("crimes_committed", 0)),
+            "jailed": int((r.get("stats_meta") or {}).get("times_jailed", 0)),
+            "is_you": r["id"] == me["id"],
+        })
+    board.sort(key=lambda x: x["heat"], reverse=True)
+    top = board[:15]
+    my_rank = next((i + 1 for i, x in enumerate(board) if x["is_you"]), None)
+    return {"board": top, "total_wanted": len(board), "my_rank": my_rank,
+            "my_heat": next((x["heat"] for x in board if x["is_you"]), 0)}
+
+
 
 
 @api.get("/illegal-actions")
@@ -779,6 +815,16 @@ async def dismiss_application(app_id: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail="Withdraw an active application instead of dismissing it.")
     await db.applications.delete_one({"id": app_id, "player_id": p["id"]})
     return {"ok": True}
+
+
+@api.post("/jobs/applications/dismiss-all")
+async def dismiss_all_applications(user: dict = Depends(current_user)):
+    """Clear ALL finished applications (rejected/withdrawn/expired/hired) at once. Active
+    (pending/accepted) applications are left untouched."""
+    p = await fetch_raw_player(user["id"])
+    res = await db.applications.delete_many(
+        {"player_id": p["id"], "status": {"$in": ["rejected", "withdrawn", "expired", "hired"]}})
+    return {"ok": True, "removed": res.deleted_count}
 
 
 

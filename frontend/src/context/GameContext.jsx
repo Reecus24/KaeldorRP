@@ -135,6 +135,30 @@ export function GameProvider({ children }) {
         await refresh();
     };
 
+    // BROWSER TAB TITLE + FLASH: reflect unread messages in the document title. When the tab is
+    // backgrounded and new messages are waiting, alternate the title so the "(N)" badge catches the eye.
+    useEffect(() => {
+        const BASE = "Kaeldor";
+        if (!msgUnread) { document.title = BASE; return; }
+        const badge = `(${msgUnread}) ${BASE}`;
+        const alt = msgUnread === 1 ? "New message ·" : `${msgUnread} new messages ·`;
+        document.title = badge;
+        let flip = false;
+        let timer = null;
+        const startFlash = () => {
+            if (timer) return;
+            timer = setInterval(() => {
+                flip = !flip;
+                document.title = flip ? `${alt} ${BASE}` : badge;
+            }, 1400);
+        };
+        const stopFlash = () => { if (timer) { clearInterval(timer); timer = null; } document.title = badge; };
+        const onVis = () => { if (document.hidden) startFlash(); else stopFlash(); };
+        if (document.hidden) startFlash();
+        document.addEventListener("visibilitychange", onVis);
+        return () => { document.removeEventListener("visibilitychange", onVis); if (timer) clearInterval(timer); document.title = BASE; };
+    }, [msgUnread]);
+
     // computed activity remaining (uses local ticker)
     let activityRemaining = 0;
     let activityProgress = 0;

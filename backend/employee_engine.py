@@ -430,6 +430,72 @@ async def business_metrics(db, b):
     }
 
 
+def business_insight(b, m):
+    """Suggest the single highest-impact next move for a venture, with a $/day estimate where
+    quantifiable. Reads the read-only metrics snapshot (see business_metrics)."""
+    margin = m.get("margin_per_unit", 0) or 0
+    sold = m.get("sold_day", 0) or 0
+    demand = m.get("demand_day", 0) or 0
+    capacity = m.get("capacity_day", 0) or 0
+    open_h = m.get("open_hours", 0) or 0
+    covered_h = m.get("covered_hours", 0) or 0
+    pph = b.get("production_per_worker_hour", 0) or 0
+    sat_mult = m.get("satisfaction_production_mult", 1.0) or 1.0
+    cands = []
+
+    # 1) Supply-constrained: open hours left uncovered while demand is unmet -> add coverage.
+    if margin > 0 and (demand - sold) > 0.5 and covered_h < open_h - 0.1:
+        extra_cap = pph * (open_h - covered_h) * sat_mult
+        extra_units = max(0.0, min(extra_cap, demand - sold))
+        gain = round(extra_units * margin)
+        if gain > 0:
+            cands.append({"action": "staff", "gain": gain,
+                          "title": f"Cover {round(open_h - covered_h)}h of open hours",
+                          "detail": f"Selling only {round(sold)}/{round(demand)} units — schedule a worker for the uncovered hours to capture more demand.",
+                          "cta": "Schedule staff"})
+
+    # 2) Demand-constrained with spare capacity -> marketing lifts demand ~25%.
+    if margin > 0 and (capacity - sold) > 0.5 and demand <= capacity + 0.5:
+        extra_units = max(0.0, min(capacity - sold, demand * 0.25))
+        gain = round(extra_units * margin)
+        if gain > 0:
+            cands.append({"action": "marketing", "gain": gain,
+                          "title": "Run a marketing campaign",
+                          "detail": f"Demand ({round(demand)}) is below your capacity ({round(capacity)}). Marketing raises demand ~25%.",
+                          "cta": "Run Marketing"})
+
+    # 3) Low materials with auto-restock off -> production will stall.
+    low_mats = [mm for mm in m.get("materials", []) if mm.get("stock", 0) < (mm.get("qty", 1) or 1) * demand * 0.5]
+    if low_mats and not m.get("auto_restock", True):
+        cands.append({"action": "restock", "gain": 0,
+                      "title": "Restock materials",
+                      "detail": "Running low on materials with auto-restock off — production will stall. Buy materials or enable auto-restock.",
+                      "cta": "Buy Materials"})
+
+    # 4) Overstaffed role -> trim wasted wages.
+    over = next((s for s in m.get("staffing", []) if s.get("overstaffed")), None)
+    if over:
+        cands.append({"action": "trim", "gain": 0,
+                      "title": f"Trim an extra {over['role'].replace('_', ' ')} shift",
+                      "detail": "More workers are active than there are slots — the extra wages are wasted with no added output.",
+                      "cta": "Open Schedule"})
+
+    # 5) Low satisfaction drags production.
+    if m.get("satisfaction", 100) < 70:
+        cands.append({"action": "morale", "gain": 0,
+                      "title": "Lift team morale",
+                      "detail": f"Team satisfaction is {m.get('satisfaction')}/100, cutting production. Fill shifts and keep wages paid on time.",
+                      "cta": "View Staff"})
+
+    if not cands:
+        return {"action": "healthy", "gain": 0, "title": "Running smoothly",
+                "detail": "Supply meets demand and staffing is balanced. Upgrade the business to raise its ceiling.",
+                "cta": "Upgrade"}
+    cands.sort(key=lambda c: c["gain"], reverse=True)
+    return cands[0]
+
+
+
 async def _create_applicant(db, p, cfg, b, reqs, premium=False):
     roles_doc = {r["id"]: r for r in await db.employee_roles.find({}, {"_id": 0}).to_list(100)}
     traits_all = await db.employee_traits.find({}, {"_id": 0}).to_list(100)
