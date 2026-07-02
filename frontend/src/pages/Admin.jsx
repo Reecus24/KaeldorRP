@@ -668,7 +668,7 @@ function CityShopsPanel() {
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">City shops the players browse. A shop's inventory is a list of assigned items — use <span className="text-white">Add item</span> to pull any item from the global list and the trash icon to remove one. Set the Opening Hours (players can only buy while OPEN) and per-item daily Stock + optional Discount for sale events. Stock restocks to capacity at game midnight. New shops start pre-filled with all items of their chosen Category.</p>
+                <p className="text-sm text-muted-foreground">City shops the players browse. A shop's inventory is a list of assigned items — use <span className="text-white">Add item</span> to pull any item from the global list and the trash icon to remove one. Set the Opening Hours (players can only buy while OPEN) and per-item daily Stock + a <span className="text-white">Price %</span> multiplier (100 = base price, 90 = 10% cheaper, 150 = 50% markup). Stock restocks to capacity at game midnight. New shops start pre-filled with all items of their chosen Category.</p>
                 {!draft && <KButton variant="green" onClick={() => setDraft(emptyShop())} data-testid="shop-new"><Plus className="w-4 h-4" /> New Shop</KButton>}
             </div>
 

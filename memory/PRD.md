@@ -7,6 +7,16 @@ Browser-based **persistent, real-time life-simulation RPG** ("Kaeldor RPG"). A l
 
 ## Session Update — 2026-07-02 (Standardized 4-Shift System + Registration/Auto-Start, NPC Transparency, Hiring Tuning)
 
+### Add-on same session — Shop Price % + Admin-only Application Reason Management (iteration_38)
+- **Shop "Price %" multiplier (replaces Discount):** per-item `items_config.<item>.price_pct` (default 100). Final price = base × price_pct/100 (100=base, 90=−10%, 150=+50%). `core._shop_price`; `_norm_items_config` migrates legacy `discount_pct`→`price_pct`; economy shop listing/buy use it; on_sale = any price_pct<100. Existing shop docs migrated. Admin editor shows "Price %" column with live "base $X → $Y" preview (`cfg-price-<id>`). Verified e2e: $4 coffee @150% → $6 in player shop.
+- **Application reasons are Admin-only** (players see only the final success/failure response). Reverted the player-facing reason line from JobCenter.
+- **Per-job editable reason strings:** each job stores `reason_strings:{accept:{},reject:{}}`; `evaluate_application` returns a `reason_key` (dominant factor) and resolves the display string from job overrides → `employment.DEFAULT_ACCEPT_REASONS`/`DEFAULT_REJECT_REASONS`. Only non-default overrides persisted. Job Editor ▸ Applications ▸ Job Tuning shows Accept/Reject reason inputs (`jobapps-accept-<key>`, `jobapps-reject-<key>`).
+- **Recent Applications monitor:** `GET /admin/applications?status=&limit=` (player_name, job, status, reason, outcome_message) + `PUT /admin/applications/{app_id} {reason, outcome_message?}` to manually override. UI: `jobapps-tab-monitor` → `applications-monitor` with status filters and per-row reason override.
+- **Docs:** ADMIN_SANDBOX.md updated (Price % + reason management).
+- **Verified:** testing_agent iteration_38 — backend 11/11 + frontend 100%. Economy/market suites green. (Cosmetic-only: React hydration warning on the shop add-item <option> from Emergent build tooling, not app code.)
+
+
+
 ### Add-on same session — Application Reason UI, City Shop Item Management, Social Cooldown Timer (P0)
 - **Application outcome in "Your Applications":** `resolve_npc_applications` now stores `outcome_message` on the application (formatted from the job's admin-tunable `success_response`/`failure_response` with {title}{wage}{reason}). JobCenter shows it (`data-testid application-outcome-<id>`), falling back to the short reason for legacy apps.
 - **City Shops explicit item management:** shops now carry an optional `item_ids` list (falls back to legacy `store_type` category when unset). New `core.shop_item_docs(shop)` drives both `_resolve_shop_stock` and the player shop listing (`/shop/stores/{id}/items`). Admin ▸ City Infrastructure ▸ City Shops editor gains an "Add item" dropdown (global item list) + per-row Remove (trash). Endpoints `POST /admin/city-shops/{id}/items`, `DELETE /admin/city-shops/{id}/items/{item_id}`; first explicit add seeds item_ids from current category items so nothing is lost; PUT no longer wipes item_ids when omitted. Changes reflect in the player Shop immediately.
