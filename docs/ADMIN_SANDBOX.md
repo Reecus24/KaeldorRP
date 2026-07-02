@@ -167,3 +167,36 @@ tester editing a value and refreshing within seconds saw almost no change.
 Home & Needs action cards now render BOTH stat effects (`effects`) and skill gains (`skill_xp`, shown as
 cyan "+N Skill XP" chips) via `ActionCard.jsx`, so players see exactly what each action improves
 (e.g. Gym Workout → +16 Fitness XP). Data already existed on the action docs; it was simply not rendered.
+
+## Job Applications — Hiring Difficulty & Responses (2026-07-02)
+
+Admin ▸ Gameplay Tuning ▸ **Applications** tunes how hard each job is to get and the roleplay messages
+players see. Every job stores four DB fields (backfilled with defaults on existing jobs):
+
+| Field                   | Type          | Meaning |
+|-------------------------|---------------|---------|
+| `acceptance_base_chance`| float 0.0–1.0 | Baseline hire probability BEFORE stat modifiers. Higher = easier to get hired. Default `0.5`. |
+| `skill_weight`          | float 0.0–10.0| Multiplier on how much the candidate's skill-above-requirement raises the hire chance. Default `1.0`. |
+| `success_response`      | string        | Message shown when the application is ACCEPTED. |
+| `failure_response`      | string        | Message shown when the application is REJECTED. |
+
+**How the hire chance is computed** (`employment.evaluate_application`):
+```
+score = clamp(acceptance_base_chance
+              + skill_bonus * skill_weight
+              + edu_bonus + rep_bonus*1.5 + reliability_bonus*2 + reference_bonus*2 + status_bonus
+              - crime_penalty*2 - suspicion_penalty*2 - health_penalty,
+              0.03, 0.97)
+accepted = random() < score
+```
+So raising `acceptance_base_chance` makes a job easier for everyone; raising `skill_weight` makes it
+reward skilled candidates far more (and punish unskilled ones by comparison).
+
+**Response placeholders.** Both messages support `{title}`, `{wage}` and `{reason}`:
+- `success_response` example: `"Welcome to {title}! Your offer is ${wage}/h."`
+- `failure_response` example: `"{title} passed on you — {reason}."`
+`{reason}` is only meaningful in the failure message (the engine picks the dominant rejection factor,
+e.g. "your criminal record", "poor reputation", "low sales skill").
+
+**Endpoints:** `GET /admin/job-applications` (list), `PUT /admin/job-applications/{job_id}` (save).
+Changes are live immediately — the next application resolution uses the new values.

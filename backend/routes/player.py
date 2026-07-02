@@ -307,60 +307,81 @@ async def quit_job(user: dict = Depends(current_user)):
 
 
 
-@api.post("/jobs/work")
-async def work_shift(body: ShiftBody, user: dict = Depends(current_user)):
-    p = await get_state(user)
-    ensure_free(p)
-    if not p.get("job"):
-        raise HTTPException(status_code=400, detail="You have no job")
-    j = await db.jobs.find_one({"id": p["job"]["job_id"]}, {"_id": 0})
-    if not j:
-        raise HTTPException(status_code=404, detail="Job no longer exists")
-    if p["energy"] < 10:
-        raise HTTPException(status_code=400, detail="Too exhausted to work. Rest first.")
-    cfg = await get_config(db)
-    shifts = j.get("shift_options") or []
-    dict_shifts = [s for s in shifts if isinstance(s, dict)]
-    shift = None
-    enforce_window = True
-    if body.shift_id:
-        shift = next((s for s in dict_shifts if s.get("id") == body.shift_id), None)
-        if not shift:
-            raise HTTPException(status_code=400, detail="Invalid shift option")
-    elif body.hours is not None:
-        # Legacy path (backward-compatible API callers): match by duration, no window gate.
-        enforce_window = False
-        shift = next((s for s in dict_shifts if s.get("duration_hours") == body.hours), None)
-        if not shift and body.hours in [s for s in shifts if isinstance(s, int)]:
-            shift = {"id": f"h{body.hours}", "name": f"{body.hours}h shift", "duration_hours": body.hours,
-                     "injury_risk": 0.0, "pay_multiplier": 1.0, "xp_multiplier": 1.0}
-        if not shift:
-            raise HTTPException(status_code=400, detail="Invalid shift length")
-    else:
-        raise HTTPException(status_code=400, detail="No shift selected")
-
-    if enforce_window and not shift_window_open(shift, game_now(cfg).hour):
-        w = shift.get("start_window") or {}
-        raise HTTPException(status_code=400,
-            detail=f"The {shift.get('name', 'shift')} can only start between "
-                   f"{int(w.get('min_hour', 0)):02d}:00 and {int(w.get('max_hour', 24)):02d}:00.")
-
-    hours = int(shift["duration_hours"])
-    shift_name = shift.get("name", f"{hours}h")
-    payload = {
+def _build_shift_payload(j, p, shift, hours):
+    return {
         "job_id": j["id"], "title": j["title"], "hours": hours, "category": j.get("category"),
         "hourly_wage": p["job"].get("hourly_wage", j["hourly_wage"]), "fatigue_ph": j["fatigue_per_hour"],
         "stress_ph": j["stress_per_hour"], "energy_ph": j["energy_per_hour"],
-        "skill_xp": j.get("skill_xp", {}), "shift_name": shift_name,
+        "skill_xp": j.get("skill_xp", {}), "shift_name": shift.get("name", f"{hours}h"),
         "pay_multiplier": float(shift.get("pay_multiplier", 1.0)),
         "xp_multiplier": float(shift.get("xp_multiplier", 1.0)),
         "injury_risk": float(shift.get("injury_risk", 0.0)),
     }
-    set_activity(p, "job", f"{j['title']} — {shift_name}", hours * 60, cfg, payload, blocking=True)
-    p["status"] = "working"
-    await add_event(db, p["id"], f"Clocked in for {shift_name} as {j['title']}.", "job", "info")
+
+
+async def _register_shift(p, cfg, j, shift):
+    """SHIFT REGISTRATION: sign up for a shift BEFORE it starts. The character auto-starts work when
+    the game clock reaches the shift's fixed start hour (see game_engine.maybe_autostart_shift)."""
+    start_hour = int(shift.get("start_hour", (shift.get("start_window") or {}).get("min_hour", 8)))
+    g = game_now(cfg)
+    start_game = g.replace(hour=start_hour, minute=0, second=0, microsecond=0)
+    if start_game <= g:
+        # The start time has already passed today — the next occurrence is tomorrow.
+        start_game = start_game + timedelta(days=1)
+    start_real = game_to_real(cfg, start_game)
+    hours = int(shift["duration_hours"])
+    payload = _build_shift_payload(j, p, shift, hours)
+    p["registered_shift"] = {
+        "job_id": j["id"], "title": j["title"], "shift_id": shift["id"], "shift_name": shift.get("name"),
+        "start_hour": start_hour, "duration_hours": hours,
+        "start_game": start_game.isoformat(), "start_real": start_real.isoformat(),
+        "registered_at": now_utc().isoformat(), "payload": payload,
+    }
+    return start_real, start_game
+
+
+@api.post("/jobs/register-shift")
+async def register_shift(body: ShiftBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    if p.get("status") in ("jail", "hospital"):
+        raise HTTPException(status_code=409, detail="You can't sign up for shifts right now.")
+    if not p.get("job"):
+        raise HTTPException(status_code=400, detail="You have no job")
+    if p.get("registered_shift"):
+        raise HTTPException(status_code=409, detail="You're already signed up for a shift. Cancel it first.")
+    j = await db.jobs.find_one({"id": p["job"]["job_id"]}, {"_id": 0})
+    if not j:
+        raise HTTPException(status_code=404, detail="Job no longer exists")
+    dict_shifts = [s for s in (j.get("shift_options") or []) if isinstance(s, dict)]
+    shift = next((s for s in dict_shifts if s.get("id") == body.shift_id), None)
+    if not shift:
+        raise HTTPException(status_code=400, detail="Invalid shift option")
+    cfg = await get_config(db)
+    start_real, start_game = await _register_shift(p, cfg, j, shift)
     await save_player(p)
-    return {"ok": True, "activity": serialize_activity(p)}
+    await add_event(db, p["id"],
+                    f"Signed up for the {shift.get('name')} shift as {j['title']} — starts at {int(shift.get('start_hour', 8)):02d}:00.",
+                    "job", "info")
+    return {"ok": True, "registered_shift": p["registered_shift"],
+            "starts_in_seconds": max(0, round((start_real - now_utc()).total_seconds()))}
+
+
+@api.post("/jobs/cancel-shift")
+async def cancel_shift(user: dict = Depends(current_user)):
+    p = await get_state(user)
+    if not p.get("registered_shift"):
+        raise HTTPException(status_code=400, detail="You have no shift sign-up to cancel")
+    name = p["registered_shift"].get("shift_name", "shift")
+    p["registered_shift"] = None
+    await save_player(p)
+    await add_event(db, p["id"], f"You cancelled your {name} shift sign-up.", "job", "info")
+    return {"ok": True}
+
+
+@api.post("/jobs/work")
+async def work_shift(body: ShiftBody, user: dict = Depends(current_user)):
+    """Legacy endpoint — now registers the shift (players must sign up before it begins)."""
+    return await register_shift(body, user)
 
 
 

@@ -1133,6 +1133,98 @@ function JobShiftsPanel() {
     );
 }
 
+function JobApplicationsPanel() {
+    const [data, setData] = useState(null);
+    const [sel, setSel] = useState(null);
+    const [draft, setDraft] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const load = useCallback(() => api.get("/admin/job-applications").then(({ data }) => setData(data)).catch(() => setData({ jobs: [] })), []);
+    useEffect(() => { load(); }, [load]);
+
+    const openJob = (jb) => {
+        setSel(jb.id);
+        setDraft({
+            acceptance_base_chance: jb.acceptance_base_chance ?? 0.5,
+            skill_weight: jb.skill_weight ?? 1.0,
+            success_response: jb.success_response || "",
+            failure_response: jb.failure_response || "",
+        });
+    };
+    const save = async () => {
+        setSaving(true);
+        try {
+            await api.put(`/admin/job-applications/${sel}`, draft);
+            toast.success("Hiring settings saved — live for players immediately");
+            setSel(null); setDraft(null); await load();
+        } catch (e) { toast.error(errMessage(e)); }
+        setSaving(false);
+    };
+
+    if (!data) return <Spinner />;
+    const selJob = (data.jobs || []).find((j) => j.id === sel);
+    const numCls = "bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white w-full";
+    const taCls = "bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white w-full min-h-[64px]";
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+                Tune how hard each job is to get and customize the roleplay responses. <span className="text-white">Base Chance</span> is the starting hire probability (0–1)
+                before a candidate's skills, education, reputation, record and references adjust it. <span className="text-white">Skill Weight</span> multiplies how much a
+                candidate's skill above the requirement helps. The response messages support the placeholders <span className="font-mono text-neon-cyan">{"{title}"}</span>,{" "}
+                <span className="font-mono text-neon-cyan">{"{wage}"}</span> and <span className="font-mono text-neon-cyan">{"{reason}"}</span>. Changes go live immediately.
+            </p>
+
+            {sel && draft ? (
+                <Panel className="p-5 space-y-4 border-neon-cyan/30" data-testid="jobapps-editor">
+                    <div className="flex items-center gap-2">
+                        <Briefcase className="w-4 h-4 text-neon-cyan" />
+                        <span className="font-display font-bold text-white">{selJob?.title || sel}</span>
+                        <Pill tone="purple">T{selJob?.tier}</Pill>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                        <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Acceptance Base Chance (0.0–1.0)
+                            <input type="number" min="0" max="1" step="0.05" className={numCls} value={draft.acceptance_base_chance}
+                                onChange={(e) => setDraft((d) => ({ ...d, acceptance_base_chance: Number(e.target.value) }))} data-testid="jobapps-base" /></label>
+                        <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Skill Weight (0.0–10.0)
+                            <input type="number" min="0" max="10" step="0.1" className={numCls} value={draft.skill_weight}
+                                onChange={(e) => setDraft((d) => ({ ...d, skill_weight: Number(e.target.value) }))} data-testid="jobapps-weight" /></label>
+                    </div>
+                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Success Response (shown when hired)
+                        <textarea className={taCls} value={draft.success_response}
+                            onChange={(e) => setDraft((d) => ({ ...d, success_response: e.target.value }))} data-testid="jobapps-success" /></label>
+                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Failure Response (shown when rejected)
+                        <textarea className={taCls} value={draft.failure_response}
+                            onChange={(e) => setDraft((d) => ({ ...d, failure_response: e.target.value }))} data-testid="jobapps-failure" /></label>
+                    <div className="flex gap-2 pt-1">
+                        <KButton variant="green" loading={saving} onClick={save} data-testid="jobapps-save">Save</KButton>
+                        <KButton variant="ghost" onClick={() => { setSel(null); setDraft(null); }} data-testid="jobapps-cancel">Cancel</KButton>
+                    </div>
+                </Panel>
+            ) : (
+                <div className="grid md:grid-cols-2 gap-3">
+                    {(data.jobs || []).map((jb) => (
+                        <Panel key={jb.id} className="p-4" data-testid={`jobapps-job-${jb.id}`}>
+                            <div className="flex items-start justify-between mb-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-display font-bold text-white">{jb.title}</span>
+                                    <Pill tone="purple">T{jb.tier}</Pill>
+                                </div>
+                                <button onClick={() => openJob(jb)} className="text-muted-foreground hover:text-neon-cyan" data-testid={`jobapps-edit-${jb.id}`}><Pencil className="w-4 h-4" /></button>
+                            </div>
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                                <Pill tone="cyan">Base {Math.round((jb.acceptance_base_chance ?? 0.5) * 100)}%</Pill>
+                                <Pill tone="green">Skill ×{jb.skill_weight ?? 1}</Pill>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground line-clamp-2 italic">"{jb.failure_response}"</p>
+                        </Panel>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+
 
 function MarketsPanel() {
     const [data, setData] = useState(null);
@@ -1214,7 +1306,7 @@ const ADMIN_GROUPS = [
     { key: "tuning", label: "Gameplay Tuning", icon: Gauge,
       children: [
           { key: "tuning", label: "Tuning" }, { key: "config", label: "Config" }, { key: "actions", label: "Actions" },
-          { key: "courses", label: "Courses" }, { key: "jobs", label: "Jobs" }, { key: "jobshifts", label: "Job Shifts" }, { key: "random_events", label: "Events" }] },
+          { key: "courses", label: "Courses" }, { key: "jobs", label: "Jobs" }, { key: "jobshifts", label: "Job Shifts" }, { key: "jobapps", label: "Applications" }, { key: "random_events", label: "Events" }] },
     { key: "players", label: "Player Management", icon: Users,
       children: [
           { key: "players", label: "Players" }, { key: "employee_roles", label: "Emp Roles" }, { key: "employee_traits", label: "Emp Traits" },
@@ -1288,6 +1380,7 @@ function renderAdminLeaf(key, ctx = {}) {
         case "jobsectors": return <JobSectorsPanel />;
         case "vehiclecats": return <VehicleCategoriesPanel />;
         case "jobshifts": return <JobShiftsPanel />;
+        case "jobapps": return <JobApplicationsPanel />;
         case "markets": return <MarketsPanel />;
         case "players": return <PlayersTable focus={ctx.focusPlayer} onFocusHandled={ctx.onFocusHandled} />;
         default: return <ContentEditor ctype={key} />;

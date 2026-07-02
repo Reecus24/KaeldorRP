@@ -22,7 +22,7 @@ from game_models import now_utc, clamp, new_player, BACKGROUNDS, SKILLS, DEFAULT
 from game_engine import (
     resolve_player, get_config, add_event, real_seconds, parse_dt,
     charge, add_money, effectiveness, apply_effects, add_skill_xp,
-    add_notification, ledger_add, game_now, game_day_index,
+    add_notification, ledger_add, game_now, game_day_index, game_to_real,
 )
 from seed_data import seed_content, CONTENT_MAP, JOBS
 import seed_data

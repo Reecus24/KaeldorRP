@@ -580,6 +580,7 @@ async def admin_update_job_shifts(job_id: str, body: dict, admin: dict = Depends
         cleaned.append({
             "id": sid, "name": (str(s.get("name") or sid).strip()),
             "duration_hours": hours,
+            "start_hour": lo,
             "start_window": {"min_hour": lo, "max_hour": hi},
             "injury_risk": max(0.0, min(1.0, float(s.get("injury_risk", 0.0) or 0.0))),
             "pay_multiplier": max(0.1, float(s.get("pay_multiplier", 1.0) or 1.0)),
@@ -589,6 +590,49 @@ async def admin_update_job_shifts(job_id: str, body: dict, admin: dict = Depends
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"ok": True, "shift_options": cleaned}
+
+
+
+
+@api.get("/admin/job-applications")
+async def admin_job_applications(admin: dict = Depends(admin_user)):
+    """Hiring-difficulty & response tuning for every job (Admin Sandbox → Applications)."""
+    jobs = await db.jobs.find({}, {"_id": 0, "id": 1, "title": 1, "category": 1, "tier": 1,
+                                   "acceptance_base_chance": 1, "skill_weight": 1,
+                                   "success_response": 1, "failure_response": 1}).to_list(300)
+    for j in jobs:
+        j.setdefault("acceptance_base_chance", 0.5)
+        j.setdefault("skill_weight", 1.0)
+        j.setdefault("success_response", "Your application for {title} was accepted — the offer is ${wage}/h. Accept it to start working.")
+        j.setdefault("failure_response", "Your application for {title} was rejected: {reason}.")
+    jobs.sort(key=lambda x: (x.get("tier", 1), x.get("title", "")))
+    return {"jobs": jobs}
+
+
+
+
+@api.put("/admin/job-applications/{job_id}")
+async def admin_update_job_applications(job_id: str, body: dict, admin: dict = Depends(admin_user)):
+    """Tune a job's hire chance, skill weight and the hired/rejected roleplay messages."""
+    try:
+        base = float(body.get("acceptance_base_chance", 0.5))
+        weight = float(body.get("skill_weight", 1.0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Base chance and skill weight must be numbers")
+    if not (0.0 <= base <= 1.0):
+        raise HTTPException(status_code=400, detail="Acceptance base chance must be between 0.0 and 1.0")
+    if not (0.0 <= weight <= 10.0):
+        raise HTTPException(status_code=400, detail="Skill weight must be between 0.0 and 10.0")
+    success = str(body.get("success_response") or "").strip()
+    failure = str(body.get("failure_response") or "").strip()
+    if not success or not failure:
+        raise HTTPException(status_code=400, detail="Both success and failure responses are required")
+    upd = {"acceptance_base_chance": round(base, 3), "skill_weight": round(weight, 3),
+           "success_response": success[:400], "failure_response": failure[:400]}
+    res = await db.jobs.update_one({"id": job_id}, {"$set": upd})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True, **upd}
 
 
 

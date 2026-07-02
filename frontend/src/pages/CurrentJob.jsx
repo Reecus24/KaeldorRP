@@ -5,22 +5,28 @@ import { cn } from "@/lib/utils";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { SKILL_LABELS, scheduleLabel, computeGameTime, shiftWindowOpen, fmtWindow } from "@/lib/helpers";
-import { BadgeCheck, TrendingUp, Briefcase, Clock, Building2, LogOut, AlertTriangle } from "lucide-react";
+import { SKILL_LABELS, scheduleLabel, computeGameTime, fmtShiftClock, nextShiftStart } from "@/lib/helpers";
+import { BadgeCheck, TrendingUp, Briefcase, Clock, Building2, LogOut, AlertTriangle, CalendarClock, X } from "lucide-react";
 
 export default function CurrentJob() {
-    const { state, player, act } = useGame();
+    const { state, player, act, refresh } = useGame();
     const [data, setData] = useState(null);
     const [busy, setBusy] = useState(false);
 
     const load = () => api.get("/jobs/current").then(({ data }) => setData(data)).catch(() => setData({ job: null }));
     useEffect(() => { load(); }, [player?.job?.job_id]);
 
-    const blocked = !!state?.activity || ["jail", "hospital"].includes(player?.status) || !!player?.on_shift;
+    const blocked = ["jail", "hospital"].includes(player?.status);
 
-    const work = async (shift) => {
+    const register = async (shift) => {
         setBusy(true);
-        await act(() => api.post("/jobs/work", { shift_id: shift.id }), `Clocked in for ${shift.name}`);
+        await act(() => api.post("/jobs/register-shift", { shift_id: shift.id }), `Signed up for ${shift.name}`);
+        await load();
+        setBusy(false);
+    };
+    const cancelShift = async () => {
+        setBusy(true);
+        await act(() => api.post("/jobs/cancel-shift"), "Shift sign-up cancelled");
         await load();
         setBusy(false);
     };
@@ -149,47 +155,56 @@ export default function CurrentJob() {
 
                 <Panel className="p-5">
                     <div className="flex items-center gap-2 mb-4">
-                        <Clock className="w-4 h-4 text-neon-cyan" />
-                        <span className="font-display font-bold text-white">Work a Shift</span>
+                        <CalendarClock className="w-4 h-4 text-neon-cyan" />
+                        <span className="font-display font-bold text-white">Sign Up for a Shift</span>
                     </div>
-                    {blocked ? (
-                        <p className="text-sm text-neon-yellow font-mono">You're busy or unavailable. Finish your current activity first.</p>
-                    ) : player.energy < 10 ? (
-                        <p className="text-sm text-neon-red font-mono">Too exhausted to work. Rest or sleep first.</p>
+                    {player?.registered_shift ? (
+                        <div className="border border-neon-green/40 bg-neon-green/5 rounded-sm p-3" data-testid="registered-shift">
+                            <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <BadgeCheck className="w-4 h-4 text-neon-green" />
+                                <span className="font-display font-bold text-white text-sm">{player.registered_shift.shift_name}</span>
+                                <Pill tone="green">Signed up</Pill>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mb-3">
+                                Starts automatically at <span className="text-white font-mono">{String(player.registered_shift.start_hour).padStart(2, "0")}:00</span> game time
+                                ({player.registered_shift.duration_hours}h). Make sure you're free then — if you're busy, you'll miss the shift.
+                            </p>
+                            <KButton variant="danger" className="w-full" onClick={cancelShift} loading={busy} data-testid="cancel-shift-button">
+                                <X className="w-3.5 h-3.5" /> Cancel Sign-Up
+                            </KButton>
+                        </div>
+                    ) : blocked ? (
+                        <p className="text-sm text-neon-yellow font-mono">You're in {player.status}. You can't sign up for shifts right now.</p>
                     ) : (
                         <>
                             <p className="text-[11px] text-muted-foreground mb-3">
-                                Each shift has its own hours, time window, pay & risk. Night and hazardous shifts pay more but can cause a work accident (health loss). A shift can only start inside its time window.
+                                You must sign up <span className="text-white">before</span> a shift begins — you can't jump into one after it's started.
+                                When the start time arrives, your character clocks in automatically. Night and long shifts pay more but carry higher accident risk.
                             </p>
                             <div className="grid grid-cols-1 gap-2">
                                 {(j.shift_options || []).filter((s) => typeof s === "object" && s !== null).map((s) => {
-                                    const open = shiftWindowOpen(s.start_window, gameHour);
                                     const est = Math.round((j.hourly_wage || 0) * s.duration_hours * (state?.effectiveness || 1) * (s.pay_multiplier || 1));
                                     const highRisk = (s.injury_risk || 0) >= 0.1;
+                                    const startAt = nextShiftStart(state, Number(s.start_hour ?? (s.start_window?.min_hour ?? 8)));
+                                    const startsIn = startAt ? Math.max(0, Math.round((startAt.getTime() - Date.now()) / 60000)) : null;
                                     return (
-                                        <div key={s.id} className={cn("border rounded-sm p-3", open ? "border-white/12" : "border-white/8 opacity-60")} data-testid={`shift-option-${s.id}`}>
+                                        <div key={s.id} className="border border-white/12 rounded-sm p-3" data-testid={`shift-option-${s.id}`}>
                                             <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                                                 <span className="font-display font-bold text-white text-sm">{s.name}</span>
                                                 <span className="font-mono text-neon-green tnum">~${est}</span>
                                             </div>
                                             <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
                                                 <Pill tone="cyan">{s.duration_hours}h</Pill>
-                                                <Pill><Clock className="w-3 h-3 mr-0.5" />{fmtWindow(s.start_window)}</Pill>
+                                                <Pill><Clock className="w-3 h-3 mr-0.5" />{fmtShiftClock(s)}</Pill>
                                                 {Number(s.pay_multiplier) !== 1 && <Pill tone="green">×{s.pay_multiplier} pay</Pill>}
                                                 {Number(s.xp_multiplier) !== 1 && <Pill tone="purple">×{s.xp_multiplier} XP</Pill>}
                                                 {highRisk
                                                     ? <Pill tone="red"><AlertTriangle className="w-3 h-3 mr-0.5" />High risk</Pill>
                                                     : (s.injury_risk > 0 ? <Pill tone="yellow">Low risk</Pill> : null)}
                                             </div>
-                                            {open ? (
-                                                <KButton variant="green" className="w-full" onClick={() => work(s)} loading={busy} data-testid={`work-shift-${s.id}`}>
-                                                    Start {s.name}
-                                                </KButton>
-                                            ) : (
-                                                <div className="text-[11px] text-neon-yellow font-mono" data-testid={`shift-closed-${s.id}`}>
-                                                    Opens {fmtWindow(s.start_window)} · now {String(gameHour).padStart(2, "0")}:00
-                                                </div>
-                                            )}
+                                            <KButton variant="green" className="w-full" onClick={() => register(s)} loading={busy} data-testid={`register-shift-${s.id}`}>
+                                                Sign Up{startsIn != null ? ` · starts in ${startsIn >= 60 ? `${Math.round(startsIn / 60)}h` : `${startsIn}m`}` : ""}
+                                            </KButton>
                                         </div>
                                     );
                                 })}

@@ -5,7 +5,7 @@ import { api, errMessage } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, EmptyState } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { realDurationLabel, fmtDuration, money, REL_STATUS, scoreColor, relTime } from "@/lib/helpers";
+import { realDurationLabel, fmtDuration, money, REL_STATUS, scoreColor, relTime, actionRewards } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import {
     Users, ArrowLeft, ShieldX, ShieldCheck, AlertTriangle, Sparkles, X, Clock, Coins,
@@ -151,6 +151,21 @@ export default function ContactDetail() {
                                         <span className="font-display font-bold text-white text-sm">{a.label}</span>
                                     </div>
                                     <p className="text-[11px] text-muted-foreground mb-2 flex-1">{a.desc}</p>
+                                    {actionRewards(a).length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mb-2" data-testid={`rel-action-rewards-${a.id}`}>
+                                            {actionRewards(a).map((r, i) => (
+                                                <span key={i} className={cn("text-[10px] font-mono px-1.5 py-0.5 rounded-sm border",
+                                                    r.tone === "green" ? "text-neon-green border-neon-green/30 bg-neon-green/5" : "text-neon-red border-neon-red/30 bg-neon-red/5")}>
+                                                    {r.label}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                    {a.kind === "network_pro" && c.perk && !c.perk_granted && (
+                                        <div className="flex items-center gap-1 text-[10px] text-neon-purple font-mono mb-2" data-testid={`rel-action-unlock-${a.id}`}>
+                                            <Sparkles className="w-3 h-3" /> Unlock: {c.perk.label} (+{Math.round((c.perk.step || 0.05) * 100)}%, permanent)
+                                        </div>
+                                    )}
                                     <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-mono mb-2">
                                         {isActivity && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {realDurationLabel(a.duration_minutes, state?.time_scale || 1)}</span>}
                                         {a.money_cost > 0 && <span className="flex items-center gap-1 text-neon-red"><Coins className="w-3 h-3" /> ${a.money_cost}</span>}

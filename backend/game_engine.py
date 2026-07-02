@@ -83,6 +83,15 @@ def game_now(cfg, real_dt=None):
     return wg + timedelta(seconds=elapsed)
 
 
+def game_to_real(cfg, game_dt):
+    """Inverse of game_now: the real-world datetime at which the clock reaches `game_dt`."""
+    wr, wg = world_anchors(cfg)
+    if not wr or not wg:
+        return game_dt
+    elapsed_game = (game_dt - wg).total_seconds()
+    return wr + timedelta(seconds=elapsed_game / max(cfg.get("time_scale", 1.0), 0.0001))
+
+
 def game_day_index(cfg, real_dt=None):
     g = game_now(cfg, real_dt)
     wg = world_anchors(cfg)[1] or g
@@ -567,6 +576,49 @@ async def release_confinement(db, p):
         await add_event(db, p["id"], "You were discharged from the hospital.", "health", "info")
 
 
+async def maybe_autostart_shift(db, p, cfg, now):
+    """SHIFT AUTO-START: when the registered shift's start time is reached in the game clock, the
+    character automatically begins working. If the player is busy/confined/exhausted at that moment,
+    the shift is MISSED (no auto-start) and reliability takes a hit. Registration is always cleared."""
+    rs = p.get("registered_shift")
+    if not rs:
+        return
+    start_real = parse_dt(rs.get("start_real"))
+    if not start_real or now < start_real:
+        return  # not time yet
+    name = rs.get("shift_name", "shift")
+    title = rs.get("title", "work")
+    p["registered_shift"] = None  # consume the registration either way
+
+    # Missed if confined, already busy with another activity, or on player-business shift.
+    if p.get("status") in ("jail", "hospital") or p.get("current_activity") or p.get("on_shift"):
+        if p.get("job"):
+            p["job"]["reliability"] = clamp(p["job"].get("reliability", 50) - 5)
+        await add_event(db, p["id"], f"You missed your {name} shift — you were busy when it started.", "job", "warning")
+        await add_notification(db, p["id"], "job", "Shift missed", f"You were occupied and missed your {name} shift. Reliability took a hit.", "warning", "/current-job")
+        return
+    if p.get("energy", 0) < 10:
+        if p.get("job"):
+            p["job"]["reliability"] = clamp(p["job"].get("reliability", 50) - 4)
+        await add_event(db, p["id"], f"You were too exhausted to start your {name} shift.", "job", "warning")
+        await add_notification(db, p["id"], "job", "Shift missed", f"You were too exhausted to start your {name} shift.", "warning", "/current-job")
+        return
+    if not p.get("job") or p["job"].get("job_id") != rs.get("job_id"):
+        return  # changed jobs since registering
+
+    hours = int(rs["duration_hours"])
+    ends = start_real + timedelta(seconds=real_seconds(hours * 60, cfg["time_scale"]))
+    p["current_activity"] = {
+        "kind": "job", "name": f"{title} — {name}",
+        "started_at": start_real.isoformat(), "ends_at": ends.isoformat(),
+        "blocking": True, "sleep_flag": False,
+        "duration_minutes": hours * 60, "payload": rs["payload"],
+    }
+    p["status"] = "working"
+    await add_event(db, p["id"], f"Your {name} shift started automatically as {title}.", "job", "info")
+    await add_notification(db, p["id"], "job", "Shift started", f"Your {name} shift as {title} just started automatically.", "info", "/current-job")
+
+
 async def resolve_player(db, p):
     cfg = await get_config(db)
     ts = cfg["time_scale"]
@@ -590,6 +642,9 @@ async def resolve_player(db, p):
             p["hospital_until"] = (now + timedelta(seconds=real_seconds(360, ts))).isoformat()
             p["status"] = "hospital"
             await add_event(db, p["id"], "You collapsed from poor health and were rushed to hospital.", "health", "danger")
+
+    # SHIFT AUTO-START: begin a registered shift the moment its start time is reached.
+    await maybe_autostart_shift(db, p, cfg, now)
 
     act = p.get("current_activity")
     if act and parse_dt(act["ends_at"]) <= now:

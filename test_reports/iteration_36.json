@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 36 — Verified the 3 new Kaeldor features end-to-end: (A) Shift Registration API + auto-start plumbing, (B) NPC Social interaction reward-pill transparency, (C) Admin 'Applications' hiring-tuning tab. Backend: 10/10 pytest passed. Frontend: all data-testids present, sign-up/cancel flow works, reward pills render (+3 Relationship / +1 Trust etc.), admin editor opens with all 4 fields + save. Cashier admin values updated then RESET to defaults (game balance unaffected).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_shift_registration_and_admin_jobapps.py",
+    "/app/test_reports/pytest/iteration_36.xml"
+  ],
+  "tests_executed": {
+    "backend": [
+      "TestShiftRegistration::test_register_shift_early_ok — 200, start_hour=8, duration_hours=5, start_real ISO, payload.job_id=cleaner; /api/game/state shows player.registered_shift set → PASS",
+      "TestShiftRegistration::test_duplicate_registration_returns_409 → PASS",
+      "TestShiftRegistration::test_cancel_ok_then_400 (cancel 200 + /api/game/state cleared + second cancel 400) → PASS",
+      "TestShiftRegistration::test_invalid_shift_id_returns_400 (shift_id='doesnotexist') → PASS",
+      "TestStandardShiftOptions::test_current_job_exposes_4_standard_shifts (early 08:00/5h, late 13:00/5h, full 08:00/10h, night 22:00/10h) → PASS",
+      "TestAdminJobApplications::test_list_job_applications (jobs list wrapped in {jobs:[...]}; every job exposes acceptance_base_chance, skill_weight, success_response, failure_response) → PASS",
+      "TestAdminJobApplications::test_update_cashier_and_persist_then_reset (PUT 0.8/1.2/custom text → GET persists → RESET to defaults → GET confirms defaults) → PASS",
+      "TestAdminJobApplications::test_validation_out_of_range_base_returns_400 (acceptance_base_chance=5 → HTTP 400) → PASS",
+      "TestAdminJobApplications::test_validation_empty_success_returns_400 (empty success_response → HTTP 400) → PASS",
+      "TestAdminJobApplications::test_player_token_forbidden_403 (GET /api/admin/job-applications with player Bearer → HTTP 403) → PASS"
+    ],
+    "frontend": [
+      "Player /current-job: 4 shift cards present (shift-option-early|late|full|night), register-shift-early|late|full|night buttons present.",
+      "Click register-shift-early → registered-shift block appears with cancel-shift-button (verified via data-testid counts).",
+      "Click cancel-shift-button → shift list returns (registered-shift count = 0, shift-option-early count = 1).",
+      "Player /social/<contact_id> (via player@kaeldor.com/player123 who has 2 contacts): 15 rel-action-* cards, 5 rel-action-rewards-* pill groups. Sample pills: '+3 Relationship +1 Trust +2 Your Mood', '+4 Relationship +2 Your Mood', '+16 Relationship +6 Trust -5 Stress'.",
+      "Admin /admin → Gameplay Tuning → Applications: 19 jobapps-job-* cards (Base % and Skill × visible on each). Click jobapps-edit-cashier → jobapps-editor opens with jobapps-base=0.5, jobapps-weight=1, jobapps-success and jobapps-failure textareas + jobapps-save. No values changed via UI (values reset via API test)."
+    ]
+  },
+  "action_items": [],
+  "critical_code_review_comments": [
+    "SocialCircle contact card (frontend): clicking the card body does not navigate to /social/<id>; only the chevron button on the right does. Player@kaeldor test discovered this — using data-testid='contact-card-<id>' as a clickable card would improve discoverability. Currently a keyboard/mouse user must hit the chevron. Minor UX; not blocking.",
+    "routes/admin.py GET /admin/job-applications returns {\"jobs\": [...]} while the review prompt described it as returning the list directly. This is fine (frontend consumes .jobs), but worth documenting in the API contract for consistency with GET/PUT symmetry.",
+    "employment.py evaluate_application uses acceptance_base_chance + skill_weight — verified persistence path works. Consider adding a min<=max sanity check on start_hour vs duration in seed_data _std_shifts to guard against future edits creating impossible shift windows (e.g., start_hour>=24).",
+    "test_credentials.md references 'shiftplayer@kaeldor.com' as the shift test account; the review request pointed to 'patrick.kuppe02@web.de' which exists as a user but has NO player character (get_state would 404). Recommend main agent update the review template or seed patrick with a Cleaner job to match the docs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_shift_registration_and_admin_jobapps.py (NEW)"
+  ],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100% (3/3 UI surfaces verified)"},
+  "test_credentials": "Backend/UI used: admin@kaeldor.com/admin123 ; shiftplayer@kaeldor.com/demo123 (Cleaner shift UI + all backend tests) ; player@kaeldor.com/player123 (social reward-pill UI — has contacts). patrick.kuppe02@web.de exists as a user but has no player character so /api/game/state would fail; substituted shiftplayer per test_credentials.md.",
+  "seed_data_creation": "none — cashier tuning PUT was reset to defaults (acceptance_base_chance=0.5, skill_weight=1.0, default success/failure strings) at end of test; game balance unaffected.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Reusable regression file: /app/backend/tests/test_shift_registration_and_admin_jobapps.py — run with pytest, uses xdist LoadScope, ~3s. Autouse fixture ONLY inside TestShiftRegistration so it doesn't clobber admin tests running in parallel. The /admin/job-applications endpoint returns a DICT {jobs:[...]} — unwrap before iterating. For the social reward-pill UI, use player@kaeldor.com (has 2 contacts) — shiftplayer has NO contacts. Navigate directly to /social/<contact_id> because the SocialCircle card body isn't clickable (only the chevron button is).",
+  "rca of the issue": "N/A — no bugs found. All 3 new features work as specified."
+}

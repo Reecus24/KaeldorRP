@@ -416,7 +416,11 @@ def evaluate_application(p, job, cfg, boss_rel=0, mentor_rel=0):
                  e.get("wage_min_mult", 0.7), e.get("wage_max_mult", 1.85))
     wage = round(base * mult, 2)
 
-    score = max(0.03, min(0.97, 0.5 + skill_bonus + edu_bonus + rep_bonus * 1.5 + rel_bonus * 2 + ref_bonus * 2 + status_bonus - crime_pen * 2 - susp_pen * 2 - health_pen))
+    # Admin-tunable hiring difficulty (per job, stored in the DB).
+    base_chance = float(job.get("acceptance_base_chance", 0.5))
+    skill_weight = float(job.get("skill_weight", 1.0))
+    score = max(0.03, min(0.97, base_chance + skill_bonus * skill_weight + edu_bonus + rep_bonus * 1.5
+                          + rel_bonus * 2 + ref_bonus * 2 + status_bonus - crime_pen * 2 - susp_pen * 2 - health_pen))
     accepted = random.random() < score
 
     reason = None
@@ -437,7 +441,7 @@ def evaluate_application(p, job, cfg, boss_rel=0, mentor_rel=0):
         if not factors:
             factors.append(("a stronger candidate was chosen", 0.2))
         reason = max(factors, key=lambda x: x[1])[0]
-    return {"wage": wage, "accepted": accepted, "reason": reason, "mult": round(mult, 2)}
+    return {"wage": wage, "accepted": accepted, "reason": reason, "mult": round(mult, 2), "score": round(score, 3)}
 
 
 async def resolve_npc_applications(db, p, cfg, now):
@@ -455,13 +459,17 @@ async def resolve_npc_applications(db, p, cfg, now):
         ev = evaluate_application(p, job, cfg, boss.get("relationship_score", 0) if boss else 0,
                                   mentor.get("relationship_score", 0) if mentor else 0)
         if ev["accepted"]:
+            msg = (job.get("success_response") or "Your application for {title} was accepted — offer ${wage}/h.").format(
+                title=job["title"], wage=ev["wage"], reason="")
             upd = {"status": "accepted", "wage_offer": ev["wage"], "reason": "Offer extended", "resolved": True,
                    "offer_expires_at": (now + timedelta(hours=cfg.get("employment", {}).get("offer_expiry_hours", 24))).isoformat()}
-            await add_event(db, p["id"], f"Your application for {job['title']} was ACCEPTED — offer ${ev['wage']}/h.", "job", "success")
+            await add_event(db, p["id"], msg, "job", "success")
             await add_notification(db, p["id"], "job", "Application accepted", f"{job['title']} — ${ev['wage']}/h. Accept the offer to start working.", "success", "/jobs")
         else:
+            msg = (job.get("failure_response") or "Your application for {title} was rejected: {reason}.").format(
+                title=job["title"], wage=ev["wage"], reason=ev["reason"])
             upd = {"status": "rejected", "reason": ev["reason"], "resolved": True}
-            await add_event(db, p["id"], f"Your application for {job['title']} was rejected: {ev['reason']}.", "job", "warning")
+            await add_event(db, p["id"], msg, "job", "warning")
             await add_notification(db, p["id"], "job", "Application rejected", f"{job['title']}: {ev['reason']}.", "warning", "/jobs")
         await db.applications.update_one({"id": a["id"]}, {"$set": upd})
 

@@ -112,3 +112,38 @@ resolver whose `modified_count == 1` charges rent/vehicle and writes the summary
 **Verified.** Unit checks: mid-day resolve charges NO rent/vehicle (only bills); 00:00 charges rent+vehicle
 once; owned home skips rent; 3 offline days = 3× costs; full `resolve_player` crossing writes a summary
 with correct income/expense totals, net cash, and event log. `verify_economy.py` + `verify_markets.py` pass.
+
+## Standardized 4-Shift System + Registration & Auto-Start (2026-07-02)
+
+Player jobs (NPC employers) use a fixed-start shift model. Each `job.shift_options` entry is:
+`{id, name, start_hour, duration_hours, start_window:{min_hour,max_hour}, injury_risk, pay_multiplier, xp_multiplier}`.
+`start_window` is derived (min_hour=start_hour, max_hour=(start_hour+duration)%24) for display only.
+
+**Standard shifts (same clock across every job):**
+| Shift        | Start | End   | Hours |
+|--------------|-------|-------|-------|
+| Early Shift  | 08:00 | 13:00 | 5     |
+| Late Shift   | 13:00 | 18:00 | 5     |
+| Full Shift   | 08:00 | 18:00 | 10    |
+| Night Shift  | 22:00 | 08:00 | 10 (wraps midnight) |
+
+Night pays ×1.45 / XP ×1.20 with ~2× injury risk. Night is included for all jobs by default except
+pure office desk jobs (`office_assistant`, `store_manager`). Admins can add/edit/remove shifts and toggle
+Night per-job via Admin ▸ Gameplay Tuning ▸ Job Shifts (`PUT /admin/job-shifts/{job_id}`).
+
+**Registration (sign-up before start).** Players cannot start a shift on demand. They call
+`POST /jobs/register-shift {shift_id}` which stores `player.registered_shift` with the computed
+`start_real` (the real UTC datetime at which the game clock next reaches `start_hour`). If the start
+hour has already passed today, the next occurrence is tomorrow. Only ONE registration at a time;
+`POST /jobs/cancel-shift` clears it. The button is only offered before the start time — you can never
+join a shift after it has begun.
+
+**Auto-Start.** `game_engine.maybe_autostart_shift` runs inside `resolve_player` on every heartbeat.
+When `now >= start_real` it consumes the registration and:
+- If the player is confined (jail/hospital), already has a `current_activity`, or is on a player-business
+  shift → the shift is MISSED (no auto-start), a warning event/notification fires, and reliability −5.
+- If energy < 10 → MISSED, reliability −4.
+- Otherwise the work activity auto-starts with `started_at = start_real` (retroactive, so an offline
+  catch-up correctly completes and pays out the shift). Reliability/pay/XP resolve as before.
+
+`/jobs/work` is kept as a backward-compatible alias that now registers instead of instant-starting.

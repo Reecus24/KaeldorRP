@@ -187,6 +187,54 @@ export function fmtWindow(win) {
     return `${pad(lo)}:00–${pad(hi)}:00`;
 }
 
+// ---------- Shift registration (fixed start times; sign up before it begins) ----------
+export function fmtShiftClock(s) {
+    const pad = (n) => String(n).padStart(2, "0");
+    const start = Number(s?.start_hour ?? (s?.start_window?.min_hour ?? 8));
+    const end = (start + Number(s?.duration_hours ?? 0)) % 24;
+    return `${pad(start)}:00–${pad(end)}:00`;
+}
+
+// The next real Date at which the game clock reaches `startHour`. `now` is the current game Date (UTC).
+export function nextShiftStart(state, startHour) {
+    const g = computeGameTime(state);
+    if (!g) return null;
+    const ts = state?.time_scale || 1;
+    const startGame = new Date(Date.UTC(g.getUTCFullYear(), g.getUTCMonth(), g.getUTCDate(), startHour, 0, 0));
+    if (startGame.getTime() <= g.getTime()) startGame.setUTCDate(startGame.getUTCDate() + 1);
+    // convert game -> real: real_now + (startGame - gameNow)/ts
+    const deltaGameMs = startGame.getTime() - g.getTime();
+    return new Date(Date.now() + deltaGameMs / ts);
+}
+
+// ---------- Social interaction rewards (transparency) ----------
+const REWARD_META = {
+    relationship_score: { label: "Relationship", pos: true },
+    trust: { label: "Trust", pos: true },
+    respect: { label: "Respect", pos: true },
+    attraction: { label: "Attraction", pos: true },
+    p_mood: { label: "Your Mood", pos: true },
+    p_stress: { label: "Stress", pos: false },
+    p_reputation: { label: "Reputation", pos: true },
+    p_social_status: { label: "Social Status", pos: true },
+    p_suspicion: { label: "Suspicion", pos: false },
+    c_mood: { label: "Their Mood", pos: true },
+};
+
+export function actionRewards(a) {
+    const eff = a?.on_success || {};
+    const out = [];
+    for (const [k, v] of Object.entries(eff)) {
+        const meta = REWARD_META[k];
+        if (!meta || !v) continue;
+        const sign = v > 0 ? "+" : "";
+        // green when it helps the player (gains, or a drop in a "bad" stat)
+        const good = meta.pos ? v > 0 : v < 0;
+        out.push({ label: `${sign}${v} ${meta.label}`, tone: good ? "green" : "red" });
+    }
+    return out;
+}
+
 // ---------- Tooltip / explainer copy ----------
 export const STAT_INFO = {
     energy: "Energy fuels activities. It drops as you stay awake and work; sleep and rest restore it.",

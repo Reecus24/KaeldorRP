@@ -84,6 +84,7 @@ def new_player(user_id, name, background):
         "equip_bonus": {},
         "portfolio": {},
         "current_activity": None,
+        "registered_shift": None,
         "status": "free",
         "jail_until": None,
         "hospital_until": None,

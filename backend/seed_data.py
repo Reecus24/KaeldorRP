@@ -99,63 +99,69 @@ JOBS = [
 # past midnight (e.g. 21 -> 3). pay_multiplier / xp_multiplier scale the shift's wage & skill XP;
 # injury_risk is the per-shift chance of an on-the-job injury (health loss + stress) — the shift
 # still finishes. All fields are admin-editable via Admin ▸ Gameplay Tuning ▸ Job Shifts.
-def _shift(sid, name, hours, lo, hi, risk, pay=1.0, xp=1.0):
-    return {"id": sid, "name": name, "duration_hours": hours,
-            "start_window": {"min_hour": lo, "max_hour": hi},
-            "injury_risk": risk, "pay_multiplier": pay, "xp_multiplier": xp}
+# STANDARDIZED 4-SHIFT SYSTEM (fixed start times — players must REGISTER before the shift begins;
+# the character AUTO-STARTS work when the game clock reaches start_hour). All shifts share the same
+# clock across every job:
+#   Early Shift  08:00 - 13:00 (5h)
+#   Late Shift   13:00 - 18:00 (5h)
+#   Full Shift   08:00 - 18:00 (10h)
+#   Night Shift  22:00 - 08:00 (10h, wraps past midnight)
+# start_window is derived {min_hour, max_hour} purely for display/legacy helpers. Night shifts pay &
+# XP more but carry higher injury risk. Admins can disable Night per-job via the dashboard later.
+def _shift(sid, name, start_hour, hours, risk, pay=1.0, xp=1.0):
+    return {"id": sid, "name": name, "start_hour": start_hour, "duration_hours": hours,
+            "start_window": {"min_hour": start_hour, "max_hour": (start_hour + hours) % 24},
+            "injury_risk": round(risk, 3), "pay_multiplier": pay, "xp_multiplier": xp}
 
 
-JOB_SHIFTS = {
-    "cleaner": [
-        _shift("morning", "Morning Clean", 4, 5, 11, 0.03),
-        _shift("day", "Day Shift", 6, 6, 16, 0.05),
-        _shift("night", "Night Sanitation", 6, 21, 3, 0.13, pay=1.40, xp=1.15)],
-    "cashier": [
-        _shift("day", "Day Shift", 6, 7, 16, 0.02),
-        _shift("evening", "Evening Rush", 4, 15, 21, 0.03, pay=1.15, xp=1.10),
-        _shift("double", "Double Shift", 8, 8, 12, 0.05, pay=1.05, xp=1.05)],
-    "kitchen_helper": [
-        _shift("prep", "Prep Shift", 4, 7, 14, 0.05),
-        _shift("dinner", "Dinner Rush", 8, 14, 19, 0.11, pay=1.20, xp=1.15)],
-    "delivery_driver": [
-        _shift("day", "Daytime Route", 4, 8, 16, 0.06),
-        _shift("rush", "Rush Hour Route", 6, 15, 20, 0.10, pay=1.20, xp=1.10),
-        _shift("night", "Late Night Deliveries", 6, 21, 3, 0.16, pay=1.50, xp=1.20)],
-    "warehouse_worker": [
-        _shift("day", "Day Shift", 6, 6, 14, 0.08),
-        _shift("night", "Night Loading", 8, 22, 5, 0.15, pay=1.45, xp=1.15)],
-    "sales_assistant": [
-        _shift("floor", "Floor Shift", 6, 8, 16, 0.02),
-        _shift("commission", "Commission Push", 8, 9, 13, 0.03, pay=1.20, xp=1.15)],
-    "call_center": [
-        _shift("day", "Day Shift", 6, 7, 16, 0.01),
-        _shift("night", "Overnight Support", 8, 21, 4, 0.04, pay=1.35, xp=1.10)],
-    "barista": [
-        _shift("morning", "Morning Rush", 4, 5, 10, 0.04, pay=1.15, xp=1.10),
-        _shift("day", "Day Shift", 6, 8, 16, 0.03)],
-    "mechanic_apprentice": [
-        _shift("garage", "Garage Shift", 4, 7, 15, 0.08),
-        _shift("heavy", "Heavy Repair Day", 8, 7, 12, 0.13, pay=1.20, xp=1.20)],
-    "office_assistant": [
-        _shift("office", "Office Hours", 6, 7, 13, 0.01),
-        _shift("overtime", "Overtime", 8, 7, 11, 0.02, pay=1.15, xp=1.10)],
-    "store_manager": [
-        _shift("day", "Management Shift", 6, 7, 14, 0.02),
-        _shift("long", "Full Operating Day", 8, 7, 11, 0.03, pay=1.15, xp=1.10)],
-    "restaurant_manager": [
-        _shift("service", "Service Shift", 6, 10, 16, 0.04),
-        _shift("dinner", "Dinner Service", 8, 14, 19, 0.07, pay=1.20, xp=1.15)],
-    "logistics_manager": [
-        _shift("ops", "Operations Shift", 6, 6, 14, 0.03),
-        _shift("night", "Night Operations", 8, 21, 3, 0.09, pay=1.40, xp=1.15)],
+def _std_shifts(risk, include_night=True):
+    """Build the standardized shift set for a job from its base per-shift injury risk."""
+    shifts = [
+        _shift("early", "Early Shift", 8, 5, risk),
+        _shift("late", "Late Shift", 13, 5, risk * 1.1, pay=1.10, xp=1.05),
+        _shift("full", "Full Shift", 8, 10, risk * 1.2, pay=1.05, xp=1.05),
+    ]
+    if include_night:
+        shifts.append(_shift("night", "Night Shift", 22, 10, risk * 2.0 + 0.05, pay=1.45, xp=1.20))
+    return shifts
+
+
+# Per-job base injury risk + whether the Night shift is offered by default (office desk jobs skip it).
+JOB_SHIFT_CONFIG = {
+    "cleaner":             {"risk": 0.04, "night": True},
+    "cashier":             {"risk": 0.02, "night": True},
+    "kitchen_helper":      {"risk": 0.06, "night": True},
+    "delivery_driver":     {"risk": 0.06, "night": True},
+    "warehouse_worker":    {"risk": 0.08, "night": True},
+    "sales_assistant":     {"risk": 0.02, "night": True},
+    "call_center":         {"risk": 0.02, "night": True},
+    "barista":             {"risk": 0.03, "night": True},
+    "mechanic_apprentice": {"risk": 0.08, "night": True},
+    "office_assistant":    {"risk": 0.01, "night": False},
+    "store_manager":       {"risk": 0.02, "night": False},
+    "restaurant_manager":  {"risk": 0.04, "night": True},
+    "logistics_manager":   {"risk": 0.03, "night": True},
 }
+
+JOB_SHIFTS = {jid: _std_shifts(c["risk"], c["night"]) for jid, c in JOB_SHIFT_CONFIG.items()}
 # Override the legacy int shift_options ([2,4,6]) with the rich per-job shift schema.
+# Default hiring/application tuning (admin-editable via Sandbox -> Job Editor / Applications):
+#   acceptance_base_chance : baseline hire probability before stat modifiers (0.0-1.0)
+#   skill_weight           : multiplier on how much skill-over-requirement helps the chance
+#   success_response       : message when hired (placeholders: {title} {wage} {reason})
+#   failure_response       : message when rejected (placeholders: {title} {wage} {reason})
+DEFAULT_HIRE_SUCCESS = "Your application for {title} was accepted — the offer is ${wage}/h. Accept it to start working."
+DEFAULT_HIRE_FAILURE = "Your application for {title} was rejected: {reason}."
 for _j in JOBS:
     if _j["id"] in JOB_SHIFTS:
         _j["shift_options"] = JOB_SHIFTS[_j["id"]]
     # Progressive visibility: jobs default to visible in the Job Center. Admins can hide
     # "rank-up only" jobs (reachable only via promotion) by setting this False.
     _j.setdefault("visible_in_listings", True)
+    _j.setdefault("acceptance_base_chance", 0.5)
+    _j.setdefault("skill_weight", 1.0)
+    _j.setdefault("success_response", DEFAULT_HIRE_SUCCESS)
+    _j.setdefault("failure_response", DEFAULT_HIRE_FAILURE)
 
 
 # Job Sectors / Agencies. The Job Center groups jobs into sectors; players browse a
