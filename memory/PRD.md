@@ -373,3 +373,12 @@ Wired four tracked-but-unused stats into real outcomes. Backend-only. All string
 ### REMAINING
 - **P2 Custom business products (groundwork)** — NOT STARTED. Needs a scope decision (data model design) before build. See open question to user.
 - **P2/P3 backlog:** (all above P2/P3 items now done except custom products).
+
+## 2026-07-02 — P0 FIX: Offline / Async Shift Resolution (COMPLETE ✓, iteration_42)
+- **Bug:** registered shifts were wrongly MISSED after a long offline gap — `resolve_player` applied a full window of idle-decay BEFORE `maybe_autostart_shift`, draining energy < 10 so the "too exhausted" check cancelled valid shifts. Shifts appeared to only work while online.
+- **Fix (`game_engine.resolve_player`):** SEGMENTED offline catch-up around the shift boundary — (1) idle-decay `[last_resolved → start_real]`, (2) evaluate auto-start with the energy the character had AT start time (Activity-Conflict + exhaustion checks apply at that instant only), (3) if `ends_at` already passed, `complete_activity` runs so wages/tax/tips/XP accrue while OFFLINE and working hours are NOT idle-decayed, (4) idle-decay only the post-shift remainder. Mid-window return → shift stays IN PROGRESS. Non-split path now completes an ended activity BEFORE auto-start (frees the slot for a queued shift).
+- **Shifts are now fully persistent/asynchronous** — clock in/out on the game clock alone, never the connection. Documented in `docs/ECONOMY_LOGIC.md`.
+- **Tests:** `backend/tests/test_offline_shifts.py` (4/4 engine) + testing_agent `test_offline_shift_api.py` (10/10 API) + regression: verify_economy/verify_markets/test_logic_links green; rewrote 3 stale `/jobs/work` window tests → `test_job_shifts_engine.py` 13/13.
+
+### OPEN (awaiting user)
+- **P2 Custom business products** — scope question sent to user (a/b/c/d + engine-now-vs-later). NOT started pending answer.

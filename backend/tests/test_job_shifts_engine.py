@@ -196,6 +196,7 @@ class TestPlayerWorkShift:
         return True
 
     def test_invalid_shift_id_returns_400(self, shift_token):
+        self._cancel(shift_token)  # clear any lingering registration first
         if not self._free_player(shift_token):
             pytest.skip("shiftplayer is busy on an activity — cannot test start flow")
         r = requests.post(f"{API}/jobs/work",
@@ -204,70 +205,49 @@ class TestPlayerWorkShift:
         assert r.status_code == 400, f"expected 400 for invalid shift_id, got {r.status_code} {r.text}"
         assert "Invalid shift option" in r.text
 
-    def test_closed_window_returns_400(self, shift_token, admin_token, game_hour):
-        """Find a cleaner shift whose window is CLOSED for the current game hour and try to start it."""
-        if not self._free_player(shift_token):
-            pytest.skip("shiftplayer is busy — skipping closed-window test")
+    def _cancel(self, tok):
+        requests.post(f"{API}/jobs/cancel-shift",
+                      headers={"Authorization": f"Bearer {tok}"}, timeout=30)
 
+    def test_register_shift_returns_ok(self, shift_token, admin_token):
+        """Current model: /jobs/work delegates to register_shift and SIGNS UP for the next
+        occurrence (no immediate start, no window 400). Verify it registers with starts_in_seconds."""
+        self._cancel(shift_token)  # clear any prior registration
         r = requests.get(f"{API}/admin/job-shifts",
                          headers={"Authorization": f"Bearer {admin_token}"}, timeout=30)
         cleaner = next(j for j in r.json()["jobs"] if j["id"] == "cleaner")
-        closed = [s for s in cleaner["shift_options"] if not _window_open(s, game_hour)]
-        if not closed:
-            pytest.skip(f"no closed cleaner shift at game hour {game_hour} — cannot verify 400 path")
-        s = closed[0]
+        s = cleaner["shift_options"][0]
         r2 = requests.post(f"{API}/jobs/work",
                            headers={"Authorization": f"Bearer {shift_token}", "Content-Type": "application/json"},
                            json={"shift_id": s["id"]}, timeout=30)
-        assert r2.status_code == 400, f"expected 400 (closed), got {r2.status_code} {r2.text}"
-        body = r2.text
-        assert "can only start between" in body or "between" in body, f"unexpected message: {body}"
+        assert r2.status_code == 200, f"expected 200 register, got {r2.status_code} {r2.text}"
+        body = r2.json()
+        assert body.get("ok") and body.get("registered_shift"), f"no registration stored: {body}"
+        assert "starts_in_seconds" in body
+        self._cancel(shift_token)
 
-    def test_open_window_starts_shift(self, shift_token, admin_token, game_hour):
-        if not self._free_player(shift_token):
-            pytest.skip("shiftplayer is busy — skipping open-window test")
-
+    def test_double_register_conflicts(self, shift_token, admin_token):
+        """Only one registration at a time — a second sign-up returns 409."""
+        self._cancel(shift_token)
         r = requests.get(f"{API}/admin/job-shifts",
                          headers={"Authorization": f"Bearer {admin_token}"}, timeout=30)
         cleaner = next(j for j in r.json()["jobs"] if j["id"] == "cleaner")
-        opens = [s for s in cleaner["shift_options"] if _window_open(s, game_hour)]
-        if not opens:
-            pytest.skip(f"no open cleaner shift at game hour {game_hour}")
-        s = opens[0]
-        r2 = requests.post(f"{API}/jobs/work",
-                           headers={"Authorization": f"Bearer {shift_token}", "Content-Type": "application/json"},
-                           json={"shift_id": s["id"]}, timeout=30)
-        assert r2.status_code == 200, f"expected 200 open-window start, got {r2.status_code} {r2.text}"
-        # verify activity exists
-        st = requests.get(f"{API}/game/state",
-                          headers={"Authorization": f"Bearer {shift_token}"}, timeout=30).json()
-        act = st.get("activity") or {}
-        assert act.get("kind") == "job", f"activity not started: {act}"
+        s = cleaner["shift_options"][0]
+        h = {"Authorization": f"Bearer {shift_token}", "Content-Type": "application/json"}
+        r1 = requests.post(f"{API}/jobs/work", headers=h, json={"shift_id": s["id"]}, timeout=30)
+        assert r1.status_code == 200, f"first register should succeed, got {r1.status_code} {r1.text}"
+        r2 = requests.post(f"{API}/jobs/work", headers=h, json={"shift_id": s["id"]}, timeout=30)
+        assert r2.status_code == 409, f"second register should 409, got {r2.status_code} {r2.text}"
+        self._cancel(shift_token)
 
-    def test_legacy_hours_path_no_window(self, shift_token, admin_token):
-        """Legacy body {hours: N} matches by duration_hours and skips window enforcement."""
-        # cancel any lingering activity from prior test
-        st = requests.get(f"{API}/game/state",
-                          headers={"Authorization": f"Bearer {shift_token}"}, timeout=30).json()
-        if (st.get("activity") or {}).get("kind"):
-            requests.post(f"{API}/game/cancel-activity",
-                          headers={"Authorization": f"Bearer {shift_token}"}, timeout=30)
-
-        # invalid hours
-        r_bad = requests.post(f"{API}/jobs/work",
-                              headers={"Authorization": f"Bearer {shift_token}", "Content-Type": "application/json"},
-                              json={"hours": 99}, timeout=30)
-        assert r_bad.status_code == 400, f"expected 400 for bad hours, got {r_bad.status_code} {r_bad.text}"
-
-        # find a valid duration
-        r = requests.get(f"{API}/admin/job-shifts",
-                         headers={"Authorization": f"Bearer {admin_token}"}, timeout=30)
-        cleaner = next(j for j in r.json()["jobs"] if j["id"] == "cleaner")
-        durations = sorted({s["duration_hours"] for s in cleaner["shift_options"]})
-        r_ok = requests.post(f"{API}/jobs/work",
-                             headers={"Authorization": f"Bearer {shift_token}", "Content-Type": "application/json"},
-                             json={"hours": durations[0]}, timeout=30)
-        assert r_ok.status_code == 200, f"expected 200 legacy hours, got {r_ok.status_code} {r_ok.text}"
+    def test_shift_id_now_required(self, shift_token):
+        """The current model requires an explicit shift_id — the legacy {hours: N} body (no shift_id)
+        is no longer accepted and returns 400 'Invalid shift option'."""
+        self._cancel(shift_token)
+        h = {"Authorization": f"Bearer {shift_token}", "Content-Type": "application/json"}
+        r = requests.post(f"{API}/jobs/work", headers=h, json={"hours": 5}, timeout=30)
+        assert r.status_code == 400, f"expected 400 (shift_id required), got {r.status_code} {r.text}"
+        self._cancel(shift_token)
 
 
 # -------------------------- guard scripts --------------------------
