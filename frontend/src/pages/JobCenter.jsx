@@ -32,8 +32,16 @@ function ApplicationsPanel({ apps, onAccept, onRemove, busy }) {
                                 <Pill tone={APP_TONE[a.status]}>{a.status}</Pill>
                             </div>
                             {a.status === "pending" && <div className="text-[11px] text-muted-foreground flex items-center gap-1"><Hourglass className="w-3 h-3" /> Decision in ~{fmtDuration(a.resolves_in || 0)}</div>}
-                            {a.status === "accepted" && <div className="text-[11px] text-neon-green">Offer: ${a.wage_offer}/h — accept to start!</div>}
-                            {a.status === "rejected" && <div className="text-[11px] text-neon-red">Rejected: {a.reason}</div>}
+                            {a.status === "accepted" && (
+                                <div className="text-[11px] text-neon-green" data-testid={`application-outcome-${a.id}`}>
+                                    {a.outcome_message || `Offer: $${a.wage_offer}/h — accept to start!`}
+                                </div>
+                            )}
+                            {a.status === "rejected" && (
+                                <div className="text-[11px] text-neon-red" data-testid={`application-outcome-${a.id}`}>
+                                    {a.outcome_message || `Rejected: ${a.reason}`}
+                                </div>
+                            )}
                         </div>
                         <div className="flex gap-2 shrink-0 items-center">
                             {a.status === "accepted" && <KButton variant="green" loading={busy === a.id} onClick={() => onAccept(a)} data-testid={`accept-offer-${a.id}`}>Accept</KButton>}

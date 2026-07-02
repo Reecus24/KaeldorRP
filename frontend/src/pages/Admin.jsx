@@ -642,12 +642,33 @@ function CityShopsPanel() {
     const del = async (s) => { if (!window.confirm(`Delete "${s.name}"?`)) return; try { await api.delete(`/admin/city-shops/${s.id}`); toast.success("Deleted"); await load(); } catch (e) { toast.error(errMessage(e)); } };
     const editShop = (s) => setDraft({ ...s, opening_hours: s.opening_hours || { open: "08:00", close: "20:00" }, items_config: s.items_config || {} });
 
+    // Re-fetch after an item add/remove, preserving any unsaved capacity/discount edits in the draft.
+    const refreshDraft = async (localCfg) => {
+        const { data: fresh } = await api.get("/admin/city-shops");
+        setData(fresh);
+        const s = (fresh.shops || []).find((x) => x.id === draft.id);
+        if (s) setDraft({ ...s, opening_hours: s.opening_hours || { open: "08:00", close: "20:00" }, items_config: { ...(s.items_config || {}), ...(localCfg || {}) } });
+    };
+    const addItem = async (itemId) => {
+        if (!itemId || !draft?.id) return;
+        try { await api.post(`/admin/city-shops/${draft.id}/items`, { item_id: itemId }); toast.success("Item added to shop"); await refreshDraft(draft.items_config); }
+        catch (e) { toast.error(errMessage(e)); }
+    };
+    const removeItem = async (itemId) => {
+        if (!draft?.id) return;
+        try { await api.delete(`/admin/city-shops/${draft.id}/items/${itemId}`); toast.success("Item removed"); await refreshDraft(draft.items_config); }
+        catch (e) { toast.error(errMessage(e)); }
+    };
+
     if (!data) return <Spinner />;
     const catItems = (data.items_by_category || {})[draft?.category] || [];
+    const assignedItems = draft?.id ? (draft.items || []) : catItems;
+    const assignedIds = new Set(assignedItems.map((i) => i.id));
+    const addableItems = (data.all_items || []).filter((i) => !assignedIds.has(i.id));
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">City shops the players browse. Set the item Category (the shop sells only items of that category), the Opening Hours (players can only buy while OPEN), and per-item daily Stock + optional Discount for sale events. Stock restocks to capacity at game midnight.</p>
+                <p className="text-sm text-muted-foreground">City shops the players browse. A shop's inventory is a list of assigned items — use <span className="text-white">Add item</span> to pull any item from the global list and the trash icon to remove one. Set the Opening Hours (players can only buy while OPEN) and per-item daily Stock + optional Discount for sale events. Stock restocks to capacity at game midnight. New shops start pre-filled with all items of their chosen Category.</p>
                 {!draft && <KButton variant="green" onClick={() => setDraft(emptyShop())} data-testid="shop-new"><Plus className="w-4 h-4" /> New Shop</KButton>}
             </div>
 
@@ -693,24 +714,38 @@ function CityShopsPanel() {
                     </div>
 
                     <div className="pt-2">
-                        <div className="text-[11px] font-mono uppercase tracking-wider text-neon-cyan/80 mb-2">Stock & Discounts ({draft.category})</div>
-                        {catItems.length === 0 ? (
-                            <p className="text-[11px] text-muted-foreground">No items in this category yet. Add items with store_type "{draft.category}" in the Items tab.</p>
+                        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                            <div className="text-[11px] font-mono uppercase tracking-wider text-neon-cyan/80">Shop Inventory ({assignedItems.length} items)</div>
+                            {draft.id ? (
+                                <div className="flex items-center gap-2" data-testid="shop-additem-wrap">
+                                    <select defaultValue="" onChange={(e) => { addItem(e.target.value); e.target.value = ""; }} data-testid="shop-additem-select"
+                                        className="bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white max-w-[220px]">
+                                        <option value="">+ Add item…</option>
+                                        {addableItems.map((it) => <option key={it.id} value={it.id}>{it.name} (${it.price} · {it.store_type})</option>)}
+                                    </select>
+                                </div>
+                            ) : <span className="text-[10px] text-muted-foreground">Save the shop first to add/remove individual items.</span>}
+                        </div>
+                        {assignedItems.length === 0 ? (
+                            <p className="text-[11px] text-muted-foreground">No items assigned yet{draft.id ? " — use “Add item” above." : `. New shops start with all “${draft.category}” items; you can customize after saving.`}</p>
                         ) : (
                             <div className="space-y-2" data-testid="shop-items-config">
-                                <div className="grid grid-cols-[1fr_auto_auto] gap-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 px-1">
-                                    <span>Item</span><span className="w-24 text-center">Daily stock</span><span className="w-24 text-center">Discount %</span>
+                                <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 px-1">
+                                    <span>Item</span><span className="w-24 text-center">Daily stock</span><span className="w-24 text-center">Discount %</span><span className="w-8" />
                                 </div>
-                                {catItems.map((it) => {
+                                {assignedItems.map((it) => {
                                     const c = draft.items_config?.[it.id] || {};
                                     return (
-                                        <div key={it.id} className="grid grid-cols-[1fr_auto_auto] gap-3 items-center" data-testid={`shop-itemcfg-${it.id}`}>
+                                        <div key={it.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center" data-testid={`shop-itemcfg-${it.id}`}>
                                             <div className="min-w-0">
                                                 <span className="text-xs text-white">{it.name}</span>
-                                                <span className="ml-2 text-[10px] font-mono text-muted-foreground">${it.base_price}</span>
+                                                <span className="ml-2 text-[10px] font-mono text-muted-foreground">${it.base_price ?? it.price}</span>
                                             </div>
                                             <KInput type="number" className="w-24" value={c.capacity ?? defCap} onChange={(e) => setItemCfg(it.id, "capacity", Math.max(0, Number(e.target.value)))} testid={`cfg-cap-${it.id}`} />
                                             <KInput type="number" className="w-24" value={c.discount_pct ?? 0} onChange={(e) => setItemCfg(it.id, "discount_pct", Math.max(0, Math.min(95, Number(e.target.value))))} testid={`cfg-disc-${it.id}`} />
+                                            {draft.id ? (
+                                                <button onClick={() => removeItem(it.id)} className="text-neon-red hover:text-neon-red/70 justify-self-center" title="Remove item" data-testid={`shop-removeitem-${it.id}`}><Trash2 className="w-4 h-4" /></button>
+                                            ) : <span className="w-8" />}
                                         </div>
                                     );
                                 })}

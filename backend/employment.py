@@ -462,13 +462,14 @@ async def resolve_npc_applications(db, p, cfg, now):
             msg = (job.get("success_response") or "Your application for {title} was accepted — offer ${wage}/h.").format(
                 title=job["title"], wage=ev["wage"], reason="")
             upd = {"status": "accepted", "wage_offer": ev["wage"], "reason": "Offer extended", "resolved": True,
+                   "outcome_message": msg,
                    "offer_expires_at": (now + timedelta(hours=cfg.get("employment", {}).get("offer_expiry_hours", 24))).isoformat()}
             await add_event(db, p["id"], msg, "job", "success")
             await add_notification(db, p["id"], "job", "Application accepted", f"{job['title']} — ${ev['wage']}/h. Accept the offer to start working.", "success", "/jobs")
         else:
             msg = (job.get("failure_response") or "Your application for {title} was rejected: {reason}.").format(
                 title=job["title"], wage=ev["wage"], reason=ev["reason"])
-            upd = {"status": "rejected", "reason": ev["reason"], "resolved": True}
+            upd = {"status": "rejected", "reason": ev["reason"], "resolved": True, "outcome_message": msg}
             await add_event(db, p["id"], msg, "job", "warning")
             await add_notification(db, p["id"], "job", "Application rejected", f"{job['title']}: {ev['reason']}.", "warning", "/jobs")
         await db.applications.update_one({"id": a["id"]}, {"$set": upd})

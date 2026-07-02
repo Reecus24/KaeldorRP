@@ -5,11 +5,11 @@ import { api, errMessage } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar, EmptyState } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { realDurationLabel, REL_STATUS, scoreColor, relTime } from "@/lib/helpers";
+import { realDurationLabel, REL_STATUS, scoreColor, relTime, fmtDuration } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import {
     Users, Heart, Briefcase, Building2, Home, Skull, UsersRound, ScrollText, UserPlus,
-    MessageCircle, Phone, ChevronRight, Sparkles, HeartHandshake,
+    MessageCircle, Phone, ChevronRight, Sparkles, HeartHandshake, Clock,
 } from "lucide-react";
 
 const SEV = { success: "text-neon-green", info: "text-neon-cyan/90", warning: "text-neon-yellow", danger: "text-neon-red" };
@@ -103,10 +103,26 @@ function MeetPeople() {
     const { state, refresh } = useGame();
     const [locs, setLocs] = useState(null);
     const [busy, setBusy] = useState(null);
+    const [nowTs, setNowTs] = useState(Date.now());
     const busyActivity = !!state?.activity;
 
-    const load = useCallback(() => api.get("/social/locations").then(({ data }) => setLocs(data)).catch(() => setLocs([])), []);
+    const load = useCallback(() => api.get("/social/locations").then(({ data }) => {
+        const now = Date.now();
+        // Anchor each cooldown to an absolute end timestamp so we can render a live countdown.
+        setLocs(data.map((l) => ({ ...l, _cdEnd: l.cooldown_remaining > 0 ? now + l.cooldown_remaining * 1000 : 0 })));
+    }).catch(() => setLocs([])), []);
     useEffect(() => { load(); }, [load]);
+
+    // 1s ticker while any location is cooling down; reload when a cooldown elapses.
+    useEffect(() => {
+        if (!(locs || []).some((l) => l._cdEnd > 0)) return;
+        const t = setInterval(() => {
+            const now = Date.now();
+            setNowTs(now);
+            if ((locs || []).some((l) => l._cdEnd > 0 && l._cdEnd <= now)) load();
+        }, 1000);
+        return () => clearInterval(t);
+    }, [locs, load]);
 
     const visit = async (l) => {
         setBusy(l.id);
@@ -123,7 +139,10 @@ function MeetPeople() {
         <div className="space-y-3">
             <p className="text-sm text-muted-foreground">Head out to a place to meet new people. Each visit takes real time and shows who you might run into. Meet a Manager or Wholesaler, then network (Talk Business) to unlock permanent business perks.</p>
             <div className="grid sm:grid-cols-2 gap-3">
-                {locs.map((l) => (
+                {locs.map((l) => {
+                    const cdRemaining = l._cdEnd ? Math.max(0, Math.round((l._cdEnd - nowTs) / 1000)) : 0;
+                    const onCooldown = !l.available && cdRemaining > 0;
+                    return (
                     <Panel key={l.id} className="p-4 flex flex-col" data-testid={`location-${l.id}`}>
                         <div className="flex items-center justify-between mb-1">
                             <span className="font-display font-bold text-white">{l.name}</span>
@@ -137,12 +156,18 @@ function MeetPeople() {
                                 </span>
                             ))}
                         </div>
+                        {onCooldown && (
+                            <div className="flex items-center gap-1 text-[11px] text-neon-yellow font-mono mb-2" data-testid={`location-cooldown-${l.id}`}>
+                                <Clock className="w-3 h-3" /> Available in {fmtDuration(cdRemaining)}
+                            </div>
+                        )}
                         <KButton variant="primary" className="w-full" disabled={busyActivity || !l.available} loading={busy === l.id}
                             onClick={() => visit(l)} data-testid={`visit-btn-${l.id}`}>
-                            {busyActivity ? "Busy" : !l.available ? (l.reason || "Unavailable") : <><Sparkles className="w-3.5 h-3.5" /> Go</>}
+                            {busyActivity ? "Busy" : onCooldown ? <><Clock className="w-3.5 h-3.5" /> {fmtDuration(cdRemaining)}</> : !l.available ? (l.reason || "Unavailable") : <><Sparkles className="w-3.5 h-3.5" /> Go</>}
                         </KButton>
                     </Panel>
-                ))}
+                    );
+                })}
             </div>
         </div>
     );

@@ -102,3 +102,17 @@ linked stats). Status + action per tab.
 - Messages sidebar tab (`Layout.jsx`): `nav-messages-badge` moved from the row's right edge (after the
   flex-1 label) to sit right after the icon, before the label (left side).
 - Both remain vibrant #EF4444 + white text; consistent left-side placement everywhere unread badges show.
+
+## Fix: Social "Meet People" cooldown countdown (2026-07-02)
+Location cards in Social ▸ Meet People (`Social.jsx` MeetPeople component) previously only showed the
+static label "On cooldown" with no timer. Fixed: the backend already returns `cooldown_remaining`
+(seconds) per location; the card now anchors it to an absolute end timestamp on load (`_cdEnd`) and a 1s
+ticker renders a live countdown via `fmtDuration` (m:s / h:m:s — same format as work/activity timers),
+inside the button and as a "Available in <time>" line (`data-testid location-cooldown-<id>`). When a
+cooldown elapses the list auto-reloads so the "Go" button re-enables.
+
+## Fix: Application outcome reason in "Your Applications" (2026-07-02)
+The player JobCenter "Your Applications" list now shows the full custom outcome message for resolved
+applications (`data-testid application-outcome-<id>`), matching the admin-tunable `success_response` /
+`failure_response` (with {title}/{wage}/{reason}). Backend stores `outcome_message` on the application in
+`resolve_npc_applications`; the UI falls back to the short reason if it's absent (older apps).

@@ -334,25 +334,34 @@ async def admin_city_shops(admin: dict = Depends(admin_user)):
     locs = await db.locations.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(200)
     bmap = {b["id"]: b["name"] for b in btypes}
     all_items = await db.items.find({}, {"_id": 0, "id": 1, "name": 1, "price": 1, "store_type": 1}).to_list(300)
+    all_items.sort(key=lambda x: x["name"])
+    items_map = {it["id"]: it for it in all_items}
     items_by_cat = {}
     for it in all_items:
         items_by_cat.setdefault(it.get("store_type"), []).append(it)
     for s in shops:
-        s["item_count"] = counts.get(s.get("category"), 0)
         s["business_type_name"] = bmap.get(s.get("business_type_id"))
         s["opening_hours"] = s.get("opening_hours") or _default_opening()
         s["is_open_now"] = employment.is_open_now(s["opening_hours"], g_now)
         cfgmap = s.get("items_config") or {}
         stock = s.get("stock") or {}
-        # Editor-friendly per-item config for THIS shop's category.
+        # Explicit item_ids assignment wins; else fall back to the shop's category (store_type).
+        if s.get("item_ids"):
+            assigned = [items_map[i] for i in s["item_ids"] if i in items_map]
+        else:
+            assigned = items_by_cat.get(s.get("category"), [])
+        assigned = sorted(assigned, key=lambda x: x["name"])
+        s["item_count"] = len(assigned)
+        # Editor-friendly per-item config for THIS shop's assigned items.
         s["items"] = [{
-            "id": it["id"], "name": it["name"], "base_price": it["price"],
+            "id": it["id"], "name": it["name"], "base_price": it["price"], "store_type": it.get("store_type"),
             "capacity": int((cfgmap.get(it["id"]) or {}).get("capacity", SHOP_DEFAULT_CAPACITY)),
             "discount_pct": int((cfgmap.get(it["id"]) or {}).get("discount_pct", 0)),
             "stock": int(stock.get(it["id"], 0)),
-        } for it in sorted(items_by_cat.get(s.get("category"), []), key=lambda x: x["name"])]
+        } for it in assigned]
     return {"shops": shops, "category_options": seed_data.ITEM_CATEGORY_OPTIONS,
             "business_types": btypes, "locations": locs,
+            "all_items": all_items,
             "items_by_category": {k: sorted(v, key=lambda x: x["name"]) for k, v in items_by_cat.items()},
             "default_capacity": SHOP_DEFAULT_CAPACITY}
 
@@ -378,10 +387,56 @@ async def admin_update_city_shop(shop_id: str, body: CityShopBody, admin: dict =
     body_set = body.model_dump()
     body_set["opening_hours"] = _norm_opening(body_set.get("opening_hours"))
     body_set["items_config"] = _norm_items_config(body_set.get("items_config"))
+    # Don't wipe an explicit item assignment when the editor didn't send one.
+    if body_set.get("item_ids") is None:
+        body_set.pop("item_ids", None)
     # Capacities/discounts may have changed — force a stock refresh on next access.
     body_set["last_refresh_day"] = -1
     await db.city_shops.update_one({"id": shop_id}, {"$set": body_set})
     return {"ok": True}
+
+
+
+
+async def _shop_effective_item_ids(shop):
+    """Current item_ids, initializing from the legacy category mapping the first time an explicit
+    edit happens so no existing items are lost when switching to explicit assignment."""
+    ids = shop.get("item_ids")
+    if ids:
+        return list(ids)
+    cat = await db.items.find({"store_type": shop.get("category")}, {"_id": 0, "id": 1}).to_list(300)
+    return [c["id"] for c in cat]
+
+
+@api.post("/admin/city-shops/{shop_id}/items")
+async def admin_add_shop_item(shop_id: str, body: dict, admin: dict = Depends(admin_user)):
+    """Assign an item (from the global item list) to a shop."""
+    item_id = (body or {}).get("item_id")
+    shop = await db.city_shops.find_one({"id": shop_id}, {"_id": 0})
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    it = await db.items.find_one({"id": item_id}, {"_id": 0, "id": 1})
+    if not it:
+        raise HTTPException(status_code=404, detail="Item not found")
+    ids = await _shop_effective_item_ids(shop)
+    if item_id in ids:
+        raise HTTPException(status_code=400, detail="Item is already in this shop")
+    ids.append(item_id)
+    await db.city_shops.update_one({"id": shop_id}, {"$set": {"item_ids": ids, "last_refresh_day": -1}})
+    return {"ok": True, "item_ids": ids}
+
+
+@api.delete("/admin/city-shops/{shop_id}/items/{item_id}")
+async def admin_remove_shop_item(shop_id: str, item_id: str, admin: dict = Depends(admin_user)):
+    """Remove an item from a shop."""
+    shop = await db.city_shops.find_one({"id": shop_id}, {"_id": 0})
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+    ids = [i for i in (await _shop_effective_item_ids(shop)) if i != item_id]
+    upd = {"item_ids": ids, "last_refresh_day": -1}
+    # Drop any per-item config/stock for the removed item.
+    await db.city_shops.update_one({"id": shop_id}, {"$set": upd, "$unset": {f"items_config.{item_id}": "", f"stock.{item_id}": ""}})
+    return {"ok": True, "item_ids": ids}
 
 
 

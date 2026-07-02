@@ -488,13 +488,25 @@ def _eff_price(base, discount_pct):
 
 
 
+async def shop_item_docs(shop):
+    """Items a shop sells. Explicit `item_ids` assignment wins; otherwise fall back to the
+    legacy category (store_type) mapping so older shops keep working unchanged."""
+    ids = shop.get("item_ids")
+    if ids:
+        items = await db.items.find({"id": {"$in": list(ids)}}, {"_id": 0}).to_list(300)
+    else:
+        items = await db.items.find({"store_type": shop.get("category")}, {"_id": 0}).to_list(300)
+    items.sort(key=lambda x: x["name"])
+    return items
+
+
 async def _resolve_shop_stock(shop, cfg):
     """Lazily refresh a shop's stock to per-item capacity at the game-day (00:00) boundary.
     Persists the reset. Returns the (mutated) shop dict."""
     day = game_day_index(cfg, now_utc())
     if shop.get("last_refresh_day") == day:
         return shop
-    cat_items = await db.items.find({"store_type": shop.get("category")}, {"_id": 0, "id": 1}).to_list(200)
+    cat_items = await shop_item_docs(shop)
     cfgmap = shop.get("items_config") or {}
     stock = {}
     for it in cat_items:
@@ -937,6 +949,7 @@ class CityShopBody(BaseModel):
     order: Optional[int] = 50
     opening_hours: Optional[dict] = None
     items_config: Optional[dict] = None
+    item_ids: Optional[List[str]] = None
 
 
 

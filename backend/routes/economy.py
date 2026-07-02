@@ -49,8 +49,7 @@ async def shop_store_items(store_id: str, user: dict = Depends(current_user)):
     shop["is_open_now"] = is_open
     cfgmap = shop.get("items_config") or {}
     stock = shop.get("stock") or {}
-    items = await db.items.find({"store_type": shop.get("category")}, {"_id": 0}).to_list(200)
-    items.sort(key=lambda x: x["name"])
+    items = await shop_item_docs(shop)
     out = []
     for it in items:
         ic = cfgmap.get(it["id"]) or {}

@@ -200,3 +200,22 @@ e.g. "your criminal record", "poor reputation", "low sales skill").
 
 **Endpoints:** `GET /admin/job-applications` (list), `PUT /admin/job-applications/{job_id}` (save).
 Changes are live immediately — the next application resolution uses the new values.
+
+## City Shops — Inventory Item Management (2026-07-02)
+
+Admin ▸ City Infrastructure ▸ **City Shops** now manages each shop's item list explicitly.
+
+- **Assigned items:** each shop stores an optional `item_ids` list. When present, the shop sells exactly
+  those items. Shops with no `item_ids` fall back to the legacy category (`store_type`) mapping, so
+  existing shops keep working until first edited.
+- **Add Item:** in the shop editor (existing shop only), the "+ Add item…" dropdown lists the GLOBAL item
+  set (any item, any category). Selecting one calls `POST /admin/city-shops/{shop_id}/items {item_id}`.
+  The first explicit add auto-initializes `item_ids` from the shop's current category items so nothing is
+  lost when switching to explicit mode.
+- **Remove:** the trash icon on each item row calls `DELETE /admin/city-shops/{shop_id}/items/{item_id}`
+  and also clears that item's per-shop `items_config` (capacity/discount) and `stock`.
+- **New shops:** created with `item_ids` unset → pre-filled from the chosen Category. Add/remove of
+  individual items is available after the first save (needs a persisted shop id).
+- **Persistence & player view:** both endpoints set `last_refresh_day=-1` to force a stock refresh, so
+  changes appear in the player-facing Shop (`GET /shop/stores/{id}/items`) immediately.
+- **Per-item Stock & Discount** editing is unchanged and now applies to the assigned-item rows.
