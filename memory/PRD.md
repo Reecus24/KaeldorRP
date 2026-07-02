@@ -348,3 +348,17 @@ Replaced static NPC job shifts (flat hour list `[2,4,6]`) with rich, admin-confi
 - **Progressive job visibility:** jobs have `visible_in_listings` (default True). `list_job_sectors`/`job_sector_detail` filter hidden jobs; promotions unaffected (look up by id). Admin toggle in Job Sectors tab ("Job Center Visibility"). `PUT /admin/jobs/{id}/visibility`. Tested 100%.
 - **Action Card gains (UI):** `ActionCard.jsx` now renders `skill_xp` as cyan XP chips + stat `effects`. Data existed; was unrendered. Verified via screenshot.
 - **Markets "stagnation" debug:** NOT a sync bug — drift/volatility persist & are consumed (vol 0.5 → 30-1000% moves). Root cause: lazy real-time random walk; movement scales with elapsed real hours (36s min step), so quick edits look frozen. Added Admin ▸ Markets panel (set price/base per asset, "Re-roll Now" forces a full step) + `GET /admin/market`, `POST /admin/market/refresh`, `PUT /admin/market/{id}`. Sync verified (admin KAEL→250, player showed ~250). Docs: ADMIN_SANDBOX.md.
+
+## 2026-07-02 — FINAL LOGIC REPAIR: Linking Audit Findings (COMPLETE ✓, iteration_40)
+Wired four tracked-but-unused stats into real outcomes. Backend-only. All strings English. Doc: `/app/docs/FINAL_LOGIC_FIXES.md`.
+- **Effectiveness → Crime:** `game_engine._resolve_illegal` now scales illegal-job failure chance by live `effectiveness()` (`fail *= clamp(1.6-0.6*eff, 0.6, 1.6)`) and crime skill XP by `eff`. `core._effective_crime_risk` mirrors it so Underworld cards show true odds. Bust risk unchanged.
+- **Reputation → Bank loan pricing + job gates:** new `game_engine.effective_loan_rate(p,cfg)` = `base * clamp(1.0-(rep-50)/125, 0.7, 1.4)` (rep50=base, rep100≈−30%, rep0≈+40%); used in `accrue_recurring` (charging) + `credit_profile.interest_daily` (display). `min_reputation` added to manager tier (store_manager 60, restaurant_manager 55, logistics_manager 60), synced to DB by `migrate_business_supply_chain`.
+- **Legal Standing → Proactive police:** new `game_engine.maybe_police_event` (called in resolve_player). With `legal_reputation<40`, per-gh chance = `TUNE['police_event_per_hour'](0.03)*(40-legal)/40`, integrated over elapsed gh, only while free. Outcomes escalate with suspicion: detention (susp≥60 & legal<20), stop-and-search fine (susp≥40), else warning. New admin-tunable knob `police_event_per_hour`.
+- **Social Status → VIP banking:** `credit_profile` adds `social_c = max(0,social-10)*20` to the limit + returns `vip` (social≥60) and `factors.social_standing`. `min_social_status` job gates unchanged.
+- **Verification:** `python3 /app/backend/tests/test_logic_links.py` PASS (loan pricing, eff→crime factor, legal→police frequency); `verify_economy.py` + `verify_markets.py` still green; testing_agent iteration_40 backend 14/14 (100%), 0 issues, no regressions.
+
+### NEXT (backlog, priority order)
+- **P1 Admin.jsx refactor** (~2000 lines) → split into `src/pages/admin/` subcomponents (preserve @dnd-kit DnD).
+- **P1 Race-based resource multipliers**: each Origin/Race gets a `resource_multipliers` map linked to `employee_engine` production + Admin editor.
+- **P2** Phase 5 custom business products (admin data models); "Clear all" for dismissed applications; browser tab title flash on unread messages.
+- **P3** "Business Insights" panel (best next move per venture).
