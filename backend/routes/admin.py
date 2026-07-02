@@ -356,7 +356,7 @@ async def admin_city_shops(admin: dict = Depends(admin_user)):
         s["items"] = [{
             "id": it["id"], "name": it["name"], "base_price": it["price"], "store_type": it.get("store_type"),
             "capacity": int((cfgmap.get(it["id"]) or {}).get("capacity", SHOP_DEFAULT_CAPACITY)),
-            "discount_pct": int((cfgmap.get(it["id"]) or {}).get("discount_pct", 0)),
+            "price_pct": int((cfgmap.get(it["id"]) or {}).get("price_pct", 100)),
             "stock": int(stock.get(it["id"], 0)),
         } for it in assigned]
     return {"shops": shops, "category_options": seed_data.ITEM_CATEGORY_OPTIONS,
@@ -651,24 +651,32 @@ async def admin_update_job_shifts(job_id: str, body: dict, admin: dict = Depends
 
 @api.get("/admin/job-applications")
 async def admin_job_applications(admin: dict = Depends(admin_user)):
-    """Hiring-difficulty & response tuning for every job (Admin Sandbox → Applications)."""
+    """Hiring-difficulty, response & reason-string tuning for every job (Admin Sandbox → Applications)."""
     jobs = await db.jobs.find({}, {"_id": 0, "id": 1, "title": 1, "category": 1, "tier": 1,
                                    "acceptance_base_chance": 1, "skill_weight": 1,
-                                   "success_response": 1, "failure_response": 1}).to_list(300)
+                                   "success_response": 1, "failure_response": 1, "reason_strings": 1}).to_list(300)
     for j in jobs:
         j.setdefault("acceptance_base_chance", 0.5)
         j.setdefault("skill_weight", 1.0)
         j.setdefault("success_response", "Your application for {title} was accepted — the offer is ${wage}/h. Accept it to start working.")
         j.setdefault("failure_response", "Your application for {title} was rejected: {reason}.")
+        # Merge stored overrides over the defaults so the editor always shows every reason key.
+        rs = j.get("reason_strings") or {}
+        j["reason_strings"] = {
+            "accept": {**employment.DEFAULT_ACCEPT_REASONS, **(rs.get("accept") or {})},
+            "reject": {**employment.DEFAULT_REJECT_REASONS, **(rs.get("reject") or {})},
+        }
     jobs.sort(key=lambda x: (x.get("tier", 1), x.get("title", "")))
-    return {"jobs": jobs}
+    return {"jobs": jobs,
+            "accept_reason_keys": list(employment.DEFAULT_ACCEPT_REASONS.keys()),
+            "reject_reason_keys": list(employment.DEFAULT_REJECT_REASONS.keys())}
 
 
 
 
 @api.put("/admin/job-applications/{job_id}")
 async def admin_update_job_applications(job_id: str, body: dict, admin: dict = Depends(admin_user)):
-    """Tune a job's hire chance, skill weight and the hired/rejected roleplay messages."""
+    """Tune a job's hire chance, skill weight, roleplay messages and per-outcome reason strings."""
     try:
         base = float(body.get("acceptance_base_chance", 0.5))
         weight = float(body.get("skill_weight", 1.0))
@@ -684,9 +692,57 @@ async def admin_update_job_applications(job_id: str, body: dict, admin: dict = D
         raise HTTPException(status_code=400, detail="Both success and failure responses are required")
     upd = {"acceptance_base_chance": round(base, 3), "skill_weight": round(weight, 3),
            "success_response": success[:400], "failure_response": failure[:400]}
+    # Only persist reason strings that actually differ from defaults (keeps docs lean).
+    rs_in = body.get("reason_strings") or {}
+    accept_ov = {k: str(v)[:200] for k, v in (rs_in.get("accept") or {}).items()
+                 if k in employment.DEFAULT_ACCEPT_REASONS and str(v).strip() and str(v).strip() != employment.DEFAULT_ACCEPT_REASONS[k]}
+    reject_ov = {k: str(v)[:200] for k, v in (rs_in.get("reject") or {}).items()
+                 if k in employment.DEFAULT_REJECT_REASONS and str(v).strip() and str(v).strip() != employment.DEFAULT_REJECT_REASONS[k]}
+    upd["reason_strings"] = {"accept": accept_ov, "reject": reject_ov}
     res = await db.jobs.update_one({"id": job_id}, {"$set": upd})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Job not found")
+    return {"ok": True, **upd}
+
+
+
+
+@api.get("/admin/applications")
+async def admin_list_applications(limit: int = 60, status: str = None, admin: dict = Depends(admin_user)):
+    """Recent player job applications with their calculated reason, for monitoring & override."""
+    q = {}
+    if status in ("pending", "accepted", "rejected", "expired"):
+        q["status"] = status
+    apps = await db.applications.find(q, {"_id": 0}).sort("submitted_at", -1).to_list(min(max(limit, 1), 200))
+    pids = list({a["player_id"] for a in apps})
+    players = await db.players.find({"id": {"$in": pids}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(pids) or 1)
+    pmap = {p["id"]: p["name"] for p in players}
+    out = [{
+        "id": a["id"], "player_id": a["player_id"], "player_name": pmap.get(a["player_id"], "—"),
+        "job_id": a.get("job_id"), "title": a.get("title"), "status": a.get("status"),
+        "wage_offer": a.get("wage_offer"), "reason": a.get("reason"),
+        "outcome_message": a.get("outcome_message"), "submitted_at": a.get("submitted_at"),
+        "resolves_at": a.get("resolves_at"),
+    } for a in apps]
+    return {"applications": out}
+
+
+
+
+@api.put("/admin/applications/{app_id}")
+async def admin_override_application(app_id: str, body: dict, admin: dict = Depends(admin_user)):
+    """Manually override the reason string (and optionally the outcome message) for one application."""
+    app = await db.applications.find_one({"id": app_id}, {"_id": 0})
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    upd = {}
+    if "reason" in body:
+        upd["reason"] = str(body.get("reason") or "").strip()[:200]
+    if body.get("outcome_message") is not None:
+        upd["outcome_message"] = str(body.get("outcome_message") or "").strip()[:400]
+    if not upd:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    await db.applications.update_one({"id": app_id}, {"$set": upd})
     return {"ok": True, **upd}
 
 

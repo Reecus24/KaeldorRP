@@ -481,9 +481,10 @@ def _default_opening():
 
 
 
-def _eff_price(base, discount_pct):
-    d = max(0, min(95, int(discount_pct or 0)))
-    return max(1, int(round(float(base) * (1 - d / 100.0))))
+def _shop_price(base, price_pct):
+    """Final shop price = base × price_pct%. 100 = base price, 90 = 10% off, 150 = 50% markup."""
+    pct = max(1, min(1000, int(price_pct if price_pct is not None else 100)))
+    return max(1, int(round(float(base) * pct / 100.0)))
 
 
 
@@ -966,8 +967,15 @@ def _norm_items_config(cfg):
     out = {}
     for iid, c in (cfg or {}).items():
         c = c or {}
+        # Migrate any legacy discount_pct → price_pct (100 - discount).
+        if "price_pct" in c:
+            pct = int(c.get("price_pct", 100))
+        elif "discount_pct" in c:
+            pct = 100 - int(c.get("discount_pct", 0))
+        else:
+            pct = 100
         out[iid] = {"capacity": max(0, int(c.get("capacity", SHOP_DEFAULT_CAPACITY))),
-                    "discount_pct": max(0, min(95, int(c.get("discount_pct", 0))))}
+                    "price_pct": max(1, min(1000, pct))}
     return out
 
 

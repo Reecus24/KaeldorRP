@@ -16,6 +16,30 @@ from game_engine import (parse_dt, add_event, add_notification, charge, add_mone
                          game_now, effectiveness, add_skill_xp)
 
 
+# Default reason strings per outcome factor. Admins override these per-job via reason_strings
+# (Job Editor ▸ Applications) or per-application (Admin ▸ Applications). Players never see these
+# directly — only the final success_response/failure_response message.
+DEFAULT_ACCEPT_REASONS = {
+    "skills": "strong relevant skills",
+    "education": "solid education",
+    "reputation": "a great reputation",
+    "work_history": "a strong work history",
+    "reference": "a good reference",
+    "connections": "the right connections",
+    "interview": "a great interview",
+}
+DEFAULT_REJECT_REASONS = {
+    "criminal_record": "your criminal record",
+    "suspicion": "you're under police attention",
+    "low_skill": "insufficient skills",
+    "reputation": "poor reputation",
+    "work_history": "a weak work history",
+    "health": "poor health",
+    "competition": "a stronger candidate was chosen",
+}
+
+
+
 # ----------------------------- shared stat helpers -----------------------------
 def _relevant_skills(job):
     return list((job.get("skill_xp") or {}).keys()) or ["fitness"]
@@ -423,25 +447,47 @@ def evaluate_application(p, job, cfg, boss_rel=0, mentor_rel=0):
                           + rel_bonus * 2 + ref_bonus * 2 + status_bonus - crime_pen * 2 - susp_pen * 2 - health_pen))
     accepted = random.random() < score
 
-    reason = None
-    if not accepted:
+    # Determine the dominant outcome factor (a KEY); the display string is resolved from the job's
+    # admin-editable reason_strings (falling back to defaults). Admins can override per application later.
+    rmap = job.get("reason_strings") or {}
+    if accepted:
+        pos = []
+        if skill_lvl >= 4:
+            pos.append(("skills", skill_bonus + 0.2))
+        if len(p.get("education", [])) >= 2:
+            pos.append(("education", edu_bonus + 0.1))
+        if p["reputation"] >= 65:
+            pos.append(("reputation", rep_bonus + 0.1))
+        if reliability >= 65:
+            pos.append(("work_history", rel_bonus + 0.1))
+        if ref_bonus > 0.05:
+            pos.append(("reference", ref_bonus + 0.1))
+        if p.get("social_status", 10) >= 40:
+            pos.append(("connections", status_bonus + 0.05))
+        if not pos:
+            pos.append(("interview", 0.1))
+        reason_key = max(pos, key=lambda x: x[1])[0]
+        reason = (rmap.get("accept") or {}).get(reason_key) or DEFAULT_ACCEPT_REASONS[reason_key]
+    else:
         factors = []
         if crime_pen > 0.05:
-            factors.append(("your criminal record", crime_pen * 2))
+            factors.append(("criminal_record", crime_pen * 2))
         if susp_pen > 0.05:
-            factors.append(("you're under police attention", susp_pen * 2))
+            factors.append(("suspicion", susp_pen * 2))
         if skill_lvl < 3:
-            factors.append((f"low {skills[0]} skill", 0.35))
+            factors.append(("low_skill", 0.35))
         if p["reputation"] < 45:
-            factors.append(("poor reputation", (45 - p["reputation"]) / 50))
+            factors.append(("reputation", (45 - p["reputation"]) / 50))
         if reliability < 45:
-            factors.append(("a weak work history", (45 - reliability) / 50))
+            factors.append(("work_history", (45 - reliability) / 50))
         if p["health"] < 45:
-            factors.append(("poor health", health_pen * 3))
+            factors.append(("health", health_pen * 3))
         if not factors:
-            factors.append(("a stronger candidate was chosen", 0.2))
-        reason = max(factors, key=lambda x: x[1])[0]
-    return {"wage": wage, "accepted": accepted, "reason": reason, "mult": round(mult, 2), "score": round(score, 3)}
+            factors.append(("competition", 0.2))
+        reason_key = max(factors, key=lambda x: x[1])[0]
+        reason = (rmap.get("reject") or {}).get(reason_key) or DEFAULT_REJECT_REASONS[reason_key]
+    return {"wage": wage, "accepted": accepted, "reason": reason, "reason_key": reason_key,
+            "mult": round(mult, 2), "score": round(score, 3)}
 
 
 async def resolve_npc_applications(db, p, cfg, now):
@@ -460,8 +506,8 @@ async def resolve_npc_applications(db, p, cfg, now):
                                   mentor.get("relationship_score", 0) if mentor else 0)
         if ev["accepted"]:
             msg = (job.get("success_response") or "Your application for {title} was accepted — offer ${wage}/h.").format(
-                title=job["title"], wage=ev["wage"], reason="")
-            upd = {"status": "accepted", "wage_offer": ev["wage"], "reason": "Offer extended", "resolved": True,
+                title=job["title"], wage=ev["wage"], reason=ev["reason"])
+            upd = {"status": "accepted", "wage_offer": ev["wage"], "reason": ev["reason"], "resolved": True,
                    "outcome_message": msg,
                    "offer_expires_at": (now + timedelta(hours=cfg.get("employment", {}).get("offer_expiry_hours", 24))).isoformat()}
             await add_event(db, p["id"], msg, "job", "success")

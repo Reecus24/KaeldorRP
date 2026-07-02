@@ -219,3 +219,34 @@ Admin ▸ City Infrastructure ▸ **City Shops** now manages each shop's item li
 - **Persistence & player view:** both endpoints set `last_refresh_day=-1` to force a stock refresh, so
   changes appear in the player-facing Shop (`GET /shop/stores/{id}/items`) immediately.
 - **Per-item Stock & Discount** editing is unchanged and now applies to the assigned-item rows.
+
+## Shop Pricing — "Price %" multiplier (replaces Discount) (2026-07-02)
+
+The per-item shop field is now **Price %** (`items_config.<item>.price_pct`, default 100) instead of a
+discount. Final shop price = `base_price × price_pct / 100`:
+- **100%** → exact global item price.
+- **90%** → 10% cheaper (sale).
+- **150%** → 50% markup.
+Range 1–1000%. The editor shows a live "base $X → $Y" preview. `on_sale` badges show when any item's
+price_pct < 100. Buy events note "(−N% sale)" or "(+N% markup)". Legacy `discount_pct` values were
+auto-migrated to `price_pct = 100 − discount_pct`.
+
+## Application Reasons — managerial strings & monitoring (2026-07-02)
+
+Reasons are an **Admin-only** concept. Players only ever see the final Success/Failure response
+(embed `{reason}` in it to surface the chosen reason to the player).
+
+**Job Editor ▸ Applications ▸ Job Tuning** — each job now has editable **reason strings** for every
+outcome factor the engine can pick:
+- Accept keys: `skills, education, reputation, work_history, reference, connections, interview`
+- Reject keys: `criminal_record, suspicion, low_skill, reputation, work_history, health, competition`
+`evaluate_application` computes the dominant factor KEY, then resolves the display string from the job's
+`reason_strings` override (falling back to `employment.DEFAULT_ACCEPT_REASONS` / `DEFAULT_REJECT_REASONS`).
+Only strings that differ from the defaults are persisted. Endpoint: `PUT /admin/job-applications/{job_id}`
+(now also accepts `reason_strings: {accept:{}, reject:{}}`).
+
+**Applications ▸ Recent Applications** — monitor recent player applications, filterable by status
+(all/pending/accepted/rejected/expired). Each row shows player, job, status, wage offer, the calculated
+reason and the player-facing outcome message. Admins can **override the reason string** per application
+at any time (before or after the decision) via the inline field → "Override".
+Endpoints: `GET /admin/applications?status=&limit=`, `PUT /admin/applications/{app_id} {reason, outcome_message?}`.

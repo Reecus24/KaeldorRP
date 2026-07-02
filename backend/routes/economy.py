@@ -29,7 +29,7 @@ async def shop_stores(user: dict = Depends(current_user)):
         s["is_open_now"] = employment.is_open_now(s["opening_hours"], g_now)
         stock = s.get("stock") or {}
         s["in_stock_count"] = sum(1 for v in stock.values() if v > 0)
-        s["on_sale"] = any(int((c or {}).get("discount_pct", 0)) > 0 for c in (s.get("items_config") or {}).values())
+        s["on_sale"] = any(int((c or {}).get("price_pct", 100)) < 100 for c in (s.get("items_config") or {}).values())
     return shops
 
 
@@ -53,10 +53,10 @@ async def shop_store_items(store_id: str, user: dict = Depends(current_user)):
     out = []
     for it in items:
         ic = cfgmap.get(it["id"]) or {}
-        disc = int(ic.get("discount_pct", 0))
+        pct = int(ic.get("price_pct", 100))
         remaining = int(stock.get(it["id"], 0))
-        out.append({**it, "base_price": it["price"], "price": _eff_price(it["price"], disc),
-                    "discount_pct": disc, "stock": remaining,
+        out.append({**it, "base_price": it["price"], "price": _shop_price(it["price"], pct),
+                    "price_pct": pct, "stock": remaining,
                     "capacity": int(ic.get("capacity", SHOP_DEFAULT_CAPACITY)),
                     "sold_out": remaining <= 0})
     return {"shop": shop, "is_open_now": is_open, "items": out}
@@ -87,8 +87,8 @@ async def shop_buy(body: BuyBody, user: dict = Depends(current_user)):
     remaining = int((shop.get("stock") or {}).get(body.item_id, 0))
     if remaining < qty:
         raise HTTPException(status_code=400, detail=f"Out of stock — only {remaining} left. Restocks at midnight.")
-    disc = int(((shop.get("items_config") or {}).get(body.item_id) or {}).get("discount_pct", 0))
-    unit = _eff_price(it["price"], disc)
+    pct = int(((shop.get("items_config") or {}).get(body.item_id) or {}).get("price_pct", 100))
+    unit = _shop_price(it["price"], pct)
     total = unit * qty
     if p["cash"] + p["bank"] < total:
         raise HTTPException(status_code=400, detail="Not enough money")
@@ -96,8 +96,8 @@ async def shop_buy(body: BuyBody, user: dict = Depends(current_user)):
     p.setdefault("inventory", {})
     p["inventory"][body.item_id] = p["inventory"].get(body.item_id, 0) + qty
     await db.city_shops.update_one({"id": shop["id"]}, {"$set": {f"stock.{body.item_id}": remaining - qty}})
-    sale = f" (−{disc}% sale)" if disc > 0 else ""
-    await add_event(db, p["id"], f"Bought {qty}x {it['name']} for ${total}{sale} at {shop['name']} — added to your inventory.", "shop", "info")
+    tag = f" (−{100 - pct}% sale)" if pct < 100 else (f" (+{pct - 100}% markup)" if pct > 100 else "")
+    await add_event(db, p["id"], f"Bought {qty}x {it['name']} for ${total}{tag} at {shop['name']} — added to your inventory.", "shop", "info")
     await save_player(p)
     return {"ok": True}
 

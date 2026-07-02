@@ -1,0 +1,33 @@
+{
+  "summary": "Iteration 38 — Verified admin Price % editor (replaces Discount), per-job editable reason_strings (Accept/Reject) in Job Applications editor, and Recent Applications monitor override flow. All 11 pytest backend tests passed and all frontend flows verified via Playwright.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin ▸ City Infrastructure ▸ City Shops (intro paragraph)", "issues": ["Copy still says 'per-item daily Stock + optional Discount for sale events' — should reference Price % (100/90/150) instead of Discount to match the new editor semantics"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration38_reasons_price_pct.py",
+    "/app/test_reports/pytest/iteration38_results.xml"
+  ],
+  "action_items": [
+    "Update CityShopsPanel intro copy (Admin.jsx ~line 671) — 'optional Discount for sale events' should now say 'Price % multiplier (100=base, 90=cheaper, 150=markup)'.",
+    "Pre-existing hydration console warning still present: '<span> cannot be a child of <option>' at Admin.jsx line 724 (shop-additem-select). Caused by Emergent x-source-* injection; cosmetic. Consider suppressing/refactoring. (Also noted in iteration 37.)"
+  ],
+  "critical_code_review_comments": [
+    "Backend admin/city-shops correctly returns price_pct on every item; discount_pct is completely removed from the response contract.",
+    "core.py _shop_price clamps price_pct to [1,1000] and _norm_items_config properly migrates legacy discount_pct→price_pct (100 - discount).",
+    "admin_update_job_applications only persists reason_strings that differ from defaults (keeps job docs lean) and merges defaults on read — good design.",
+    "admin_override_application correctly returns 400 on empty body and 404 on unknown app_id; player token correctly hits 403 on /admin/applications and /admin/job-applications/{id}."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration38_reasons_price_pct.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin: admin@kaeldor.com/admin123. Player: mara@kaeldor.com/demo123 (patrick.kuppe02 does not exist).",
+  "seed_data_creation": "None. Tests set coffee price_pct=150 then reset to 100, cashier reason_strings overridden then reset to empty ({accept:{},reject:{}}). UI test overrode Mara Vance's application reason to 'UI override test reason' then reset to 'admin manual override — VIP referral'. Coffee price_pct also touched via UI editor but changes were CANCELLED (not saved).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 38 covered: (1) shop price_pct API + player price reflection (base×pct/100), (2) admin job-applications GET/PUT reason_strings persistence with default merge, (3) applications monitor GET/list, ?status=pending filter, PUT override (200/400/404), (4) admin 403 with player token, (5) Frontend JobApplications tab with jobapps-tab-tuning/monitor toggle, edit pencil (jobapps-edit-<id>), editor (jobapps-editor + accept/reject reason inputs), save toast, ApplicationsMonitor rows with appmon-reason-<id>/appmon-save-<id> and appmon-filter-* buttons, (6) CityShopsPanel Price % column with cfg-price-<id> inputs and live 'base $X → $Y' preview. All PASS. Minor copy fix pending: CityShops intro paragraph still says 'Discount' instead of 'Price %'.",
+  "rca of the issue": "N/A — no bugs found; only a stale intro-copy suggestion."
+}

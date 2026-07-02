@@ -731,18 +731,20 @@ function CityShopsPanel() {
                         ) : (
                             <div className="space-y-2" data-testid="shop-items-config">
                                 <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 text-[10px] font-mono uppercase tracking-wider text-muted-foreground/60 px-1">
-                                    <span>Item</span><span className="w-24 text-center">Daily stock</span><span className="w-24 text-center">Discount %</span><span className="w-8" />
+                                    <span>Item</span><span className="w-24 text-center">Daily stock</span><span className="w-24 text-center">Price %</span><span className="w-8" />
                                 </div>
                                 {assignedItems.map((it) => {
                                     const c = draft.items_config?.[it.id] || {};
+                                    const pct = c.price_pct ?? 100;
+                                    const bp = it.base_price ?? it.price ?? 0;
                                     return (
                                         <div key={it.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center" data-testid={`shop-itemcfg-${it.id}`}>
                                             <div className="min-w-0">
                                                 <span className="text-xs text-white">{it.name}</span>
-                                                <span className="ml-2 text-[10px] font-mono text-muted-foreground">${it.base_price ?? it.price}</span>
+                                                <span className="ml-2 text-[10px] font-mono text-muted-foreground">base ${bp} → <span className={pct < 100 ? "text-neon-green" : pct > 100 ? "text-neon-yellow" : "text-muted-foreground"}>${Math.max(1, Math.round(bp * pct / 100))}</span></span>
                                             </div>
                                             <KInput type="number" className="w-24" value={c.capacity ?? defCap} onChange={(e) => setItemCfg(it.id, "capacity", Math.max(0, Number(e.target.value)))} testid={`cfg-cap-${it.id}`} />
-                                            <KInput type="number" className="w-24" value={c.discount_pct ?? 0} onChange={(e) => setItemCfg(it.id, "discount_pct", Math.max(0, Math.min(95, Number(e.target.value))))} testid={`cfg-disc-${it.id}`} />
+                                            <KInput type="number" className="w-24" value={pct} onChange={(e) => setItemCfg(it.id, "price_pct", Math.max(1, Math.min(1000, Number(e.target.value))))} testid={`cfg-price-${it.id}`} />
                                             {draft.id ? (
                                                 <button onClick={() => removeItem(it.id)} className="text-neon-red hover:text-neon-red/70 justify-self-center" title="Remove item" data-testid={`shop-removeitem-${it.id}`}><Trash2 className="w-4 h-4" /></button>
                                             ) : <span className="w-8" />}
@@ -1173,6 +1175,7 @@ function JobApplicationsPanel() {
     const [sel, setSel] = useState(null);
     const [draft, setDraft] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [view, setView] = useState("tuning"); // "tuning" | "monitor"
     const load = useCallback(() => api.get("/admin/job-applications").then(({ data }) => setData(data)).catch(() => setData({ jobs: [] })), []);
     useEffect(() => { load(); }, [load]);
 
@@ -1183,8 +1186,13 @@ function JobApplicationsPanel() {
             skill_weight: jb.skill_weight ?? 1.0,
             success_response: jb.success_response || "",
             failure_response: jb.failure_response || "",
+            reason_strings: {
+                accept: { ...(jb.reason_strings?.accept || {}) },
+                reject: { ...(jb.reason_strings?.reject || {}) },
+            },
         });
     };
+    const setReason = (kind, key, val) => setDraft((d) => ({ ...d, reason_strings: { ...d.reason_strings, [kind]: { ...d.reason_strings[kind], [key]: val } } }));
     const save = async () => {
         setSaving(true);
         try {
@@ -1199,14 +1207,23 @@ function JobApplicationsPanel() {
     const selJob = (data.jobs || []).find((j) => j.id === sel);
     const numCls = "bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white w-full";
     const taCls = "bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white w-full min-h-[64px]";
+    const rowCls = "bg-black/40 border border-white/15 rounded-sm px-2 py-1 text-xs text-white flex-1";
+    const humanize = (k) => k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
     return (
         <div className="space-y-4">
+            <div className="flex items-center gap-2" data-testid="jobapps-view-toggle">
+                <KButton variant={view === "tuning" ? "primary" : "ghost"} onClick={() => setView("tuning")} data-testid="jobapps-tab-tuning">Job Tuning</KButton>
+                <KButton variant={view === "monitor" ? "primary" : "ghost"} onClick={() => setView("monitor")} data-testid="jobapps-tab-monitor">Recent Applications</KButton>
+            </div>
+
+            {view === "monitor" ? <ApplicationsMonitor /> : (
+            <>
             <p className="text-sm text-muted-foreground">
-                Tune how hard each job is to get and customize the roleplay responses. <span className="text-white">Base Chance</span> is the starting hire probability (0–1)
-                before a candidate's skills, education, reputation, record and references adjust it. <span className="text-white">Skill Weight</span> multiplies how much a
-                candidate's skill above the requirement helps. The response messages support the placeholders <span className="font-mono text-neon-cyan">{"{title}"}</span>,{" "}
-                <span className="font-mono text-neon-cyan">{"{wage}"}</span> and <span className="font-mono text-neon-cyan">{"{reason}"}</span>. Changes go live immediately.
+                Tune hire difficulty, roleplay responses and the per-outcome <span className="text-white">reason strings</span> the system picks from.
+                <span className="text-white"> Base Chance</span> (0–1) is the starting hire probability; <span className="text-white">Skill Weight</span> multiplies how much skill helps.
+                Responses support <span className="font-mono text-neon-cyan">{"{title}"}</span>, <span className="font-mono text-neon-cyan">{"{wage}"}</span>, <span className="font-mono text-neon-cyan">{"{reason}"}</span>.
+                Reason strings are managerial — players only ever see the final Success/Failure response (embed <span className="font-mono text-neon-cyan">{"{reason}"}</span> in it to surface one).
             </p>
 
             {sel && draft ? (
@@ -1230,6 +1247,32 @@ function JobApplicationsPanel() {
                     <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Failure Response (shown when rejected)
                         <textarea className={taCls} value={draft.failure_response}
                             onChange={(e) => setDraft((d) => ({ ...d, failure_response: e.target.value }))} data-testid="jobapps-failure" /></label>
+
+                    <div className="grid md:grid-cols-2 gap-4 pt-1">
+                        <div data-testid="jobapps-accept-reasons">
+                            <div className="text-[11px] font-mono uppercase tracking-wider text-neon-green/80 mb-2">Accept Reasons</div>
+                            <div className="space-y-1.5">
+                                {(data.accept_reason_keys || Object.keys(draft.reason_strings.accept)).map((k) => (
+                                    <div key={k} className="flex items-center gap-2">
+                                        <span className="text-[10px] text-muted-foreground w-28 shrink-0">{humanize(k)}</span>
+                                        <input className={rowCls} value={draft.reason_strings.accept[k] ?? ""} onChange={(e) => setReason("accept", k, e.target.value)} data-testid={`jobapps-accept-${k}`} />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div data-testid="jobapps-reject-reasons">
+                            <div className="text-[11px] font-mono uppercase tracking-wider text-neon-red/80 mb-2">Reject Reasons</div>
+                            <div className="space-y-1.5">
+                                {(data.reject_reason_keys || Object.keys(draft.reason_strings.reject)).map((k) => (
+                                    <div key={k} className="flex items-center gap-2">
+                                        <span className="text-[10px] text-muted-foreground w-28 shrink-0">{humanize(k)}</span>
+                                        <input className={rowCls} value={draft.reason_strings.reject[k] ?? ""} onChange={(e) => setReason("reject", k, e.target.value)} data-testid={`jobapps-reject-${k}`} />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="flex gap-2 pt-1">
                         <KButton variant="green" loading={saving} onClick={save} data-testid="jobapps-save">Save</KButton>
                         <KButton variant="ghost" onClick={() => { setSel(null); setDraft(null); }} data-testid="jobapps-cancel">Cancel</KButton>
@@ -1251,6 +1294,68 @@ function JobApplicationsPanel() {
                                 <Pill tone="green">Skill ×{jb.skill_weight ?? 1}</Pill>
                             </div>
                             <p className="text-[10px] text-muted-foreground line-clamp-2 italic">"{jb.failure_response}"</p>
+                        </Panel>
+                    ))}
+                </div>
+            )}
+            </>
+            )}
+        </div>
+    );
+}
+
+function ApplicationsMonitor() {
+    const [apps, setApps] = useState(null);
+    const [filter, setFilter] = useState("");
+    const [edit, setEdit] = useState({}); // app_id -> reason draft
+    const [busy, setBusy] = useState(null);
+    const load = useCallback(() => api.get(`/admin/applications${filter ? `?status=${filter}` : ""}`).then(({ data }) => setApps(data.applications || [])).catch(() => setApps([])), [filter]);
+    useEffect(() => { load(); }, [load]);
+
+    const saveReason = async (a) => {
+        setBusy(a.id);
+        try {
+            await api.put(`/admin/applications/${a.id}`, { reason: edit[a.id] });
+            toast.success("Reason overridden");
+            setEdit((e) => { const n = { ...e }; delete n[a.id]; return n; });
+            await load();
+        } catch (e) { toast.error(errMessage(e)); }
+        setBusy(null);
+    };
+    const tone = (s) => s === "accepted" ? "green" : s === "rejected" ? "red" : s === "pending" ? "yellow" : "cyan";
+    if (!apps) return <Spinner />;
+
+    return (
+        <div className="space-y-3" data-testid="applications-monitor">
+            <div className="flex items-center gap-2 flex-wrap">
+                {["", "pending", "accepted", "rejected", "expired"].map((s) => (
+                    <button key={s || "all"} onClick={() => setFilter(s)} data-testid={`appmon-filter-${s || "all"}`}
+                        className={cn("text-[11px] px-2.5 py-1 rounded-sm border font-mono", filter === s ? "border-neon-cyan text-neon-cyan bg-neon-cyan/10" : "border-white/15 text-muted-foreground hover:text-white")}>
+                        {s ? s.toUpperCase() : "ALL"}
+                    </button>
+                ))}
+            </div>
+            {apps.length === 0 ? <p className="text-sm text-muted-foreground">No applications found.</p> : (
+                <div className="space-y-2">
+                    {apps.map((a) => (
+                        <Panel key={a.id} className="p-3" data-testid={`appmon-row-${a.id}`}>
+                            <div className="flex items-center justify-between gap-2 flex-wrap mb-1.5">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm text-white font-display font-bold">{a.player_name}</span>
+                                    <span className="text-[11px] text-muted-foreground">→ {a.title}</span>
+                                    <Pill tone={tone(a.status)}>{a.status}</Pill>
+                                    {a.wage_offer ? <Pill tone="green">${a.wage_offer}/h</Pill> : null}
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-muted-foreground shrink-0">Reason</span>
+                                <input className="bg-black/40 border border-white/15 rounded-sm px-2 py-1 text-xs text-white flex-1"
+                                    value={edit[a.id] ?? (a.reason ?? "")} placeholder="(not yet decided)"
+                                    onChange={(e) => setEdit((m) => ({ ...m, [a.id]: e.target.value }))} data-testid={`appmon-reason-${a.id}`} />
+                                <KButton variant="green" loading={busy === a.id} disabled={edit[a.id] === undefined || edit[a.id] === (a.reason ?? "")}
+                                    onClick={() => saveReason(a)} data-testid={`appmon-save-${a.id}`}>Override</KButton>
+                            </div>
+                            {a.outcome_message && <p className="text-[10px] text-muted-foreground/70 mt-1.5 italic">Player sees: "{a.outcome_message}"</p>}
                         </Panel>
                     ))}
                 </div>

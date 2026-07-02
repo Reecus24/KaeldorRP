@@ -39,7 +39,7 @@ function ApplicationsPanel({ apps, onAccept, onRemove, busy }) {
                             )}
                             {a.status === "rejected" && (
                                 <div className="text-[11px] text-neon-red" data-testid={`application-outcome-${a.id}`}>
-                                    {a.outcome_message || `Rejected: ${a.reason}`}
+                                    {a.outcome_message || "Your application was not successful this time."}
                                 </div>
                             )}
                         </div>
