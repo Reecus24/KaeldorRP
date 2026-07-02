@@ -6,7 +6,7 @@ import { money } from "@/lib/helpers";
 import {
     Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
     MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
-    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles,
+    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles, User,
     ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -1391,17 +1391,51 @@ function MarketsPanel() {
         catch (err) { toast.error(errMessage(err)); }
         setBusy(false);
     };
+    const [nw, setNw] = useState({ symbol: "", name: "", kind: "stock", base_price: 100 });
+    const createAsset = async () => {
+        if (!nw.symbol.trim() || !nw.name.trim()) { toast.error("Symbol and name are required"); return; }
+        setBusy(true);
+        try { await api.post("/admin/market", { ...nw, base_price: Number(nw.base_price) }); toast.success(`${nw.symbol.toUpperCase()} created`); setNw({ symbol: "", name: "", kind: "stock", base_price: 100 }); await load(); }
+        catch (err) { toast.error(errMessage(err)); }
+        setBusy(false);
+    };
+    const delAsset = async (a) => {
+        if (!window.confirm(`Delete ${a.symbol} from the market? Player holdings become untradable.`)) return;
+        setBusy(true);
+        try { await api.delete(`/admin/market/${a.id}`); toast.success(`${a.symbol} deleted`); await load(); }
+        catch (err) { toast.error(errMessage(err)); }
+        setBusy(false);
+    };
 
     if (!data) return <Spinner />;
     const t = data.tuning || {};
     const groups = [["stock", "Stocks"], ["crypto", "Crypto"]];
+    const inCls = "bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white";
 
     return (
         <div className="space-y-4">
             <div className="flex items-start justify-between gap-3 flex-wrap">
-                <p className="text-sm text-muted-foreground max-w-2xl">Live market assets. Prices follow a per-real-hour random walk driven by the drift/volatility below (set those in Gameplay Tuning ▸ Tuning). Because movement scales with elapsed real time, changes look gradual — hit <strong className="text-white">Re-roll Now</strong> to apply a full step instantly, or set a price directly.</p>
+                <p className="text-sm text-muted-foreground max-w-2xl">Live market assets. Prices follow a per-real-hour random walk driven by the drift/volatility below (set those in Gameplay Tuning ▸ Tuning). Because movement scales with elapsed real time, changes look gradual — hit <strong className="text-white">Re-roll Now</strong> to apply a full step instantly, or set a price directly. New assets are picked up by the price engine automatically.</p>
                 <KButton variant="primary" loading={busy} onClick={reroll} data-testid="market-reroll"><Radio className="w-4 h-4" /> Re-roll Now</KButton>
             </div>
+
+            <Panel className="p-4 border-neon-green/25" data-testid="market-create">
+                <div className="text-[11px] font-mono uppercase tracking-wider text-neon-green/80 mb-2">Add New Asset</div>
+                <div className="flex items-end gap-2 flex-wrap">
+                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Symbol
+                        <input className={cn(inCls, "w-24 uppercase")} value={nw.symbol} onChange={(e) => setNw((s) => ({ ...s, symbol: e.target.value.toUpperCase().slice(0, 6) }))} data-testid="market-new-symbol" /></label>
+                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Name
+                        <input className={cn(inCls, "w-48")} value={nw.name} onChange={(e) => setNw((s) => ({ ...s, name: e.target.value }))} data-testid="market-new-name" /></label>
+                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Kind
+                        <select className={inCls} value={nw.kind} onChange={(e) => setNw((s) => ({ ...s, kind: e.target.value }))} data-testid="market-new-kind">
+                            <option value="stock">Stock</option><option value="crypto">Crypto</option>
+                        </select></label>
+                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Start Price
+                        <input type="number" className={cn(inCls, "w-28")} value={nw.base_price} onChange={(e) => setNw((s) => ({ ...s, base_price: e.target.value }))} data-testid="market-new-price" /></label>
+                    <KButton variant="green" loading={busy} onClick={createAsset} data-testid="market-new-create"><Plus className="w-3.5 h-3.5" /> Create</KButton>
+                </div>
+            </Panel>
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
                 <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Stock drift/hr</span><div className="text-neon-cyan">{t.stock_drift}</div></div>
                 <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Stock vol/hr</span><div className="text-neon-cyan">{t.stock_volatility}</div></div>
@@ -1426,11 +1460,138 @@ function MarketsPanel() {
                                     <input type="number" defaultValue={a.base_price} onChange={(e) => setEdit(a.id, "base_price", e.target.value)}
                                         className="bg-black/40 border border-white/15 rounded-sm px-2 py-1 text-xs text-white w-28" data-testid={`market-base-${a.id}`} /></label>
                                 <KButton variant="green" loading={busy} onClick={() => saveAsset(a)} data-testid={`market-save-${a.id}`}>Set</KButton>
+                                <button onClick={() => delAsset(a)} className="text-neon-red hover:text-neon-red/70" title="Delete asset" data-testid={`market-delete-${a.id}`}><Trash2 className="w-4 h-4" /></button>
                             </div>
                         ))}
                     </div>
                 </div>
             ))}
+        </div>
+    );
+}
+
+
+function CharacterOriginsPanel() {
+    const [data, setData] = useState(null);
+    const [draft, setDraft] = useState(null);
+    const [busy, setBusy] = useState(false);
+    const load = useCallback(() => api.get("/admin/backgrounds").then(({ data }) => setData(data)).catch(() => setData({ backgrounds: [], skills: [], items: [], stat_keys: [] })), []);
+    useEffect(() => { load(); }, [load]);
+
+    const blank = () => ({ id: null, label: "", desc: "", cash: 100, bank: 0, debt: 0,
+        stats: { health: 100, energy: 100, fatigue: 0, hunger: 20, mood: 70, stress: 10 },
+        skills: {}, inventory: {}, order: 99, active: true });
+    const save = async () => {
+        if (!draft.label.trim()) { toast.error("Name is required"); return; }
+        setBusy(true);
+        try {
+            if (draft.id) await api.put(`/admin/backgrounds/${draft.id}`, draft);
+            else await api.post("/admin/backgrounds", draft);
+            toast.success("Origin saved — live on the character creation screen");
+            setDraft(null); await load();
+        } catch (e) { toast.error(errMessage(e)); }
+        setBusy(false);
+    };
+    const del = async (b) => {
+        if (!window.confirm(`Delete origin "${b.label}"?`)) return;
+        try { await api.delete(`/admin/backgrounds/${b.id}`); toast.success("Deleted"); await load(); }
+        catch (e) { toast.error(errMessage(e)); }
+    };
+
+    if (!data) return <Spinner />;
+    const inCls = "bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white";
+    const skillLabel = (s) => s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+    return (
+        <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Starting backgrounds ("Origins") players pick at character creation — pulled live from the DB. Configure starting money, debt, stats, skill bonuses (added on top of level 1) and starting inventory. Changes appear on the creation screen immediately.</p>
+
+            {draft ? (
+                <Panel className="p-5 space-y-4 border-neon-cyan/30" data-testid="origin-editor">
+                    <div className="flex items-center gap-2"><User className="w-4 h-4 text-neon-cyan" /><span className="font-display font-bold text-white">{draft.id ? `Edit ${draft.label}` : "New Origin"}</span></div>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                        <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Name<input className={inCls} value={draft.label} onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))} data-testid="origin-label" /></label>
+                        <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Order<input type="number" className={inCls} value={draft.order} onChange={(e) => setDraft((d) => ({ ...d, order: Number(e.target.value) }))} data-testid="origin-order" /></label>
+                    </div>
+                    <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Description<textarea className={cn(inCls, "min-h-[52px]")} value={draft.desc} onChange={(e) => setDraft((d) => ({ ...d, desc: e.target.value }))} data-testid="origin-desc" /></label>
+                    <div className="grid grid-cols-3 gap-3">
+                        {["cash", "bank", "debt"].map((k) => (
+                            <label key={k} className="text-[10px] text-muted-foreground flex flex-col gap-1 capitalize">Starting {k}
+                                <input type="number" className={inCls} value={draft[k]} onChange={(e) => setDraft((d) => ({ ...d, [k]: Number(e.target.value) }))} data-testid={`origin-${k}`} /></label>
+                        ))}
+                    </div>
+                    <div>
+                        <div className="text-[10px] uppercase tracking-wider text-neon-cyan/80 mb-1.5">Starting Stats</div>
+                        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                            {(data.stat_keys || []).map((k) => (
+                                <label key={k} className="text-[10px] text-muted-foreground flex flex-col gap-1 capitalize">{k}
+                                    <input type="number" className={inCls} value={draft.stats[k] ?? 0} onChange={(e) => setDraft((d) => ({ ...d, stats: { ...d.stats, [k]: Number(e.target.value) } }))} data-testid={`origin-stat-${k}`} /></label>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <div className="text-[10px] uppercase tracking-wider text-neon-purple/80 mb-1.5">Skill Bonuses (levels above 1)</div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            {(data.skills || []).map((s) => (
+                                <label key={s} className="text-[10px] text-muted-foreground flex flex-col gap-1">{skillLabel(s)}
+                                    <input type="number" min="0" max="20" className={inCls} value={draft.skills[s] ?? 0} onChange={(e) => { const v = Math.max(0, Number(e.target.value)); setDraft((d) => { const sk = { ...d.skills }; if (v) sk[s] = v; else delete sk[s]; return { ...d, skills: sk }; }); }} data-testid={`origin-skill-${s}`} /></label>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <div className="text-[10px] uppercase tracking-wider text-neon-green/80">Starting Inventory</div>
+                            <select defaultValue="" className={inCls} onChange={(e) => { const id = e.target.value; if (id) setDraft((d) => ({ ...d, inventory: { ...d.inventory, [id]: (d.inventory[id] || 0) + 1 } })); e.target.value = ""; }} data-testid="origin-additem">
+                                <option value="">+ Add item…</option>
+                                {(data.items || []).filter((it) => draft.inventory[it.id] === undefined).map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}
+                            </select>
+                        </div>
+                        {Object.keys(draft.inventory).length === 0 ? <p className="text-[11px] text-muted-foreground">No starting items.</p> : (
+                            <div className="space-y-1.5" data-testid="origin-inventory">
+                                {Object.entries(draft.inventory).map(([iid, qty]) => (
+                                    <div key={iid} className="flex items-center gap-2">
+                                        <span className="text-xs text-white flex-1">{(data.items.find((x) => x.id === iid) || {}).name || iid}</span>
+                                        <input type="number" min="1" className={cn(inCls, "w-20")} value={qty} onChange={(e) => setDraft((d) => ({ ...d, inventory: { ...d.inventory, [iid]: Math.max(1, Number(e.target.value)) } }))} data-testid={`origin-qty-${iid}`} />
+                                        <button onClick={() => setDraft((d) => { const inv = { ...d.inventory }; delete inv[iid]; return { ...d, inventory: inv }; })} className="text-neon-red hover:text-neon-red/70" data-testid={`origin-removeitem-${iid}`}><Trash2 className="w-4 h-4" /></button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground"><input type="checkbox" checked={draft.active} onChange={(e) => setDraft((d) => ({ ...d, active: e.target.checked }))} data-testid="origin-active" /> Active (shown to players)</label>
+                    <div className="flex gap-2">
+                        <KButton variant="green" loading={busy} onClick={save} data-testid="origin-save">Save Origin</KButton>
+                        <KButton variant="ghost" onClick={() => setDraft(null)} data-testid="origin-cancel">Cancel</KButton>
+                    </div>
+                </Panel>
+            ) : (
+                <>
+                    <KButton variant="primary" onClick={() => setDraft(blank())} data-testid="origin-new"><Plus className="w-4 h-4" /> New Origin</KButton>
+                    <div className="grid md:grid-cols-2 gap-3">
+                        {(data.backgrounds || []).map((b) => (
+                            <Panel key={b.id} className="p-4" data-testid={`origin-card-${b.id}`}>
+                                <div className="flex items-start justify-between mb-1.5">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-display font-bold text-white">{b.label}</span>
+                                        {!b.active && <Pill tone="yellow">Hidden</Pill>}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => setDraft({ ...blank(), ...b, stats: { ...blank().stats, ...(b.stats || {}) }, skills: { ...(b.skills || {}) }, inventory: { ...(b.inventory || {}) } })} className="text-muted-foreground hover:text-neon-cyan" data-testid={`origin-edit-${b.id}`}><Pencil className="w-4 h-4" /></button>
+                                        <button onClick={() => del(b)} className="text-muted-foreground hover:text-neon-red" data-testid={`origin-delete-${b.id}`}><Trash2 className="w-4 h-4" /></button>
+                                    </div>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground mb-2 line-clamp-2">{b.desc}</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    <Pill tone="green">${b.cash} cash</Pill><Pill tone="cyan">${b.bank} bank</Pill>
+                                    {b.debt > 0 && <Pill tone="red">${b.debt} debt</Pill>}
+                                    {Object.entries(b.skills || {}).map(([s, v]) => <Pill key={s} tone="purple">{skillLabel(s)} +{v}</Pill>)}
+                                    {Object.keys(b.inventory || {}).length > 0 && <Pill>{Object.keys(b.inventory).length} item(s)</Pill>}
+                                </div>
+                            </Panel>
+                        ))}
+                    </div>
+                </>
+            )}
         </div>
     );
 }
@@ -1449,7 +1610,7 @@ const ADMIN_GROUPS = [
           { key: "courses", label: "Courses" }, { key: "jobs", label: "Jobs" }, { key: "jobshifts", label: "Job Shifts" }, { key: "jobapps", label: "Applications" }, { key: "random_events", label: "Events" }] },
     { key: "players", label: "Player Management", icon: Users,
       children: [
-          { key: "players", label: "Players" }, { key: "employee_roles", label: "Emp Roles" }, { key: "employee_traits", label: "Emp Traits" },
+          { key: "players", label: "Players" }, { key: "origins", label: "Character Origins" }, { key: "employee_roles", label: "Emp Roles" }, { key: "employee_traits", label: "Emp Traits" },
           { key: "staffing_requirements", label: "Staffing" }, { key: "training_options", label: "Training" }, { key: "employee_events", label: "Staff Events" },
           { key: "npc_archetypes", label: "NPC Archetypes" }, { key: "social_traits", label: "Personality" },
           { key: "relationship_actions", label: "Rel. Actions" }, { key: "gift_types", label: "Gifts" }, { key: "social_events", label: "Social Events" }] },
@@ -1522,6 +1683,7 @@ function renderAdminLeaf(key, ctx = {}) {
         case "jobshifts": return <JobShiftsPanel />;
         case "jobapps": return <JobApplicationsPanel />;
         case "markets": return <MarketsPanel />;
+        case "origins": return <CharacterOriginsPanel />;
         case "players": return <PlayersTable focus={ctx.focusPlayer} onFocusHandled={ctx.onFocusHandled} />;
         default: return <ContentEditor ctype={key} />;
     }

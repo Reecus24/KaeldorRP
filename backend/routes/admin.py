@@ -545,6 +545,117 @@ async def admin_update_market_asset(asset_id: str, body: dict, admin: dict = Dep
 
 
 
+@api.post("/admin/market")
+async def admin_create_market_asset(body: dict, admin: dict = Depends(admin_user)):
+    """Create a new Stock or Crypto asset. The price engine picks it up automatically."""
+    symbol = str(body.get("symbol") or "").strip().upper()
+    name = str(body.get("name") or "").strip()
+    kind = str(body.get("kind") or "stock").strip().lower()
+    if not symbol or not name:
+        raise HTTPException(status_code=400, detail="Symbol and name are required")
+    if kind not in ("stock", "crypto"):
+        raise HTTPException(status_code=400, detail="Kind must be 'stock' or 'crypto'")
+    try:
+        price = round(max(0.01, float(body.get("base_price", body.get("price", 1)))), 6)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Start price must be a number")
+    if await db.market_assets.find_one({"symbol": symbol}):
+        raise HTTPException(status_code=400, detail=f"An asset with symbol {symbol} already exists")
+    slug = "".join(ch for ch in symbol.lower() if ch.isalnum())
+    aid = f"{'stk' if kind == 'stock' else 'cry'}_{slug}" if slug else uuid.uuid4().hex
+    if await db.market_assets.find_one({"id": aid}):
+        aid = f"{aid}_{uuid.uuid4().hex[:6]}"
+    doc = {"id": aid, "symbol": symbol, "name": name[:60], "kind": kind,
+           "base_price": price, "price": price, "prev_price": price, "history": [price],
+           "desc": str(body.get("desc") or "")[:200], "last_update": market_engine._now().isoformat()}
+    await db.market_assets.insert_one({**doc})
+    return {"ok": True, "asset": doc}
+
+
+
+
+@api.delete("/admin/market/{asset_id}")
+async def admin_delete_market_asset(asset_id: str, admin: dict = Depends(admin_user)):
+    """Remove an asset from the global market. The price engine stops updating it immediately."""
+    res = await db.market_assets.delete_one({"id": asset_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return {"ok": True}
+
+
+
+
+# ------------------------- Character Origins (backgrounds) -------------------------
+_BG_STAT_DEFAULTS = {"health": 100, "energy": 100, "fatigue": 0, "hunger": 20, "mood": 70, "stress": 10}
+
+
+def _norm_background(body):
+    label = str(body.get("label") or "").strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="Name (label) is required")
+    stats_in = body.get("stats") or {}
+    stats = {k: max(0.0, min(100.0, float(stats_in.get(k, d)))) for k, d in _BG_STAT_DEFAULTS.items()}
+    skills = {}
+    for s, v in (body.get("skills") or {}).items():
+        if s in SKILLS:
+            lv = int(v)
+            if lv > 0:
+                skills[s] = min(20, lv)
+    inv = {}
+    for iid, q in (body.get("inventory") or {}).items():
+        q = int(q)
+        if q > 0:
+            inv[iid] = q
+    return {
+        "label": label[:60], "desc": str(body.get("desc") or "")[:300],
+        "cash": max(0.0, float(body.get("cash", 100))), "bank": max(0.0, float(body.get("bank", 0))),
+        "debt": max(0.0, float(body.get("debt", 0))),
+        "stats": stats, "skills": skills, "inventory": inv,
+        "order": int(body.get("order", 99)), "active": bool(body.get("active", True)),
+    }
+
+
+@api.get("/admin/backgrounds")
+async def admin_list_backgrounds(admin: dict = Depends(admin_user)):
+    bgs = await db.character_backgrounds.find({}, {"_id": 0}).to_list(200)
+    bgs.sort(key=lambda x: (x.get("order", 99), x.get("label", "")))
+    items = await db.items.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(300)
+    items.sort(key=lambda x: x["name"])
+    return {"backgrounds": bgs, "skills": SKILLS, "items": items, "stat_keys": list(_BG_STAT_DEFAULTS.keys())}
+
+
+@api.post("/admin/backgrounds")
+async def admin_create_background(body: dict, admin: dict = Depends(admin_user)):
+    doc = _norm_background(body)
+    slug = "".join(ch for ch in doc["label"].lower() if ch.isalnum() or ch == "_").strip("_") or uuid.uuid4().hex[:8]
+    if await db.character_backgrounds.find_one({"id": slug}):
+        slug = f"{slug}_{uuid.uuid4().hex[:6]}"
+    doc["id"] = slug
+    await db.character_backgrounds.insert_one({**doc})
+    return {"ok": True, "id": doc["id"]}
+
+
+@api.put("/admin/backgrounds/{bg_id}")
+async def admin_update_background(bg_id: str, body: dict, admin: dict = Depends(admin_user)):
+    doc = _norm_background(body)
+    res = await db.character_backgrounds.update_one({"id": bg_id}, {"$set": doc})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Background not found")
+    return {"ok": True}
+
+
+@api.delete("/admin/backgrounds/{bg_id}")
+async def admin_delete_background(bg_id: str, admin: dict = Depends(admin_user)):
+    if await db.character_backgrounds.count_documents({}) <= 1:
+        raise HTTPException(status_code=400, detail="At least one character origin must remain")
+    res = await db.character_backgrounds.delete_one({"id": bg_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Background not found")
+    return {"ok": True}
+
+
+
+
 async def _assign_vehicles_to_category(category_id, vehicle_ids):
     """Set category_id on the listed vehicles and clear it from any vehicle that was in this
     category but is no longer listed (keeps the one-category-per-vehicle invariant)."""

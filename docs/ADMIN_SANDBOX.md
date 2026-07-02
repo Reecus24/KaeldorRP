@@ -250,3 +250,28 @@ Only strings that differ from the defaults are persisted. Endpoint: `PUT /admin/
 reason and the player-facing outcome message. Admins can **override the reason string** per application
 at any time (before or after the decision) via the inline field → "Override".
 Endpoints: `GET /admin/applications?status=&limit=`, `PUT /admin/applications/{app_id} {reason, outcome_message?}`.
+
+## Stocks & Crypto — full CRUD (2026-07-02)
+
+Admin ▸ Underworld & Finance ▸ **Markets** now supports full asset lifecycle:
+- **Create:** "Add New Asset" form — Symbol, Name, Kind (stock/crypto), Start Price. `POST /admin/market`
+  (auto-generates id `stk_<sym>` / `cry_<sym>`, sets price=prev_price=base_price, history=[price]).
+- **Read/Update:** existing per-asset live Price + Base (anchor) editing (unchanged), plus **Re-roll Now**.
+- **Delete:** trash icon per asset. `DELETE /admin/market/{asset_id}`.
+- **Engine sync:** `market_engine` reads `db.market_assets` dynamically every step, so new assets start
+  moving on the next tick and deleted ones stop immediately (players see the change live in Bank/Underworld).
+  Deleting an asset leaves any existing player holdings untradable (their value drops out of net worth).
+
+## Character Origins — dynamic start presets (2026-07-02)
+
+Admin ▸ Player Management ▸ **Character Origins** (backed by the new `character_backgrounds` collection —
+the previously hardcoded presets were migrated here). Full CRUD:
+- **Create/Edit/Delete** origins (at least one must remain).
+- Per origin: **Name, Description, Order, Active** (Active=shown to players); **Starting Cash / Bank / Debt**;
+  **Starting Stats** (health, energy, fatigue, hunger, mood, stress); **Skill Bonuses** (levels added on top
+  of the base level 1); **Starting Inventory** (add any item from the DB with a quantity, remove per row).
+- Endpoints: `GET /admin/backgrounds` (returns backgrounds + skill list + item list + stat keys),
+  `POST /admin/backgrounds`, `PUT /admin/backgrounds/{id}`, `DELETE /admin/backgrounds/{id}`.
+- **Frontend sync:** the character creation screen pulls origins live from `GET /backgrounds`
+  (active only). `new_player` applies the chosen origin's cash/bank/debt/stats/skills/inventory.
+  Migration helper: `backend/migrate_backgrounds.py` (also auto-seeded via CONTENT_MAP on startup).

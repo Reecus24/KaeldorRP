@@ -50,7 +50,11 @@ async def me(user: dict = Depends(current_user)):
 
 @api.get("/backgrounds")
 async def list_backgrounds():
-    return [{"id": k, **v} for k, v in BACKGROUNDS.items()]
+    bgs = await db.character_backgrounds.find({"active": True}, {"_id": 0}).to_list(100)
+    bgs.sort(key=lambda x: (x.get("order", 99), x.get("label", "")))
+    if not bgs:  # fallback if the collection hasn't been seeded yet
+        return [{"id": k, **v} for k, v in BACKGROUNDS.items()]
+    return bgs
 
 
 
@@ -60,7 +64,8 @@ async def create_character(body: CharacterBody, user: dict = Depends(current_use
     existing = await db.players.find_one({"user_id": user["id"]})
     if existing:
         raise HTTPException(status_code=400, detail="Character already exists")
-    p = new_player(user["id"], body.name, body.background)
+    bg = await db.character_backgrounds.find_one({"id": body.background, "active": True}, {"_id": 0})
+    p = new_player(user["id"], body.name, body.background, bg)
     await db.players.insert_one({**p})
     await add_event(db, p["id"], f"Welcome to Kaeldor, {body.name}. Your new life begins now.", "system", "info")
     return {"ok": True}

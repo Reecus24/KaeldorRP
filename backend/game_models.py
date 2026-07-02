@@ -53,13 +53,16 @@ BACKGROUNDS = {
 }
 
 
-def new_player(user_id, name, background):
+def new_player(user_id, name, background, bg=None):
     now = now_utc()
-    bg = BACKGROUNDS.get(background, BACKGROUNDS["drifter"])
+    # bg is the character_backgrounds DB doc when available; fall back to the hardcoded defaults.
+    if bg is None:
+        bg = BACKGROUNDS.get(background) or BACKGROUNDS["drifter"]
     skills = {s: {"level": 1, "xp": 0} for s in SKILLS}
-    for s, lvl in bg.get("skills", {}).items():
+    for s, lvl in (bg.get("skills") or {}).items():
         if s in skills:
-            skills[s]["level"] = 1 + lvl
+            skills[s]["level"] = 1 + int(lvl)
+    st = bg.get("stats") or {}
     return {
         "id": str(uuid.uuid4()),
         "user_id": user_id,
@@ -70,8 +73,9 @@ def new_player(user_id, name, background):
         "cash": float(bg.get("cash", 100)),
         "bank": float(bg.get("bank", 0)),
         "debt": float(bg.get("debt", 0)),
-        "energy": 100.0, "fatigue": 0.0, "hunger": 20.0,
-        "mood": 70.0, "stress": 10.0, "health": 100.0,
+        "energy": float(st.get("energy", 100.0)), "fatigue": float(st.get("fatigue", 0.0)),
+        "hunger": float(st.get("hunger", 20.0)), "mood": float(st.get("mood", 70.0)),
+        "stress": float(st.get("stress", 10.0)), "health": float(st.get("health", 100.0)),
         "reputation": 50.0, "legal_reputation": 75.0,
         "criminal_suspicion": 0.0, "social_status": 10.0,
         "skills": skills,
@@ -79,7 +83,7 @@ def new_player(user_id, name, background):
         "housing": {"id": "studio_tiny", "owned": False, "since": now.isoformat()},
         "vehicles": [],
         "education": [],
-        "inventory": {},
+        "inventory": {k: int(v) for k, v in (bg.get("inventory") or {}).items() if int(v) > 0},
         "equipment": {},
         "equip_bonus": {},
         "portfolio": {},

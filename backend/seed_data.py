@@ -955,6 +955,35 @@ MARKET_ASSETS = [
 ]
 
 
+CHARACTER_BACKGROUNDS = [
+    {"id": "drifter", "label": "Drifter", "order": 1, "active": True,
+     "desc": "You've lived on the edge. Street-smart but broke.",
+     "cash": 120, "bank": 40, "debt": 0,
+     "stats": {"health": 100, "energy": 100, "fatigue": 0, "hunger": 20, "mood": 70, "stress": 10},
+     "skills": {"street_smarts": 4, "fitness": 2}, "inventory": {}},
+    {"id": "graduate", "label": "Fresh Graduate", "order": 2, "active": True,
+     "desc": "Educated and ambitious, but in debt and inexperienced.",
+     "cash": 80, "bank": 150, "debt": 200,
+     "stats": {"health": 100, "energy": 100, "fatigue": 0, "hunger": 20, "mood": 70, "stress": 15},
+     "skills": {"studying": 4, "finance": 2, "technology": 2}, "inventory": {}},
+    {"id": "hustler", "label": "Hustler", "order": 3, "active": True,
+     "desc": "A natural salesperson with charm and big dreams.",
+     "cash": 200, "bank": 60, "debt": 0,
+     "stats": {"health": 100, "energy": 100, "fatigue": 0, "hunger": 20, "mood": 75, "stress": 10},
+     "skills": {"sales": 4, "charisma": 3}, "inventory": {}},
+    {"id": "worker", "label": "Blue Collar", "order": 4, "active": True,
+     "desc": "Hard-working and reliable, used to long shifts.",
+     "cash": 150, "bank": 120, "debt": 0,
+     "stats": {"health": 100, "energy": 100, "fatigue": 0, "hunger": 20, "mood": 70, "stress": 10},
+     "skills": {"fitness": 3, "crafting": 3, "driving": 1}, "inventory": {}},
+    {"id": "cook", "label": "Line Cook", "order": 5, "active": True,
+     "desc": "You know your way around a kitchen.",
+     "cash": 130, "bank": 90, "debt": 0,
+     "stats": {"health": 100, "energy": 100, "fatigue": 0, "hunger": 20, "mood": 70, "stress": 10},
+     "skills": {"cooking": 4, "management": 1}, "inventory": {}},
+]
+
+
 CONTENT_MAP = {
     "jobs": ("jobs", JOBS),
     "actions": ("actions", ACTIONS),
@@ -980,6 +1009,7 @@ CONTENT_MAP = {
     "city_shops": ("city_shops", CITY_SHOPS),
     "job_sectors": ("job_sectors", JOB_SECTORS),
     "vehicle_categories": ("vehicle_categories", VEHICLE_CATEGORIES),
+    "character_backgrounds": ("character_backgrounds", CHARACTER_BACKGROUNDS),
 }
 
 
