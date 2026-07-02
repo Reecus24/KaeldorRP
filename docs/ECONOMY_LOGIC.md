@@ -138,13 +138,28 @@ hour has already passed today, the next occurrence is tomorrow. Only ONE registr
 `POST /jobs/cancel-shift` clears it. The button is only offered before the start time — you can never
 join a shift after it has begun.
 
-**Auto-Start.** `game_engine.maybe_autostart_shift` runs inside `resolve_player` on every heartbeat.
-When `now >= start_real` it consumes the registration and:
+**Auto-Start (fully persistent / asynchronous).** `game_engine.maybe_autostart_shift` runs inside
+`resolve_player` on every catch-up resolve. When `now >= start_real` it consumes the registration and:
 - If the player is confined (jail/hospital), already has a `current_activity`, or is on a player-business
   shift → the shift is MISSED (no auto-start), a warning event/notification fires, and reliability −5.
 - If energy < 10 → MISSED, reliability −4.
-- Otherwise the work activity auto-starts with `started_at = start_real` (retroactive, so an offline
-  catch-up correctly completes and pays out the shift). Reliability/pay/XP resolve as before.
+- Otherwise the work activity auto-starts with `started_at = start_real` (retroactive) and auto-completes
+  when the game clock passes `ends_at` — even while the player is OFFLINE. Pay (net of tax), tips and XP
+  accrue in the background; the character clocks in and out on the game clock alone, never the connection.
+
+**Offline catch-up is SEGMENTED (2026-07-02 fix).** When a single catch-up window spans a registered
+shift, `resolve_player` no longer applies a full window of idle-decay before checking auto-start (which
+used to drain energy below 10 and wrongly MISS shifts after a long offline gap). Instead it splits the
+window at the shift boundaries:
+1. Idle-decay `[last_resolved → start_real]` (pre-shift), then evaluate auto-start with the energy the
+   character actually had AT the start time (the Activity-Conflict + exhaustion checks apply at that
+   instant only).
+2. If it starts and its `ends_at` is already in the past, the shift COMPLETES immediately (wages/XP/work
+   effects) — the working hours are NOT idle-decayed.
+3. Idle-decay only the remaining `[ends_at → now]` (post-shift). If the window ends mid-shift, the shift
+   stays IN PROGRESS with no idle-decay over the working period, and finishes on a later resolve.
+A missed shift still idle-decays the whole remaining window. Verified by `backend/tests/test_offline_shifts.py`
+(full-offline completion, mid-shift in-progress, exhausted-at-start miss, future-shift pending).
 
 `/jobs/work` is kept as a backward-compatible alias that now registers instead of instant-starting.
 

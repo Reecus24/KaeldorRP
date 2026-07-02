@@ -1,0 +1,38 @@
+{
+  "summary": "P0 OFFLINE SHIFT COMPLETION fix VERIFIED at full API level. New suite /app/backend/tests/test_offline_shift_api.py — 10/10 PASS. Reference engine suite (test_offline_shifts.py) — 4/4 PASS. Segmented catch-up in resolve_player() correctly (A) auto clock-in + clock-out + pays a shift while the player is fully offline for the whole 5h window, (B) puts the shift IN PROGRESS when the offline window ends mid-shift (registration consumed, shifts_worked still 0), (C) preserves the legitimate MISS when energy<10 at start (reliability drops), and (D) leaves a future-start registration pending. Simulated offline via pymongo backdating of registered_shift.start_real + last_resolved_at (time_scale=1.0). Shift Registration API regression PASS: 409 on double-register, 200/ok on cancel, 400 on second cancel, 400 on invalid shift_id, 409 when jailed. Core-loop regression (/api/game/state, /api/bank, /api/jobs, /api/businesses/owned) 200 for shiftplayer, mara, dovan.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "tests/test_job_shifts_engine.py::TestPlayerWorkShift (3 tests)", "issue": "PRE-EXISTING (not caused by P0 fix) — tests test_closed_window_returns_400, test_open_window_starts_shift, test_legacy_hours_path_no_window were written for the OLD immediate-start /jobs/work model. Current model schedules the shift for the NEXT occurrence and returns 200 (never 400 for a 'closed window'). First test leaves a registered_shift, so the next two 409 with 'You are already signed up'. Recommend rewriting or deleting these three tests; they are not exercising the current registration/auto-start flow."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_offline_shift_api.py",
+    "/app/test_reports/pytest/iteration42_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: rewrite/remove the 3 stale tests in tests/test_job_shifts_engine.py::TestPlayerWorkShift so the suite is 100% green (they predate the register-and-auto-start model and no longer represent valid behavior)."
+  ],
+  "critical_code_review_comments": [
+    "resolve_player() do_split logic (game_engine.py:708-734) is correct: gh_pre = hours from last_resolved to rs_start (decayed as idle), autostart evaluated with start-time energy, then either complete_activity + idle-decay only the [ends_at, now] tail, OR gh_rest=0 while shift is still mid-window, OR idle-decay [rs_start, now] if the shift was missed. Working hours are correctly NOT idle-decayed.",
+    "maybe_autostart_shift() correctly clears registered_shift for every outcome (autostart / missed / busy / jail / hospital / job-changed), so a shift never lingers as pending after its start_real is reached — good.",
+    "complete_activity() kind=='job' path increments shifts_worked, pays net (wage - tax + tip), grants XP, and updates reliability. Verified via cash-delta + shifts_worked==1 + 'Finished ... shift' event.",
+    "_register_shift() (routes/player.py:327) always rolls to the NEXT occurrence when today's start_hour has already passed — this makes the 3 'closed window' tests obsolete rather than a bug.",
+    "/api/jobs returns a bare LIST (not {jobs:[...]}) — future tests should treat it as a list.",
+    "PyMongo installed and works; motor/asyncio not needed for API-level tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_offline_shift_api.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% for P0 offline-shift fix (10/10 new + 4/4 reference engine); 87% overall for shift-related suites (3 pre-existing stale tests in test_job_shifts_engine.py fail, unrelated to this fix)",
+    "frontend": "not tested (backend-only per request)"
+  },
+  "test_credentials": "shiftplayer@kaeldor.com / demo123 (Cleaner job — cleaner). mara@kaeldor.com, dovan@kaeldor.com / demo123. admin@kaeldor.com / admin123.",
+  "seed_data_creation": "None. Every test that mutates shiftplayer's mongo doc snapshots via find_one and restores with replace_one in a try/finally. Job counter (shifts_worked) is reset per test to 0 so assertions are clean.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Use /app/backend/tests/test_offline_shift_api.py as the canonical API-level regression for offline shift resolution. To simulate offline: pymongo update registered_shift.start_real + last_resolved_at on the player doc, then GET /api/game/state to trigger resolve_player. Snapshot before and replace_one after to keep DB clean. /api/jobs returns a LIST (not a dict). Run with `-n 0` locally OR through pytest.ini's default xdist config (all 10 tests share ONE class each so they will be pinned to one worker under --dist loadscope). Pre-existing 3 stale tests in test_job_shifts_engine.py::TestPlayerWorkShift are unrelated to the P0 fix and should be rewritten by main agent when convenient.",
+  "rca of the issue": "N/A — no bug. The P0 offline-shift-cancellation fix is fully validated. Root cause of the ORIGINAL bug (as described in the request): resolve_player was applying a single full-window decay_needs() BEFORE maybe_autostart_shift, so after a long offline gap the character's energy was drained to <10 by the time we asked 'can this shift start?', causing valid shifts to be wrongly MISSED. The fix segments the catch-up window around the shift boundary: (1) decay only [last_resolved, start_real] as idle, (2) evaluate autostart with the START-time energy, (3) complete_activity if ends_at is now in the past, (4) decay only the post-shift remainder as idle. Working hours themselves are NOT idle-decayed. This preserves legitimate misses (already-low energy at start) and keeps future-start registrations pending."
+}

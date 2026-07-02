@@ -705,9 +705,36 @@ async def resolve_player(db, p):
     housing_doc = await db.housing.find_one({"id": hid}, {"_id": 0}) if hid else None
     housing_mood = housing_doc.get("mood_bonus", 0.0) if housing_doc else 0.0
 
+    do_split = False
     if gh > 0:
-        decay_needs(p, gh, cfg, resting, studying, mood_bonus=housing_mood)
-        # health collapse -> hospital
+        rs = p.get("registered_shift")
+        rs_start = parse_dt(rs.get("start_real")) if rs else None
+        # A registered shift starts within this (offline) catch-up window while the player is idle.
+        do_split = bool(rs_start and last <= rs_start <= now and not resting
+                        and not studying and not p.get("current_activity"))
+        if do_split:
+            # PERSISTENT / ASYNC SHIFTS: split the idle-decay around the shift so it clocks in with
+            # the state the character WOULD have had at its start time (not after a full window of
+            # offline idle-decay), and the working hours themselves are NOT idle-decayed. This makes
+            # shifts fully offline-safe — they auto clock-in and clock-out on the game clock alone.
+            gh_pre = game_hours((rs_start - last).total_seconds(), ts)
+            if gh_pre > 0:
+                decay_needs(p, gh_pre, cfg, False, False, mood_bonus=housing_mood)
+            await maybe_autostart_shift(db, p, cfg, now)  # evaluated with start-time energy
+            act = p.get("current_activity")
+            if act and act.get("kind") == "job" and parse_dt(act["ends_at"]) <= now:
+                end_dt = parse_dt(act["ends_at"])
+                await complete_activity(db, p, cfg)  # pay + XP + work effects accrue in background
+                gh_rest = game_hours((now - end_dt).total_seconds(), ts)  # idle only AFTER shift ends
+            elif act:
+                gh_rest = 0.0  # shift still in progress up to now — no idle-decay for working time
+            else:
+                gh_rest = game_hours((now - rs_start).total_seconds(), ts)  # shift missed -> idle rest
+            if gh_rest > 0:
+                decay_needs(p, gh_rest, cfg, False, False, mood_bonus=housing_mood)
+        else:
+            decay_needs(p, gh, cfg, resting, studying, mood_bonus=housing_mood)
+        # health collapse -> hospital (after decay is fully applied)
         if p["health"] <= 0 and p.get("status") not in ("jail", "hospital"):
             p["health"] = 1
             p["current_activity"] = None
@@ -715,12 +742,16 @@ async def resolve_player(db, p):
             p["status"] = "hospital"
             await add_event(db, p["id"], "You collapsed from poor health and were rushed to hospital.", "health", "danger")
 
-    # SHIFT AUTO-START: begin a registered shift the moment its start time is reached.
-    await maybe_autostart_shift(db, p, cfg, now)
-
-    act = p.get("current_activity")
-    if act and parse_dt(act["ends_at"]) <= now:
-        await complete_activity(db, p, cfg)
+    # Non-split cases (online play, in-progress activity, or no elapsed time): finish any ended
+    # activity first so it frees the slot, then evaluate shift auto-start, then finish the shift.
+    if not do_split:
+        act = p.get("current_activity")
+        if act and parse_dt(act["ends_at"]) <= now:
+            await complete_activity(db, p, cfg)
+        await maybe_autostart_shift(db, p, cfg, now)
+        act = p.get("current_activity")
+        if act and parse_dt(act["ends_at"]) <= now:
+            await complete_activity(db, p, cfg)
 
     # housing already loaded above (housing_doc / housing_mood) for the mood baseline
     if gh > 0:
