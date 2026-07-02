@@ -167,6 +167,16 @@ async def migrate_business_supply_chain():
     # Sync job requirements from seed (so Legal Standing / Social Status gates apply to existing DBs)
     for jd in JOBS:
         await db.jobs.update_one({"id": jd["id"]}, {"$set": {"requirements": jd.get("requirements", {})}})
+    # Backfill daily-summary baseline snapshot for players missing it (before -> after comparison).
+    async for pl in db.players.find({"day_start_snapshot": {"$exists": False}},
+                                    {"cash": 1, "bank": 1, "debt": 1, "energy": 1, "health": 1,
+                                     "hunger": 1, "fatigue": 1, "stress": 1, "mood": 1, "level": 1, "id": 1}):
+        snap = {"cash": round(pl.get("cash", 0), 2), "bank": round(pl.get("bank", 0), 2),
+                "debt": round(pl.get("debt", 0), 2), "energy": round(pl.get("energy", 0), 1),
+                "health": round(pl.get("health", 0), 1), "hunger": round(pl.get("hunger", 0), 1),
+                "fatigue": round(pl.get("fatigue", 0), 1), "stress": round(pl.get("stress", 0), 1),
+                "mood": round(pl.get("mood", 0), 1), "level": pl.get("level", 1)}
+        await db.players.update_one({"id": pl["id"]}, {"$set": {"day_start_snapshot": snap}})
     # One-time: hard-sync the world clock to German local time (Europe/Berlin) at 1:1 real-time pace.
     cfg_doc = await db.config.find_one({"id": "global"})
     if cfg_doc and not cfg_doc.get("time_synced_de"):

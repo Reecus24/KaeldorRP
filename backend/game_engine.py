@@ -128,6 +128,19 @@ def ledger_event(p, text):
     L["rel_events"] = e[-30:]
 
 
+def _player_snapshot(p):
+    """A point-in-time snapshot of the balances + core needs, used for the daily summary's
+    before -> after comparison (see _flush_daily_summary)."""
+    return {
+        "cash": round(p.get("cash", 0), 2), "bank": round(p.get("bank", 0), 2),
+        "debt": round(p.get("debt", 0), 2),
+        "energy": round(p.get("energy", 0), 1), "health": round(p.get("health", 0), 1),
+        "hunger": round(p.get("hunger", 0), 1), "fatigue": round(p.get("fatigue", 0), 1),
+        "stress": round(p.get("stress", 0), 1), "mood": round(p.get("mood", 0), 1),
+        "level": p.get("level", 1),
+    }
+
+
 async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
     L = p.get("day_ledger") or empty_ledger()
     income = (L.get("wages_earned", 0) + L.get("business_income", 0) + L.get("crime_income", 0)
@@ -147,6 +160,8 @@ async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
                    if e.get("severity") in ("success", "warning", "danger")
                    or e.get("type") in ("job", "legal", "crime", "social", "housing", "health", "business", "finance")]
     significant = [e for e in significant if e.get("type") != "system"][-25:]
+    close_snap = _player_snapshot(p)
+    open_snap = p.get("day_start_snapshot") or close_snap  # first-ever summary: no delta
     doc = {
         "id": uuid.uuid4().hex, "player_id": p["id"],
         "day_index": from_day, "days_covered": to_day - from_day,
@@ -155,6 +170,7 @@ async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
         "ledger": {k: (round(v, 2) if isinstance(v, (int, float)) else v) for k, v in L.items()},
         "income_total": round(income, 2), "expense_total": round(expense, 2), "net_cash": net,
         "cash": round(p["cash"], 2), "bank": round(p["bank"], 2), "debt": round(p["debt"], 2),
+        "open": open_snap, "close": close_snap,
         "events": significant,
     }
     await db.daily_summaries.insert_one({**doc})
@@ -165,6 +181,7 @@ async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
         p["credit_missed"] = max(0, int(p["credit_missed"]) - 1)  # rebuild creditworthiness on a clean day
     p["day_ledger"] = empty_ledger()
     p["last_summary_real_ts"] = now.isoformat()
+    p["day_start_snapshot"] = close_snap  # this day's close becomes tomorrow's opening baseline
     sign = "+" if net >= 0 else ""
     await add_notification(db, p["id"], "daily_summary", "Daily summary ready",
                            f"Net cash for the day: {sign}${round(net)}",
@@ -691,6 +708,10 @@ async def resolve_player(db, p):
     last = parse_dt(p.get("last_resolved_at")) or now
     elapsed = max(0.0, (now - last).total_seconds())
     gh = game_hours(elapsed, ts)
+    # Ensure a daily-summary baseline exists (before -> after comparison). Captured once here for any
+    # player that predates the feature; refreshed at every daily flush thereafter.
+    if p.get("day_start_snapshot") is None:
+        p["day_start_snapshot"] = _player_snapshot(p)
 
     act = p.get("current_activity")
     resting = bool(act and act.get("sleep_flag"))

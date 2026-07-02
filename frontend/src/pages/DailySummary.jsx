@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { SectionTitle, Spinner, Panel, Pill, EmptyState } from "@/components/game/primitives";
-import { ScrollText, TrendingUp, TrendingDown, AlertTriangle, Sparkles, ListTree } from "lucide-react";
+import { ScrollText, TrendingUp, TrendingDown, AlertTriangle, Sparkles, ListTree, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const INCOME = [
@@ -28,6 +28,54 @@ const INFO = [
 const SEV_DOT = { success: "bg-neon-green", warning: "bg-neon-yellow", danger: "bg-neon-red", info: "bg-neon-cyan" };
 
 const fmt = (v) => `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v || 0)).toLocaleString()}`;
+
+const BALANCES = [["cash", "Cash", true, true], ["bank", "Bank", true, true], ["debt", "Debt", true, false]];
+const STATS = [
+    ["energy", "Energy", true], ["health", "Health", true], ["mood", "Mood", true],
+    ["hunger", "Hunger", false], ["fatigue", "Fatigue", false], ["stress", "Stress", false],
+];
+
+function BARow({ label, before, after, money, goodUp }) {
+    const rawDelta = (after || 0) - (before || 0);
+    const showDelta = Math.abs(rawDelta) >= 0.5;
+    const beneficial = rawDelta > 0 === goodUp;
+    const deltaColor = !showDelta ? "text-muted-foreground" : (beneficial ? "text-neon-green" : "text-neon-red");
+    const fmtv = money ? fmt : (v) => Math.round(v || 0);
+    const deltaStr = money ? `${rawDelta > 0 ? "+" : ""}${fmt(rawDelta)}` : `${rawDelta > 0 ? "+" : ""}${Math.round(rawDelta)}`;
+    return (
+        <div className="flex items-center justify-between py-1 text-sm" data-testid={`ba-${label.toLowerCase()}`}>
+            <span className="text-muted-foreground">{label}</span>
+            <span className="font-mono tnum flex items-center gap-1.5">
+                <span className="text-white/45">{fmtv(before)}</span>
+                <ArrowRight className="w-3 h-3 text-muted-foreground/40" />
+                <span className="text-white">{fmtv(after)}</span>
+                {showDelta && <span className={cn("text-[11px]", deltaColor)}>({deltaStr})</span>}
+            </span>
+        </div>
+    );
+}
+
+function BeforeAfter({ open, close }) {
+    const hasStats = ["energy", "health", "mood", "hunger", "fatigue", "stress"].some((k) => open[k] != null || close[k] != null);
+    return (
+        <div className="mt-4 pt-3 border-t border-white/8 grid sm:grid-cols-2 gap-4" data-testid="before-after">
+            <div>
+                <div className="text-[10px] uppercase tracking-wider text-neon-cyan mb-1">Balances · before → after</div>
+                {BALANCES.map(([k, label, money, goodUp]) => (
+                    <BARow key={k} label={label} before={open[k]} after={close[k]} money={money} goodUp={goodUp} />
+                ))}
+            </div>
+            {hasStats && (
+                <div>
+                    <div className="text-[10px] uppercase tracking-wider text-neon-purple mb-1">Condition · before → after</div>
+                    {STATS.map(([k, label, goodUp]) => (
+                        <BARow key={k} label={label} before={open[k]} after={close[k]} money={false} goodUp={goodUp} />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
 
 function Line({ label, value, positive }) {
     if (!value) return null;
@@ -118,11 +166,15 @@ function SummaryCard({ s }) {
                 </div>
             )}
 
-            <div className="mt-4 pt-3 border-t border-white/8 flex flex-wrap gap-2">
-                <Pill tone="cyan">Cash ${Math.round(s.cash).toLocaleString()}</Pill>
-                <Pill tone="green">Bank ${Math.round(s.bank).toLocaleString()}</Pill>
-                {s.debt > 0 && <Pill tone="red">Debt ${Math.round(s.debt).toLocaleString()}</Pill>}
-            </div>
+            {s.open && s.close ? (
+                <BeforeAfter open={s.open} close={s.close} />
+            ) : (
+                <div className="mt-4 pt-3 border-t border-white/8 flex flex-wrap gap-2">
+                    <Pill tone="cyan">Cash ${Math.round(s.cash).toLocaleString()}</Pill>
+                    <Pill tone="green">Bank ${Math.round(s.bank).toLocaleString()}</Pill>
+                    {s.debt > 0 && <Pill tone="red">Debt ${Math.round(s.debt).toLocaleString()}</Pill>}
+                </div>
+            )}
         </Panel>
     );
 }

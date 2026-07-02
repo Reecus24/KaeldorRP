@@ -382,3 +382,9 @@ Wired four tracked-but-unused stats into real outcomes. Backend-only. All string
 
 ### OPEN (awaiting user)
 - **P2 Custom business products** — scope question sent to user (a/b/c/d + engine-now-vs-later). NOT started pending answer.
+
+## 2026-07-02 — Daily Summary: Before → After (COMPLETE ✓)
+- **Ask:** summary showed only the net/total change + end balances, not before vs after.
+- **Backend:** `game_engine._player_snapshot(p)` captures cash/bank/debt + core needs (energy/health/hunger/fatigue/stress/mood/level). `_flush_daily_summary` now stores `open` (start-of-period baseline) + `close` (end) on the summary doc, and rolls each day's `close` into `player.day_start_snapshot` as the next day's opening. Lazy-init in `resolve_player` + startup migration in `server.py` backfill the baseline for existing players.
+- **Frontend (`DailySummary.jsx`):** new `BeforeAfter` block — **Balances** (Cash/Bank/Debt before→after) + **Condition** (energy/health/mood/hunger/fatigue/stress before→after), each with an arrow and a benefit-coloured delta (green=favourable incl. debt/stress DOWN, red=unfavourable). Legacy summaries without open/close fall back to the old balance pills. `data-testid=before-after` + `ba-*` rows.
+- **Verified:** backend `_flush_daily_summary` unit check (open/close captured, next-day baseline rolled) + live screenshot render; also covers offline multi-day catch-up (days_covered) as a "while you were away" recap.
