@@ -232,7 +232,7 @@ def apply_effects(p, effects, mult=1.0):
             add_money(p, v * mult)
 
 
-def decay_needs(p, gh, cfg, resting, studying=False):
+def decay_needs(p, gh, cfg, resting, studying=False, mood_bonus=0.0):
     d = cfg.get("decay", {})
     eb = p.get("equip_bonus", {})
     p["hunger"] = clamp(p["hunger"] + d.get("hunger", 3.2) * gh)
@@ -258,10 +258,11 @@ def decay_needs(p, gh, cfg, resting, studying=False):
     # slow passive health regen when reasonably fed/rested/calm (+ equipped fitness gear)
     if p["health"] < 100 and p["hunger"] < 80 and p["fatigue"] < 85 and p["stress"] < 85:
         p["health"] = clamp(p["health"] + (0.8 + eb.get("health_regen", 0.0)) * gh)
-    # mood drifts toward baseline (modified by housing handled elsewhere)
-    baseline = d.get("mood_baseline", 60.0)
+    # mood drifts toward a baseline set by HOUSING quality: better homes lift the target mood,
+    # a cramped studio drags it down (housing mood_bonus, see PLAYER_STATS_LOGIC.md).
+    baseline = clamp(d.get("mood_baseline", 60.0) + float(mood_bonus or 0.0), 0.0, 100.0)
     if p["mood"] < baseline:
-        p["mood"] = clamp(p["mood"] + 0.5 * gh)
+        p["mood"] = clamp(p["mood"] + 0.5 * gh, 0.0, baseline)
     elif p["mood"] > baseline + 20:
         p["mood"] = clamp(p["mood"] - 0.3 * gh)
     # equipped-gear passive floors: stat won't fall below the floor while the item is worn
@@ -492,9 +493,13 @@ async def accrue_recurring(db, p, cfg, gh, housing_doc):
     bills = 0.0
     if housing_doc:
         bills += housing_doc.get("bills_per_day", 0) * gh / 24.0
-    # vehicle condition WEAR is continuous (this is not a cash cost — the cash cost is charged at 00:00)
+    # VEHICLE condition WEAR is continuous (not a cash cost — the cash cost lands at 00:00). A vehicle
+    # whose daily maintenance was PAID at the last midnight wears far slower; an UNPAID one wears fast.
+    maint_rate = float(cfg.get("economy", {}).get("vehicle_decay_maintained", 0.05))
+    unmaint_rate = float(cfg.get("economy", {}).get("vehicle_decay_unmaintained", 0.6))
     for v in p.get("vehicles", []):
-        v["condition"] = clamp(v.get("condition", 100) - 0.4 * gh, 0, 100)
+        rate = maint_rate if v.get("maintained", True) else unmaint_rate
+        v["condition"] = clamp(v.get("condition", 100) - rate * gh, 0, 100)
     if p["debt"] > 0:
         rate = cfg.get("economy", {}).get("loan_interest_daily", 0.015)
         interest = round(p["debt"] * rate * gh / 24.0, 2)
@@ -533,24 +538,31 @@ async def _charge_daily_fixed(db, p, cfg, days, housing_doc):
         veh += (vt.get("fuel_per_day", 0) + vt.get("insurance_per_day", 0) + vt.get("maintenance_per_day", 0)) * days
     total = round(rent + veh, 2)
     if total <= 0:
+        for v in p.get("vehicles", []):
+            v["maintained"] = True  # nothing owed today → treated as maintained
         return
     before_debt = p["debt"]
     charge(p, total)
+    # Maintenance outcome: if the daily bill was covered (didn't push into debt), vehicles are
+    # "maintained" for the next 24h (slow wear); otherwise they go unmaintained (accelerated wear).
+    paid = p["debt"] <= before_debt + 1
+    for v in p.get("vehicles", []):
+        v["maintained"] = paid
     if rent > 0:
         ledger_add(p, "rent", -round(rent, 2))
     if veh > 0:
         ledger_add(p, "vehicle_costs", -round(veh, 2))
-    if p["debt"] > before_debt + 1:
+    if not paid:
         p["credit_missed_flag"] = True
         ledger_warn(p, "Your 00:00 rent & vehicle bill pushed you into debt.")
-        await add_event(db, p["id"], "Your daily rent & vehicle costs pushed you into debt.", "finance", "warning")
+        await add_event(db, p["id"], "Your daily rent & vehicle costs pushed you into debt — vehicles left unmaintained and wearing fast.", "finance", "warning")
     else:
         parts = []
         if rent > 0:
             parts.append(f"rent ${round(rent)}")
         if veh > 0:
             parts.append(f"vehicle ${round(veh)}")
-        await add_event(db, p["id"], f"00:00 daily charge: {', '.join(parts)} (${round(total)} total).", "finance", "info")
+        await add_event(db, p["id"], f"00:00 daily charge: {', '.join(parts)} (${round(total)} total). Vehicles maintained.", "finance", "info")
 
 
 async def accrue_businesses(db, p, cfg, gh, now):
@@ -633,8 +645,15 @@ async def resolve_player(db, p):
 
     await release_confinement(db, p)
 
+    # Load housing early so its mood_bonus feeds the mood baseline in decay_needs (and reuse below).
+    if p.get("housing") is None:
+        p["housing"] = {}
+    hid = (p.get("housing") or {}).get("id")
+    housing_doc = await db.housing.find_one({"id": hid}, {"_id": 0}) if hid else None
+    housing_mood = housing_doc.get("mood_bonus", 0.0) if housing_doc else 0.0
+
     if gh > 0:
-        decay_needs(p, gh, cfg, resting, studying)
+        decay_needs(p, gh, cfg, resting, studying, mood_bonus=housing_mood)
         # health collapse -> hospital
         if p["health"] <= 0 and p.get("status") not in ("jail", "hospital"):
             p["health"] = 1
@@ -650,13 +669,7 @@ async def resolve_player(db, p):
     if act and parse_dt(act["ends_at"]) <= now:
         await complete_activity(db, p, cfg)
 
-    # housing for recurring costs
-    housing_doc = None
-    if p.get("housing") is None:
-        p["housing"] = {}
-    hid = (p.get("housing") or {}).get("id")
-    if hid:
-        housing_doc = await db.housing.find_one({"id": hid}, {"_id": 0})
+    # housing already loaded above (housing_doc / housing_mood) for the mood baseline
     if gh > 0:
         await accrue_recurring(db, p, cfg, gh, housing_doc)
 

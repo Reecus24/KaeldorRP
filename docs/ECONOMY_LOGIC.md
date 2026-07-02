@@ -147,3 +147,18 @@ When `now >= start_real` it consumes the registration and:
   catch-up correctly completes and pays out the shift). Reliability/pay/XP resolve as before.
 
 `/jobs/work` is kept as a backward-compatible alias that now registers instead of instant-starting.
+
+## Vehicle Maintenance now affects Condition (2026-07-02)
+
+Previously the 00:00 `maintenance_per_day` fee was a pure cash sink with no effect on condition (audit
+Point 3). Now maintenance is meaningful:
+- At the 00:00 daily charge (`_charge_daily_fixed`), if the combined rent+vehicle bill is covered without
+  slipping into debt, every vehicle is flagged `maintained = True` for the next 24h; if the player can't
+  pay (bill pushes into debt), vehicles are flagged `maintained = False`.
+- Continuous wear (`accrue_recurring`) now reads that flag:
+  - **Maintained:** `vehicle_decay_maintained` = 0.05 condition/game-hour (≈1.2/day — nearly stable).
+  - **Unmaintained:** `vehicle_decay_unmaintained` = 0.6 condition/game-hour (≈14/day — accelerated).
+  Both rates are overridable via `config.economy.vehicle_decay_maintained/_unmaintained`.
+- Unknown/legacy vehicles default to `maintained=True` (grace) until the next midnight sets the real flag.
+- Condition is still hard-reset to 100 only by the explicit `repairs_vehicle` activity; maintenance just
+  keeps a paid-for vehicle from degrading. Skipping payment (or being broke) visibly rots the car.

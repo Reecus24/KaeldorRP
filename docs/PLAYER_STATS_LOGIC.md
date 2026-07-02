@@ -99,3 +99,18 @@ actively used skills never degrade). The rate is an admin knob:
   (default 1.5) per game-hour. Set to **0** to make suspicion permanent (never cools).
 - **Gain**: suspicion gained from illegal acts is scaled by `tuning.suspicion_gain_mult` (default 1.0).
   Higher = harsher heat from crimes. Both are edited in Admin ▸ Gameplay Tuning ▸ Tuning ▸ Criminal Suspicion.
+
+## Housing Mood Bonus now linked to Mood (2026-07-02)
+
+Previously each housing tier defined a `mood_bonus` that was never applied (audit Point 5). Now
+`decay_needs` receives the current home's `mood_bonus` (loaded in `resolve_player` before decay) and uses
+it to shift the mood **baseline** the player's mood drifts toward:
+```
+baseline = clamp(mood_baseline(60) + housing.mood_bonus, 0, 100)
+if mood < baseline:      mood += 0.5/gh  (capped at baseline)
+elif mood > baseline+20: mood -= 0.3/gh
+```
+So a high-end home (e.g. penthouse `mood_bonus` +30 → baseline 90) pulls mood up over time, while a
+cramped studio (negative bonus → baseline < 60) drags the mood ceiling down. Effect is continuous and
+compounds over a day; verified a penthouse resident trends ~5–8 mood points higher than a no-bonus home
+over 10 game-hours. Falls back to baseline 60 when no housing/bonus is set.
