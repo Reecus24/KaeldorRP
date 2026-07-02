@@ -362,3 +362,14 @@ Wired four tracked-but-unused stats into real outcomes. Backend-only. All string
 - **P1 Race-based resource multipliers**: each Origin/Race gets a `resource_multipliers` map linked to `employee_engine` production + Admin editor.
 - **P2** Phase 5 custom business products (admin data models); "Clear all" for dismissed applications; browser tab title flash on unread messages.
 - **P3** "Business Insights" panel (best next move per venture).
+
+## 2026-07-02 — Admin Refactor + P2/P3 Features + Most Wanted (COMPLETE ✓, iteration_41, 13/13 backend + full FE)
+- **P1 Admin.jsx refactor:** split 1983-line `Admin.jsx` → 282 lines + 6 files under `src/pages/admin/` (shared, EconomyPanels, PlayerPanels, CityPanels, JobPanels, OverviewPanels). Mechanical byte-identical split; all 6 tab groups, DnD reorder, JSON editors, City Shops price% verified — no behavior change.
+- **P2 Clear-all applications:** `POST /api/jobs/applications/dismiss-all` (removes finished statuses rejected/withdrawn/expired/hired, keeps pending/accepted, idempotent). Frontend "Clear all (N)" button in JobCenter "Your Applications" header, shown only when ≥1 rejected app (data-testid=clear-all-applications).
+- **P2 Tab-title flash:** `GameContext` useEffect sets `document.title` = `(N) Kaeldor` on unread messages; alternates title when tab backgrounded; resets to `Kaeldor` at 0. Verified live ("(8) Kaeldor").
+- **P3 Business Insights:** `employee_engine.business_insight(b,m)` → single highest-impact next move w/ $/day estimate (staff coverage / marketing / restock / trim / morale / healthy fallback). Injected into `GET /api/businesses/{id}` as `insight`. Frontend `BusinessInsight` panel in BusinessManage Overview (data-testid=business-insight-panel + insight-title/detail/gain/cta), CTA scrolls/navigates to relevant tab.
+- **Enhancement Most Wanted:** `GET /api/underworld/most-wanted` → top-15 board ranked by police HEAT (`0.7*suspicion + 0.3*max(0,40-legal)*2.5`, clamped 0-100), wanted level heat//20+1 (1-5 stars), returns my_rank/my_heat/total_wanted. Frontend `MostWantedBoard`/`WantedStars` as a 3rd Underworld tab (tab-wanted), gated behind Underworld access.
+
+### REMAINING
+- **P2 Custom business products (groundwork)** — NOT STARTED. Needs a scope decision (data model design) before build. See open question to user.
+- **P2/P3 backlog:** (all above P2/P3 items now done except custom products).
