@@ -7,6 +7,14 @@ Browser-based **persistent, real-time life-simulation RPG** ("Kaeldor RPG"). A l
 
 ## Session Update — 2026-07-02 (Standardized 4-Shift System + Registration/Auto-Start, NPC Transparency, Hiring Tuning)
 
+### Add-on same session — Admin JSON editor: pretty-print, validation & key-order fix
+- **Bug:** Job Editor (and all content JSON editors) "scattered" keys after save/re-open. Root cause: backend used MongoDB `$set`, which keeps the *original* document field order and ignores the admin's reordering.
+- **Fix:** `POST/PUT /admin/content/{ctype}` now use `replace_one` so the doc is stored in exactly the submitted key order; fields managed by other panels but absent from the payload are retained (appended) so nothing is dropped. Verified via curl (reordered key persisted first; shift_options/acceptance_base_chance preserved).
+- **Frontend JsonModal:** already pretty-printed (`stringify(obj,null,2)`); added live validity indicator (green "Valid JSON" / red parse error), red border + **disabled Save** while invalid/non-object, and a **Format ⧉** button. Verified via screenshots.
+- **Docs:** ADMIN_SANDBOX.md updated.
+
+
+
 ### Add-on same session — God Mode: Market CRUD + Character Origins (iteration_39)
 - **Stocks/Crypto full CRUD:** `POST /admin/market` (symbol, name, kind stock|crypto, base_price → id `stk_/cry_<sym>`, price=prev=base, history=[price]) and `DELETE /admin/market/{id}`. `market_engine` reads `db.market_assets` dynamically so new assets advance next tick and deleted ones stop — verified live in player market. Admin Markets panel: "Add New Asset" form (`market-create`) + per-asset delete (`market-delete-<id>`).
 - **Character Origins (dynamic start presets):** new `character_backgrounds` DB collection (hardcoded presets migrated via CONTENT_MAP + `migrate_backgrounds.py`). Full admin CRUD `GET/POST/PUT/DELETE /admin/backgrounds` (name, desc, order, active, starting cash/bank/debt, stats{health,energy,fatigue,hunger,mood,stress}, skill bonuses, starting inventory). `new_player(user,name,bg_id,bg)` applies all attributes; `POST /character/create` + public `GET /backgrounds` read from DB (fallback to hardcoded if empty). New admin tab **Character Origins** under Player Management (`origin-*` testids). Character-create screen pulls origins live.

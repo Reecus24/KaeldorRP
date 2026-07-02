@@ -275,3 +275,19 @@ the previously hardcoded presets were migrated here). Full CRUD:
 - **Frontend sync:** the character creation screen pulls origins live from `GET /backgrounds`
   (active only). `new_player` applies the chosen origin's cash/bank/debt/stats/skills/inventory.
   Migration helper: `backend/migrate_backgrounds.py` (also auto-seeded via CONTENT_MAP on startup).
+
+## JSON Editor — pretty-print, validation & key-order preservation (2026-07-02)
+
+The generic content JSON editor (Job Editor, and all CONTENT_TYPES: courses, items, businesses,
+character backgrounds via content, etc.) was "scattering" keys after save/re-open. Fixes:
+- **Pretty-print:** the modal already renders `JSON.stringify(obj, null, 2)` (2-space indent). A **Format ⧉**
+  button re-indents the current text on demand.
+- **Live validation:** a status line shows "Valid JSON" (green) / the parse error (red); the textarea border
+  turns red and **Save is disabled** while the JSON is invalid or not an object. This prevents saving
+  malformed data to the DB.
+- **Key-order preservation (root cause of the scattering):** the backend now uses `replace_one` instead of
+  `$set` for `POST/PUT /admin/content/{ctype}`. MongoDB's `$set` kept the *original* document field order and
+  ignored the admin's reordering; `replace_one` stores the document in exactly the key order submitted, so
+  re-opening the editor shows the same layout. Fields managed by other panels (e.g. a job's `shift_options`,
+  `acceptance_base_chance`, `reason_strings`) that aren't in the editor payload are **retained** (appended),
+  so nothing is dropped.

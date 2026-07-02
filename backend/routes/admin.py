@@ -23,7 +23,8 @@ async def admin_create(ctype: str, body: dict, admin: dict = Depends(admin_user)
     if not body.get("id"):
         body["id"] = uuid.uuid4().hex
     body.pop("_id", None)
-    await db[coll].update_one({"id": body["id"]}, {"$set": body}, upsert=True)
+    # replace_one (not $set) so the document is stored in exactly the key order the admin submitted.
+    await db[coll].replace_one({"id": body["id"]}, body, upsert=True)
     return {"ok": True, "id": body["id"]}
 
 
@@ -34,11 +35,19 @@ async def admin_update(ctype: str, item_id: str, body: dict, admin: dict = Depen
     if ctype not in CONTENT_MAP:
         raise HTTPException(status_code=404, detail="Unknown content type")
     coll = CONTENT_MAP[ctype][0]
+    existing = await db[coll].find_one({"id": item_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Item not found")
     body.pop("_id", None)
     body["id"] = item_id
-    res = await db[coll].update_one({"id": item_id}, {"$set": body})
-    if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Item not found")
+    # Preserve the admin's exact key order (replace_one, not $set which keeps the old DB order and
+    # "scatters" the JSON). Any fields managed by other panels but not in the editor payload are
+    # retained (appended) so nothing is accidentally dropped.
+    merged = {**body}
+    for k, v in existing.items():
+        if k not in merged and k != "_id":
+            merged[k] = v
+    await db[coll].replace_one({"id": item_id}, merged)
     return {"ok": True}
 
 
