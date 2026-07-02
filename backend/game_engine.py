@@ -15,6 +15,15 @@ def _tax_rate_for(gross):
     return brackets[-1][1]
 
 
+def effective_loan_rate(p, cfg):
+    """REPUTATION-PRICED daily loan interest: a strong reputation earns a lower rate, a poor one
+    pays a premium. Reputation 50 (neutral) = the base rate. See docs/ECONOMY_LOGIC.md."""
+    base = cfg.get("economy", {}).get("loan_interest_daily", 0.015)
+    rep = p.get("reputation", 50)
+    factor = clamp(1.0 - (rep - 50) / 125.0, 0.7, 1.4)
+    return round(base * factor, 5)
+
+
 def parse_dt(v):
     if v is None:
         return None
@@ -417,11 +426,15 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
     catch = payload["police_risk"] * (1 + p["criminal_suspicion"] / 150.0) * (1 - min(0.4, street * 0.03))
     catch *= payload.get("risk_mult", 1.0)
     fail = payload["failure_chance"] * (1 - min(0.3, street * 0.025))
+    # EFFECTIVENESS → CRIME: being sharp (well-rested/fed/healthy) makes a job less likely to flop,
+    # while showing up tired/hungry raises the failure chance. (See docs/PLAYER_STATS_LOGIC.md.)
+    fail *= clamp(1.6 - 0.6 * eff, 0.6, 1.6)
     gain_mult = float(game_models.TUNE.get("suspicion_gain_mult", 1.0))
     sg = payload.get("suspicion_gain", 10) * gain_mult
     p["stats_meta"]["crimes_committed"] = p["stats_meta"].get("crimes_committed", 0) + 1
+    # crime skill XP scales with effectiveness too — a distracted, botched job teaches you less.
     for sk, xp in payload.get("skill_xp", {}).items():
-        add_skill_xp(p, sk, xp, cfg)
+        add_skill_xp(p, sk, xp * eff, cfg)
 
     roll = random.random()
     if roll < catch:
@@ -501,7 +514,7 @@ async def accrue_recurring(db, p, cfg, gh, housing_doc):
         rate = maint_rate if v.get("maintained", True) else unmaint_rate
         v["condition"] = clamp(v.get("condition", 100) - rate * gh, 0, 100)
     if p["debt"] > 0:
-        rate = cfg.get("economy", {}).get("loan_interest_daily", 0.015)
+        rate = effective_loan_rate(p, cfg)
         interest = round(p["debt"] * rate * gh / 24.0, 2)
         p["debt"] = round(p["debt"] + interest, 2)
         ledger_add(p, "loan_interest", -interest)
@@ -631,6 +644,46 @@ async def maybe_autostart_shift(db, p, cfg, now):
     await add_notification(db, p["id"], "job", "Shift started", f"Your {name} shift as {title} just started automatically.", "info", "/current-job")
 
 
+async def maybe_police_event(db, p, cfg, gh):
+    """PROACTIVE POLICING (legal_standing link): a player with a criminal record (legal_standing < 40)
+    gets randomly stopped/searched by police. The lower the standing and the higher the suspicion,
+    the more frequent and harsher the encounter. Only fires while the player is free (not confined,
+    not mid-activity, not on shift). See docs/PLAYER_STATS_LOGIC.md."""
+    if gh <= 0 or p.get("status") in ("jail", "hospital"):
+        return
+    if p.get("current_activity") or p.get("on_shift"):
+        return
+    legal = p.get("legal_reputation", 100)
+    if legal >= 40:
+        return
+    per_hour = float(game_models.TUNE.get("police_event_per_hour", 0.03)) * ((40 - legal) / 40.0)
+    if per_hour <= 0:
+        return
+    chance = 1 - (1 - min(per_hour, 0.9)) ** min(gh, 24)
+    if random.random() > chance:
+        return
+    susp = p.get("criminal_suspicion", 0)
+    p["stress"] = clamp(p["stress"] + 8)
+    roll = random.random()
+    if susp >= 60 and legal < 20 and roll < 0.35:
+        p["jail_until"] = (now_utc() + timedelta(seconds=real_seconds(120, cfg["time_scale"]))).isoformat()
+        p["status"] = "jail"
+        p["criminal_suspicion"] = clamp(susp + 5)
+        p["legal_reputation"] = clamp(legal - 2)
+        await add_event(db, p["id"], "Police detained you for questioning — your record made you a target.", "legal", "danger")
+        await add_notification(db, p["id"], "legal", "Detained by police", "Your criminal record got you pulled in for questioning.", "danger", "/police-record")
+    elif susp >= 40 and roll < 0.5:
+        fine = round(50 + susp * 2)
+        charge(p, fine)
+        ledger_add(p, "fines", -fine)
+        p["criminal_suspicion"] = clamp(susp - 8)
+        await add_event(db, p["id"], f"Police stopped and searched you — cited you ${fine}.", "legal", "warning")
+        await add_notification(db, p["id"], "legal", "Stopped and searched", f"Police searched you and issued a ${fine} citation.", "warning", "/police-record")
+    else:
+        p["criminal_suspicion"] = clamp(susp - 4)
+        await add_event(db, p["id"], "Police stopped you for questioning, then let you off with a warning.", "legal", "info")
+
+
 async def resolve_player(db, p):
     cfg = await get_config(db)
     ts = cfg["time_scale"]
@@ -682,6 +735,9 @@ async def resolve_player(db, p):
     await employment.resolve_npc_applications(db, p, cfg, now)
     await employment.resolve_worked_businesses(db, p, cfg, now)
     await employment.sweep_player_earnings(db, p, cfg, now)
+
+    # PROACTIVE POLICING: a criminal record (legal_standing < 40) invites random police stops.
+    await maybe_police_event(db, p, cfg, gh)
 
     # daily summary + 00:00 fixed-cost deduction at each in-game midnight boundary
     if cfg.get("world_start_real"):

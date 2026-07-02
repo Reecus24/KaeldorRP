@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 40 — FINAL LOGIC REPAIR API validation. All 14 backend tests PASS (14/14). Verified: (1) /api/bank returns reputation-priced interest_daily (rep50=0.015 base, rep10>base, rep100<base); credit_profile exposes vip:bool + factors.social_standing. (2) Raising social_status raises credit_limit + factors.social_standing and flips vip=true at social>=60. (3) store_manager/restaurant_manager/logistics_manager expose min_reputation=60/55/60 in /api/jobs requirements; low-rep player is blocked on POST /api/jobs/store_manager/apply (HTTP 400). (4) POST /api/bank/loan succeeds, /api/bank.daily_interest_cost == debt*interest_daily using the rep-priced rate; repay works. (5) /api/underworld/status locked for Mara + unlocked for Dovan; /api/illegal-actions returns actions for Dovan; /api/game/state resolves cleanly (200) 3x in a row with legal_reputation=10 + criminal_suspicion=50 — no 500s from proactive police events. (6) Regression: /api/game/state, /api/bank, /api/jobs, /api/shop/stores all 200.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration40_reputation_wiring.py",
+    "/app/test_reports/pytest/iteration40_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "game_engine.effective_loan_rate(p, cfg): rep 50 -> base rate exact; factor clamp(1.0-(rep-50)/125.0, 0.7, 1.4) verified at API layer (rep10 pays premium, rep100 gets discount).",
+    "core.credit_profile: correctly exposes 'vip' boolean (social>=60), 'interest_daily', 'daily_interest_cost' (debt*rate), and factors.social_standing = max(0, social-10)*20. Verified by admin-manipulating Mara's social_status.",
+    "core.meets_requirements enforces min_reputation with English message 'Requires reputation N+' before checking legal_reputation/social_status/suspicion. Verified at /api/jobs/{id}/apply.",
+    "seed_data manager jobs (store_manager tier4 60, restaurant_manager tier4 55, logistics_manager tier4 60) surface min_reputation in /api/jobs requirements.",
+    "routes/economy.py /api/bank/loan and /api/bank/repay flow works end-to-end; response returns credit_limit + credit_available; interest_daily persists across the loan (rate not mutated by borrowing).",
+    "routes/player.py /api/game/state safely resolves with legal_reputation=10 + criminal_suspicion=50 — maybe_police_event() does not crash resolve_player() (validated 3x in a row).",
+    "Hygiene: routes/admin.py PUT /admin/players clamps stat fields via clamp(float(v)) — but the clamp default caps stress/suspicion but seemed to preserve 0-100 range for social. During test restoration Mara's social_status drifted slightly across parallel writes; after final admin restoration all state is baseline.",
+    "TESTING NOTE for future agents: /api/admin/players returns a RAW LIST (not {players: [...]}). /api/jobs/sectors returns a RAW LIST. /api/jobs/sectors/{id} returns {sector, jobs}. Auth response field is 'token' (not 'access_token').",
+    "TESTING NOTE: pytest-xdist LoadScope pins each class to one worker. Tests that mutate the SAME player must live in ONE class or they race against each other across workers. TestMaraStateWiring is grouped for this reason."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration40_reputation_wiring.py"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "N/A (backend-only per request)"
+  },
+  "test_credentials": "Admin: admin@kaeldor.com/admin123. Players: mara@kaeldor.com, dovan@kaeldor.com, kiri@kaeldor.com — all demo123.",
+  "seed_data_creation": "None. Test uses existing seeded demo players (Mara/Dovan/Kiri). All Mara state mutations wrapped in try/finally to restore original values. Post-test verification: Mara restored to baseline rep=50, legal=75, social=10, debt=0, criminal_suspicion=0. No leftover test-created rows.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 40 validates FINAL LOGIC REPAIR at API layer: reputation-priced loan interest (interest_daily), VIP banking (vip bool + factors.social_standing), reputation gate on manager jobs (min_reputation 60/55/60), loan interest actually uses rep-priced rate, and low-legal-reputation game/state resolution without 500s. Key gotchas for the API surface: /api/admin/players and /api/jobs/sectors return RAW LISTS; /api/jobs/sectors/{id} returns {sector, jobs}; auth token field is 'token'; PUT /api/admin/players/{id} accepts partial fields (cash/bank/debt/reputation/legal_reputation/criminal_suspicion/social_status/health/energy/skills). Pytest ini forces -n 2 --dist loadscope so any tests mutating the same player MUST be in one class.",
+  "rca of the issue": "N/A — no bugs found. All FINAL LOGIC REPAIR wiring is intact at the API layer."
+}

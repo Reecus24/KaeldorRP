@@ -23,6 +23,7 @@ from game_engine import (
     resolve_player, get_config, add_event, real_seconds, parse_dt,
     charge, add_money, effectiveness, apply_effects, add_skill_xp,
     add_notification, ledger_add, game_now, game_day_index, game_to_real,
+    effective_loan_rate,
 )
 from seed_data import seed_content, CONTENT_MAP, JOBS
 import seed_data
@@ -353,12 +354,14 @@ async def credit_profile(p, cfg=None):
     """
     cfg = cfg or await get_config(db)
     econ = cfg.get("economy", {})
-    interest = econ.get("loan_interest_daily", 0.015)
+    # REPUTATION-PRICED interest (see game_engine.effective_loan_rate): strong reputation → lower rate.
+    interest = effective_loan_rate(p, cfg)
     nw = await compute_net_worth(p)
     income = await estimate_income_per_day(p)
     fin = p["skills"].get("finance", {}).get("level", 1)
     debt = round(p.get("debt", 0), 2)
     missed = int(p.get("credit_missed", 0))
+    social = p.get("social_status", 10)
 
     base = 500.0
     skill_c = fin * 250.0
@@ -366,7 +369,10 @@ async def credit_profile(p, cfg=None):
     income_c = income * 30 * 0.8
     job = p.get("job")
     job_c = (job.get("reliability", 50) / 100.0) * 500.0 if job else 0.0
-    raw = base + skill_c + asset_c + income_c + job_c
+    # SOCIAL STATUS → VIP BANKING: strong social standing raises your borrowing ceiling.
+    social_c = max(0.0, social - 10) * 20.0
+    vip = social >= 60
+    raw = base + skill_c + asset_c + income_c + job_c + social_c
 
     reasons = []
     rep_factor = clamp(0.6 + (p.get("reputation", 50) - 50) / 150.0 + (p.get("legal_reputation", 100) - 50) / 200.0, 0.3, 1.4)
@@ -397,11 +403,12 @@ async def credit_profile(p, cfg=None):
         "cash": round(p["cash"], 2), "bank": round(p["bank"], 2), "debt": debt,
         "interest_daily": interest,
         "credit_limit": limit, "credit_used": debt, "credit_available": available,
-        "blocked": blocked, "reasons": reasons,
+        "blocked": blocked, "reasons": reasons, "vip": vip,
         "net_worth": nw, "income_per_day": income,
         "daily_interest_cost": round(debt * interest, 2),
         "factors": {"base": round(base), "finance_skill": round(skill_c), "assets": round(asset_c),
-                    "income": round(income_c), "job_stability": round(job_c), "reputation_factor": round(rep_factor, 2)},
+                    "income": round(income_c), "job_stability": round(job_c),
+                    "social_standing": round(social_c), "reputation_factor": round(rep_factor, 2)},
     }
 
 
@@ -660,8 +667,9 @@ def _effective_crime_risk(p, a, risk_mult=1.0):
     """Mirror game_engine._resolve_illegal so the UI shows the true, live odds."""
     street = p.get("skills", {}).get("street_smarts", {}).get("level", 1)
     susp = p.get("criminal_suspicion", 0)
+    eff = effectiveness(p)
     bust = a.get("police_risk", 0) * (1 + susp / 150.0) * (1 - min(0.4, street * 0.03)) * risk_mult
-    fail = a.get("failure_chance", 0) * (1 - min(0.3, street * 0.025))
+    fail = a.get("failure_chance", 0) * (1 - min(0.3, street * 0.025)) * clamp(1.6 - 0.6 * eff, 0.6, 1.6)
     bust = max(0.0, min(0.95, bust))
     fail = max(0.0, min(0.95 - bust, fail))
     return round(bust, 3), round(fail, 3)

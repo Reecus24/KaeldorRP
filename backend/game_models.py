@@ -191,6 +191,9 @@ DEFAULT_CONFIG = {
         # criminal suspicion
         "suspicion_decay_per_hour": 1.5,  # suspicion lost per clean game-hour (0 = never cools down)
         "suspicion_gain_mult": 1.0,       # multiplier on suspicion gained from illegal acts
+        # proactive policing: base per-game-hour chance of a police stop, scaled by how far below 40
+        # the player's legal_standing sits (0 = disable proactive stops)
+        "police_event_per_hour": 0.03,
     },
 }
 
