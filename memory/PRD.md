@@ -7,6 +7,14 @@ Browser-based **persistent, real-time life-simulation RPG** ("Kaeldor RPG"). A l
 
 ## Session Update — 2026-07-02 (Standardized 4-Shift System + Registration/Auto-Start, NPC Transparency, Hiring Tuning)
 
+### Add-on same session — God Mode: Market CRUD + Character Origins (iteration_39)
+- **Stocks/Crypto full CRUD:** `POST /admin/market` (symbol, name, kind stock|crypto, base_price → id `stk_/cry_<sym>`, price=prev=base, history=[price]) and `DELETE /admin/market/{id}`. `market_engine` reads `db.market_assets` dynamically so new assets advance next tick and deleted ones stop — verified live in player market. Admin Markets panel: "Add New Asset" form (`market-create`) + per-asset delete (`market-delete-<id>`).
+- **Character Origins (dynamic start presets):** new `character_backgrounds` DB collection (hardcoded presets migrated via CONTENT_MAP + `migrate_backgrounds.py`). Full admin CRUD `GET/POST/PUT/DELETE /admin/backgrounds` (name, desc, order, active, starting cash/bank/debt, stats{health,energy,fatigue,hunger,mood,stress}, skill bonuses, starting inventory). `new_player(user,name,bg_id,bg)` applies all attributes; `POST /character/create` + public `GET /backgrounds` read from DB (fallback to hardcoded if empty). New admin tab **Character Origins** under Player Management (`origin-*` testids). Character-create screen pulls origins live.
+- **Verified end-to-end:** custom origin with cash 999/bank 5000/skills/inventory → new character got exactly those. testing_agent iteration_39: backend 17/17, frontend 100%, no issues, cleanup verified.
+- **Docs:** ADMIN_SANDBOX.md updated (market CRUD + Character Origins).
+
+
+
 ### Add-on same session — Shop Price % + Admin-only Application Reason Management (iteration_38)
 - **Shop "Price %" multiplier (replaces Discount):** per-item `items_config.<item>.price_pct` (default 100). Final price = base × price_pct/100 (100=base, 90=−10%, 150=+50%). `core._shop_price`; `_norm_items_config` migrates legacy `discount_pct`→`price_pct`; economy shop listing/buy use it; on_sale = any price_pct<100. Existing shop docs migrated. Admin editor shows "Price %" column with live "base $X → $Y" preview (`cfg-price-<id>`). Verified e2e: $4 coffee @150% → $6 in player shop.
 - **Application reasons are Admin-only** (players see only the final success/failure response). Reverted the player-facing reason line from JobCenter.
