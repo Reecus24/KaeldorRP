@@ -20,8 +20,8 @@ function PlayersTable({ focus, onFocusHandled }) {
     const [edit, setEdit] = useState(null);
     const [search, setSearch] = useState("");
     const [highlightId, setHighlightId] = useState(null);
-    const load = () => api.get("/admin/players").then(({ data }) => setPlayers(data));
-    useEffect(() => { load(); }, []);
+    const load = useCallback(() => api.get("/admin/players").then(({ data }) => setPlayers(data)), []);
+    useEffect(() => { load(); }, [load]);
 
     // Quick-Jump from the Live City Feed: filter to the player, highlight + open edit.
     useEffect(() => {

@@ -4,6 +4,9 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 const TOKEN_KEY = "kaeldor_token";
 
+// Auth: JWT bearer token in localStorage (sent via the Authorization header below). This is an
+// intentional stateless-JWT design, not a leak. XSS is mitigated by React's auto-escaping; there are
+// no third-party scripts. `withCredentials` is on so the backend can also read a cookie if it sets one.
 export const getToken = () => localStorage.getItem(TOKEN_KEY);
 export const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY);

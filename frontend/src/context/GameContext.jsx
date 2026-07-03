@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { toast } from "sonner";
 import { api, errMessage } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -130,10 +130,10 @@ export function GameProvider({ children }) {
         [refresh],
     );
 
-    const createCharacter = async (name, background) => {
+    const createCharacter = useCallback(async (name, background) => {
         await api.post("/character/create", { name, background });
         await refresh();
-    };
+    }, [refresh]);
 
     // BROWSER TAB TITLE + FLASH: reflect unread messages in the document title. When the tab is
     // backgrounded and new messages are waiting, alternate the title so the "(N)" badge catches the eye.
@@ -171,27 +171,31 @@ export function GameProvider({ children }) {
 
     const player = state?.player || null;
 
+    const value = useMemo(
+        () => ({
+            state,
+            player,
+            events,
+            hasCharacter,
+            loading,
+            tick,
+            refresh,
+            act,
+            createCharacter,
+            activityRemaining,
+            activityProgress,
+            notifications,
+            unreadCount: notifications.unread_count || 0,
+            markNotificationsRead,
+            msgUnread,
+            fetchMsgUnread,
+        }),
+        [state, player, events, hasCharacter, loading, tick, refresh, act, createCharacter,
+         activityRemaining, activityProgress, notifications, markNotificationsRead, msgUnread, fetchMsgUnread],
+    );
+
     return (
-        <GameContext.Provider
-            value={{
-                state,
-                player,
-                events,
-                hasCharacter,
-                loading,
-                tick,
-                refresh,
-                act,
-                createCharacter,
-                activityRemaining,
-                activityProgress,
-                notifications,
-                unreadCount: notifications.unread_count || 0,
-                markNotificationsRead,
-                msgUnread,
-                fetchMsgUnread,
-            }}
-        >
+        <GameContext.Provider value={value}>
             {children}
         </GameContext.Provider>
     );

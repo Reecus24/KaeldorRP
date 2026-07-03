@@ -55,7 +55,7 @@ async def get_config(db):
 
 async def add_event(db, player_id, message, etype="info", severity="info", business_id=None):
     doc = {
-        "id": __import__("uuid").uuid4().hex,
+        "id": uuid.uuid4().hex,
         "player_id": player_id,
         "ts": now_utc().isoformat(),
         "type": etype,
