@@ -21,10 +21,10 @@ NEED_STATS = ["energy", "fatigue", "hunger", "mood", "stress", "health"]
 # Character creation backgrounds
 BACKGROUNDS = {
     "drifter": {
-        "label": "Drifter",
-        "desc": "You've lived on the edge. Street-smart but broke.",
-        "cash": 120, "bank": 40,
-        "skills": {"street_smarts": 4, "fitness": 2},
+        "label": "Unemployed Peasant",
+        "desc": "No title, no trade. Your future is yours to earn.",
+        "cash": 80, "bank": 0,
+        "skills": {}, "inventory": {"protein_bar": 3},
     },
     "graduate": {
         "label": "Fresh Graduate",
@@ -106,8 +106,34 @@ def new_player(user_id, name, background, bg=None):
     }
 
 
+from world_content import WORLD_CONFIG
+from world_map import DEFAULT_WORLD_MAP
+from world_life_content import LIFE_CONFIG
+
 DEFAULT_CONFIG = {
     "id": "global",
+    "world": WORLD_CONFIG,
+    "world_map": DEFAULT_WORLD_MAP,
+    "world_life": LIFE_CONFIG,
+    "realm": {
+        "faction_rejoin_hours": 72.0,
+        "base_power": 5.0, "power_per_level": 2.0, "power_per_fitness": 2.0,
+        "power_per_street_skill": 1.0, "chance_per_power": 0.008,
+        "base_win_chance": 0.65, "min_win_chance": 0.1, "max_win_chance": 0.95,
+        "defeat_xp_fraction": 0.25,
+        "tactics": {
+            "guarded": {"name": "Shield First", "chance_bonus": -0.08, "damage_multiplier": 0.55, "reward_multiplier": 0.8},
+            "balanced": {"name": "Hold the Line", "chance_bonus": 0.0, "damage_multiplier": 1.0, "reward_multiplier": 1.0},
+            "bold": {"name": "Press the Attack", "chance_bonus": 0.08, "damage_multiplier": 1.45, "reward_multiplier": 1.1},
+        },
+    },
+    "journey": {"max_active_stories": 3, "city_events_enabled": True},
+    "business_comfort": {
+        "default_reserve_days": 1.0,
+        "max_reserve_days": 30.0,
+        "stock_warning_days": 0.5,
+        "finished_stock_days": 1.0,
+    },
     # time_scale = game minutes that pass per 1 real minute.
     # 1  => TRUE REAL-TIME (1 game hour = 1 real hour). This is the default.
     # 12 => accelerated test mode (1 game hour = 5 real minutes) for balancing.
@@ -118,6 +144,33 @@ DEFAULT_CONFIG = {
         "fatigue_awake": 1.8, # fatigue rises per game hour while awake
         "stress_relax": 1.2,  # stress drifts down per game hour when idle
         "mood_baseline": 60.0,
+    },
+    "needs": {
+        "health_warning_threshold": 35.0,
+        "mood_warning_threshold": 25.0,
+        "hunger_damage_threshold": 80.0,
+        "hunger_health_loss_per_hour": 1.4,
+        "hunger_mood_loss_per_hour": 1.0,
+        "fatigue_damage_threshold": 80.0,
+        "fatigue_health_loss_per_hour": 0.6,
+        "stress_damage_threshold": 80.0,
+        "stress_health_loss_per_hour": 0.8,
+        "stress_mood_loss_per_hour": 1.0,
+        "low_energy_threshold": 15.0,
+        "low_energy_stress_per_hour": 1.0,
+        "regen_max_hunger": 80.0,
+        "regen_max_fatigue": 85.0,
+        "regen_max_stress": 85.0,
+        "health_regen_per_hour": 0.8,
+        "mood_recovery_per_hour": 0.5,
+        "mood_fade_per_hour": 0.3,
+        "mood_upper_margin": 20.0,
+        "student_welfare_enabled": True,
+    },
+    "hospital": {
+        "duration_minutes": 360.0,
+        "admission_health": 1.0,
+        "discharge_health": 60.0,
     },
     "economy": {
         "loan_interest_daily": 0.015,   # per game day on debt
@@ -213,6 +266,8 @@ def apply_tuning(cfg):
 
 # Daily-summary ledger: signed per-day money buckets (expenses stored negative).
 LEDGER_KEYS = [
+    "expedition_income", "expedition_costs",
+    "story_income", "story_costs",
     "wages_earned", "business_income", "crime_income", "social_income", "savings_interest",   # income (+)
     "rent", "bills", "vehicle_costs", "fines", "medical", "living_costs", "taxes",  # expenses (-)
     "loan_interest", "business_pnl", "employee_wages",      # info / debt

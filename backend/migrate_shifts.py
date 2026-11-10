@@ -20,7 +20,7 @@ async def main():
     hire = await db.jobs.update_many(
         {"acceptance_base_chance": {"$exists": False}},
         {"$set": {"acceptance_base_chance": 0.5, "skill_weight": 1.0,
-                  "success_response": "Your application for {title} was accepted — the offer is ${wage}/h. Accept it to start working.",
+                  "success_response": "Your application for {title} was accepted — the offer is ¤ {wage}/h. Accept it to start working.",
                   "failure_response": "Your application for {title} was rejected: {reason}."}})
     # Any job not in JOB_SHIFTS keeps whatever it had. Clear stale sign-ups from the old schema.
     cleared = await db.players.update_many(

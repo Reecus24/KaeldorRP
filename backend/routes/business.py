@@ -1,4 +1,5 @@
 from core import *  # noqa: F401,F403
+from business_comfort import operations, restock_quote, material_multiplier
 
 
 
@@ -25,6 +26,7 @@ async def owned_businesses(user: dict = Depends(current_user)):
     bizs = await db.businesses.find({"player_id": p["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
     for b in bizs:
         b["metrics"] = await employee_engine.business_metrics(db, b)
+        b["operations"] = operations(b, b["metrics"], await get_config(db))
     return bizs
 
 
@@ -86,7 +88,7 @@ async def upgrade_business(biz_id: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail=f"A {b['activity']['type']} is already in progress here")
     cost = round(b["purchase_price"] * 0.4 * b["level"])
     if p["cash"] + p["bank"] < cost:
-        raise HTTPException(status_code=400, detail=f"Upgrade costs ${cost}")
+        raise HTTPException(status_code=400, detail=f"Upgrade costs ¤ {cost}")
     charge(p, cost)
     cfg = await get_config(db)
     now = now_utc()
@@ -112,7 +114,7 @@ async def marketing_business(biz_id: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail=f"A {b['activity']['type']} is already in progress here")
     cost = round(b["purchase_price"] * 0.12 * (b.get("marketing_level", 0) + 1))
     if p["cash"] + p["bank"] < cost:
-        raise HTTPException(status_code=400, detail=f"Marketing campaign costs ${cost}")
+        raise HTTPException(status_code=400, detail=f"Marketing campaign costs ¤ {cost}")
     charge(p, cost)
     cfg = await get_config(db)
     now = now_utc()
@@ -132,16 +134,18 @@ async def marketing_business(biz_id: str, user: dict = Depends(current_user)):
 async def collect_business(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     b = await _get_owned_business(p, biz_id)
-    amount = round(b.get("cash", 0), 2)
+    metrics = await employee_engine.business_metrics(db, b)
+    op = operations(b, metrics, await get_config(db))
+    amount = op["safe_to_collect"]
     if amount <= 0:
-        raise HTTPException(status_code=400, detail="No profit to collect")
-    b["cash"] = 0.0
-    await db.businesses.update_one({"id": biz_id}, {"$set": {"cash": 0.0}})
+        raise HTTPException(status_code=400, detail="No coin above the operating reserve yet. Review reserve settings or let the business earn more.")
+    b["cash"] = round(b.get("cash", 0) - amount, 2)
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"cash": b["cash"]}})
     add_money(p, amount)
     ledger_add(p, "business_income", amount)
-    await add_event(db, p["id"], f"Collected ${amount} profit from {b['name']}.", "business", "success")
+    await add_event(db, p["id"], f"Collected ¤ {amount} profit from {b['name']}.", "business", "success")
     await save_player(p)
-    return {"ok": True, "amount": amount}
+    return {"ok": True, "amount": amount, "retained": b["cash"]}
 
 
 
@@ -160,7 +164,7 @@ async def inject_business(biz_id: str, body: AmountBody, user: dict = Depends(cu
     if b.get("bankrupt") and b["debt"] <= 0:
         b["bankrupt"] = False
     await db.businesses.update_one({"id": biz_id}, {"$set": b})
-    await add_event(db, p["id"], f"Injected ${amt} into {b['name']}.", "business", "info")
+    await add_event(db, p["id"], f"Injected ¤ {amt} into {b['name']}.", "business", "info")
     await save_player(p)
     return {"ok": True}
 
@@ -171,11 +175,18 @@ async def inject_business(biz_id: str, body: AmountBody, user: dict = Depends(cu
 async def sell_business(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     b = await _get_owned_business(p, biz_id)
+    if await db.player_employment.find_one({"business_id": biz_id, "status": "active"}, {"_id": 1}):
+        raise HTTPException(status_code=409, detail="End active player employment contracts before selling this business, so employees are not left working at a closed business.")
     value = round(b["purchase_price"] * 0.5 * b["level"] * (0.6 + 0.4 * b["reputation"] / 100) - b.get("debt", 0) + b.get("cash", 0))
     value = max(0, value)
     await db.businesses.delete_one({"id": biz_id})
+    await db.employees.update_many({"business_id": biz_id, "status": {"$in": ["active", "sick", "applicant"]}},
+                                  {"$set": {"status": "fired"}})
+    await db.business_applications.update_many(
+        {"business_id": biz_id, "status": {"$in": ["pending", "offered"]}},
+        {"$set": {"status": "rejected", "reason": "The business has been sold."}})
     add_money(p, value)
-    await add_event(db, p["id"], f"Sold {b['name']} for ${value}.", "business", "info")
+    await add_event(db, p["id"], f"Sold {b['name']} for ¤ {value}.", "business", "info")
     await save_player(p)
     return {"ok": True, "value": value}
 
@@ -205,7 +216,14 @@ async def restock_settings(biz_id: str, body: RestockBody, user: dict = Depends(
     if body.auto_restock is not None:
         upd["auto_restock"] = bool(body.auto_restock)
     if body.restock_target is not None:
+        if not 0 <= body.restock_target <= 1_000_000:
+            raise HTTPException(422, "Stock target must be between 0 and 1,000,000 units.")
         upd["restock_target"] = max(0.0, round(body.restock_target, 1))
+    if body.reserve_days is not None:
+        cfg = await get_config(db)
+        if not 0 <= body.reserve_days <= cfg["business_comfort"]["max_reserve_days"]:
+            raise HTTPException(422, "Reserve days are outside the Owner's allowed range.")
+        upd["reserve_days"] = body.reserve_days
     if upd:
         await db.businesses.update_one({"id": biz_id}, {"$set": upd})
     return {"ok": True, **upd}
@@ -215,7 +233,7 @@ async def restock_settings(biz_id: str, body: RestockBody, user: dict = Depends(
 
 @api.post("/businesses/{biz_id}/buy-materials")
 async def buy_materials(biz_id: str, body: MaterialsBody, user: dict = Depends(current_user)):
-    """Top up ingredient stock to `units` product-equivalents. Paid from business cash;
+    """Top up ingredient stock to `units` product-equivalents. Paid from business coin;
     if the business is short, the owner's wallet covers the rest."""
     p = await get_state(user)
     b = await _get_owned_business(p, biz_id)
@@ -223,30 +241,38 @@ async def buy_materials(biz_id: str, body: MaterialsBody, user: dict = Depends(c
     if not recipe:
         raise HTTPException(status_code=400, detail="This business has no supply chain")
     target = body.units if body.units is not None else b.get("restock_target", b.get("daily_demand", 0))
-    target = max(0.0, round(target, 1))
-    materials = b.get("materials") or {}
-    cost = 0.0
-    new_mats = dict(materials)
-    for r in recipe:
-        want = target * r.get("qty", 1)
-        have = materials.get(r["id"], 0)
-        if want > have:
-            cost += (want - have) * r.get("cost", 0)
-            new_mats[r["id"]] = round(want, 3)
-    cost = round(cost, 2)
+    if not 0 <= target <= 1_000_000:
+        raise HTTPException(422, "Stock target must be between 0 and 1,000,000 units.")
+    target = round(target, 1)
+    quote = restock_quote(b, target, material_multiplier(p))
+    cost, new_mats = quote["cost"], quote["materials"]
     if cost <= 0:
         return {"ok": True, "cost": 0, "detail": "Already stocked to target"}
     biz_cash = round(b.get("cash", 0), 2)
     from_biz = min(biz_cash, cost)
     from_owner = round(cost - from_biz, 2)
+    if from_owner > 0 and not body.allow_owner_funds:
+        raise HTTPException(409, "Business funds are insufficient. Review the quote and explicitly allow personal funds, or inject money first.")
     if from_owner > 0 and (p["cash"] + p["bank"]) < from_owner:
-        raise HTTPException(status_code=400, detail=f"Need ${cost} to restock (business has ${biz_cash}); you can't cover the rest")
+        raise HTTPException(status_code=400, detail=f"Need ¤ {cost} to restock (business has ¤ {biz_cash}); you can't cover the rest")
     if from_owner > 0:
         charge(p, from_owner)
         await save_player(p)
     await db.businesses.update_one({"id": biz_id}, {"$set": {"materials": new_mats, "cash": round(biz_cash - from_biz, 2)}})
-    await add_event(db, p["id"], f"Restocked materials at {b['name']} for ${cost}.", "business", "info", biz_id)
+    await add_event(db, p["id"], f"Restocked materials at {b['name']} for ¤ {cost}.", "business", "info", biz_id)
     return {"ok": True, "cost": cost, "from_business": from_biz, "from_owner": from_owner}
+
+
+@api.post("/businesses/{biz_id}/materials-quote")
+async def materials_quote(biz_id: str, body: MaterialsBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    target = body.units if body.units is not None else b.get("restock_target", b.get("daily_demand", 0))
+    if not 0 <= target <= 1_000_000:
+        raise HTTPException(422, "Stock target must be between 0 and 1,000,000 units.")
+    q = restock_quote(b, round(target, 1), material_multiplier(p))
+    q.pop("materials")
+    return q
 
 
 
@@ -255,6 +281,8 @@ async def buy_materials(biz_id: str, body: MaterialsBody, user: dict = Depends(c
 async def business_detail(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     b = await _get_owned_business(p, biz_id)
+    cfg = await get_config(db)
+    tuning = cfg.get("tuning") or {}
     pp = b.get("purchase_price", 1)
     lvl = b.get("level", 1)
     mkt = b.get("marketing_level", 0)
@@ -265,17 +293,18 @@ async def business_detail(biz_id: str, user: dict = Depends(current_user)):
         "upgrade_cost": round(pp * 0.4 * lvl) if can_upgrade else None,
         "upgrade_from_level": lvl, "upgrade_to_level": lvl + 1 if can_upgrade else lvl,
         "upgrade_adds_slot": can_upgrade, "upgrade_reputation_gain": 4, "can_upgrade": can_upgrade,
-        "upgrade_duration_days": 7,
+        "upgrade_duration_days": int(tuning.get("upgrade_days", 7)),
         "marketing_cost": round(pp * 0.12 * (mkt + 1)),
         "marketing_level": mkt, "marketing_next_level": mkt + 1,
         "marketing_demand_boost_pct": 25, "marketing_price_boost_pct": 12, "marketing_reputation_gain": 8,
-        "marketing_duration_days": 3,
+        "marketing_duration_days": int(tuning.get("marketing_days", 3)),
         "activity_in_progress": bool(activity), "activity": activity,
         "sell_value": max(0, round(pp * 0.5 * lvl * (0.6 + 0.4 * rep / 100) - b.get("debt", 0) + b.get("cash", 0))),
     }
     metrics = await employee_engine.business_metrics(db, b)
     insight = employee_engine.business_insight(b, metrics)
-    return {"business": b, "metrics": metrics, "costs": costs, "insight": insight}
+    return {"business": b, "metrics": metrics, "costs": costs, "insight": insight,
+            "operations": operations(b, metrics, cfg)}
 
 
 
@@ -347,7 +376,7 @@ async def hire_applicant(biz_id: str, emp_id: str, user: dict = Depends(current_
     if shift:
         await add_event(db, p["id"], f"You hired {emp['name']} as {emp['role'].replace('_', ' ')} ({shift['label']}).", "business", "success", biz_id)
     else:
-        await add_event(db, p["id"], f"You hired {emp['name']} as {emp['role'].replace('_', ' ')}. Opening hours are already covered — assign a shift in the Schedule tab (they cost $0 until scheduled).", "business", "info", biz_id)
+        await add_event(db, p["id"], f"You hired {emp['name']} as {emp['role'].replace('_', ' ')}. Opening hours are already covered — assign a shift in the Schedule tab (they cost ¤ 0 until scheduled).", "business", "info", biz_id)
     return {"ok": True}
 
 
@@ -370,7 +399,7 @@ async def recruit_applicant(biz_id: str, user: dict = Depends(current_user)):
     cfg = await get_config(db)
     cost = cfg.get("employees", {}).get("recruit_cost", 250)
     if p["cash"] + p["bank"] < cost:
-        raise HTTPException(status_code=400, detail=f"Recruiting costs ${cost}")
+        raise HTTPException(status_code=400, detail=f"Recruiting costs ¤ {cost}")
     charge(p, cost)
     await save_player(p)
     reqs = await employee_engine.get_staffing(db, b)
@@ -400,7 +429,7 @@ async def give_raise(emp_id: str, user: dict = Depends(current_user)):
     await db.employees.update_one({"id": emp_id}, {"$set": {
         "daily_wage": new_wage, "wage_per_hour": round(new_wage / 8.0, 2), "wants_raise": False,
         "morale": clamp(emp.get("morale", 60) + 10), "loyalty": clamp(emp.get("loyalty", 50) + 6)}})
-    await add_event(db, p["id"], f"You gave {emp['name']} a raise to ${round(new_wage / 8.0, 2)}/hr.", "business", "success", biz["id"])
+    await add_event(db, p["id"], f"You gave {emp['name']} a raise to ¤ {round(new_wage / 8.0, 2)}/hr.", "business", "success", biz["id"])
     return {"ok": True}
 
 
@@ -469,9 +498,9 @@ async def offer_player(biz_id: str, app_id: str, body: OfferBody, user: dict = D
     rl = role.replace("_", " ")
     if was_offered and prev:
         direction = "increased to" if wage >= prev else "lowered to"
-        await add_notification(db, a["applicant_id"], "job", "Offer updated", f"{b['name']}: wage {direction} ${wage}/h, previously ${prev}/h (as {rl}, {schedule['label']}).", "info", "/job-market")
+        await add_notification(db, a["applicant_id"], "job", "Offer updated", f"{b['name']}: wage {direction} ¤ {wage}/h, previously ¤ {prev}/h (as {rl}, {schedule['label']}).", "info", "/job-market")
     else:
-        await add_notification(db, a["applicant_id"], "job", "Job offer!", f"{b['name']} offered you ${wage}/h as {rl} ({schedule['label']}).", "success", "/job-market")
+        await add_notification(db, a["applicant_id"], "job", "Job offer!", f"{b['name']} offered you ¤ {wage}/h as {rl} ({schedule['label']}).", "success", "/job-market")
     return {"ok": True, "role_matches_staffing": matches}
 
 
@@ -532,7 +561,7 @@ async def raise_player(biz_id: str, emp_id: str, body: WageBody, user: dict = De
     wage = round(max(1.0, body.wage_per_hour), 2)
     prev = emp.get("wage_per_hour") or round(emp.get("wage_per_shift", 60) / 4.0, 2)
     await db.player_employment.update_one({"id": emp_id}, {"$set": {"wage_per_hour": wage, "hours_at_last_raise": emp.get("total_hours_worked", 0), "reliability": clamp(emp.get("reliability", 60) + 5)}})
-    await add_notification(db, emp["employee_player_id"], "job", "Pay rise!", f"{b['name']} raised your wage to ${wage}/h, previously ${prev}/h.", "success", "/job-market")
+    await add_notification(db, emp["employee_player_id"], "job", "Pay rise!", f"{b['name']} raised your wage to ¤ {wage}/h, previously ¤ {prev}/h.", "success", "/job-market")
     return {"ok": True}
 
 
@@ -578,7 +607,7 @@ async def offer_player_training(biz_id: str, emp_id: str, body: TrainingOfferBod
     if not opt:
         raise HTTPException(status_code=404, detail="Training option not found")
     if p["cash"] + p["bank"] < opt["cost"]:
-        raise HTTPException(status_code=400, detail=f"You can't cover the ${opt['cost']} training cost")
+        raise HTTPException(status_code=400, detail=f"You can't cover the ¤ {opt['cost']} training cost")
     charge(p, opt["cost"])  # escrow: owner pays now, refunded if declined/expired
     await save_player(p)
     skill = body.skill or employment.ROLE_SKILL.get(emp.get("role")) or "fitness"
@@ -589,7 +618,7 @@ async def offer_player_training(biz_id: str, emp_id: str, body: TrainingOfferBod
     await add_notification(db, emp["employee_player_id"], "job", "Training offer",
                            f"{b['name']} offered you training: {opt['label']} (+{opt['skill_gain']} {skill}). Accept or decline in Player Jobs.",
                            "info", "/job-market")
-    await add_event(db, p["id"], f"You offered {emp['employee_name']} training: {opt['label']} (${opt['cost']} reserved).", "business", "info", biz_id)
+    await add_event(db, p["id"], f"You offered {emp['employee_name']} training: {opt['label']} (¤ {opt['cost']} reserved).", "business", "info", biz_id)
     return {"ok": True}
 
 

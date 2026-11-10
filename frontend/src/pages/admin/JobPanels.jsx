@@ -4,10 +4,10 @@ import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/pri
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
 import {
-    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
-    MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
-    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles, User, BadgeCheck,
-    ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
+    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, Coins as DollarSign, Gauge,
+    MapPin, Store, Clock, Hammer as Briefcase, Castle as LayoutDashboard, Castle as Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
+    Activity, TrendingUp, Wallet, Shield as Zap, BookOpen as GraduationCap, Sparkles, User, BadgeCheck,
+    ShoppingCart, Scale, Home, Compass as Car, Footprints as Bike, Package as Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -44,7 +44,7 @@ function JobShiftsPanel() {
 
     return (
         <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">Configure each job's work shifts — hours, start-time window, injury risk and pay/XP multipliers. A shift can only be started while the current game hour is inside its window. An overnight window wraps midnight when Start &gt; End (e.g. 21 → 03). Changes go live in players' Current Job page immediately.</p>
+            <p className="text-sm text-muted-foreground">Configure each job's work shifts — hours, start-time window, injury risk and pay/XP multipliers. A shift can only be started while the current game hour is inside its window. An overnight window wraps midnight when Start &gt; End (e.g. 21 → 03). Changes go live in players' My Trade page immediately.</p>
 
             {sel && draft ? (
                 <Panel className="p-5 space-y-4 border-neon-cyan/30" data-testid="jobshifts-editor">
@@ -52,7 +52,7 @@ function JobShiftsPanel() {
                         <div className="flex items-center gap-2">
                             <Briefcase className="w-4 h-4 text-neon-cyan" />
                             <span className="font-display font-bold text-white">{selJob?.title || sel}</span>
-                            <Pill tone="green">${selJob?.hourly_wage}/h base</Pill>
+                            <Pill tone="green">¤ {selJob?.hourly_wage}/h base</Pill>
                         </div>
                         <KButton variant="ghost" onClick={addShift} data-testid="jobshift-add"><Plus className="w-3.5 h-3.5" /> Add Shift</KButton>
                     </div>
@@ -64,7 +64,7 @@ function JobShiftsPanel() {
                                     <span className="text-[10px] font-mono text-muted-foreground">Shift #{i + 1}</span>
                                     <button onClick={() => removeShift(i)} className="text-neon-red hover:text-neon-red/70" data-testid={`jobshift-del-${i}`}><Trash2 className="w-4 h-4" /></button>
                                 </div>
-                                <div className="grid sm:grid-cols-2 gap-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Name
                                         <KInput value={s.name} onChange={(e) => setShift(i, "name", e.target.value)} testid={`jobshift-name-${i}`} /></label>
                                     <label className="text-[10px] text-muted-foreground flex flex-col gap-1">ID (unique)
@@ -95,7 +95,7 @@ function JobShiftsPanel() {
                     </div>
                 </Panel>
             ) : (
-                <div className="grid md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {(data.jobs || []).map((jb) => (
                         <Panel key={jb.id} className="p-4" data-testid={`jobshift-job-${jb.id}`}>
                             <div className="flex items-start justify-between mb-2">
@@ -188,7 +188,7 @@ function JobApplicationsPanel() {
                         <span className="font-display font-bold text-white">{selJob?.title || sel}</span>
                         <Pill tone="purple">T{selJob?.tier}</Pill>
                     </div>
-                    <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Acceptance Base Chance (0.0–1.0)
                             <input type="number" min="0" max="1" step="0.05" className={numCls} value={draft.acceptance_base_chance}
                                 onChange={(e) => setDraft((d) => ({ ...d, acceptance_base_chance: Number(e.target.value) }))} data-testid="jobapps-base" /></label>
@@ -203,7 +203,7 @@ function JobApplicationsPanel() {
                         <textarea className={taCls} value={draft.failure_response}
                             onChange={(e) => setDraft((d) => ({ ...d, failure_response: e.target.value }))} data-testid="jobapps-failure" /></label>
 
-                    <div className="grid md:grid-cols-2 gap-4 pt-1">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                         <div data-testid="jobapps-accept-reasons">
                             <div className="text-[11px] font-mono uppercase tracking-wider text-neon-green/80 mb-2">Accept Reasons</div>
                             <div className="space-y-1.5">
@@ -234,7 +234,7 @@ function JobApplicationsPanel() {
                     </div>
                 </Panel>
             ) : (
-                <div className="grid md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {(data.jobs || []).map((jb) => (
                         <Panel key={jb.id} className="p-4" data-testid={`jobapps-job-${jb.id}`}>
                             <div className="flex items-start justify-between mb-2">
@@ -298,7 +298,7 @@ function ApplicationsMonitor() {
                                     <span className="text-sm text-white font-display font-bold">{a.player_name}</span>
                                     <span className="text-[11px] text-muted-foreground">→ {a.title}</span>
                                     <Pill tone={tone(a.status)}>{a.status}</Pill>
-                                    {a.wage_offer ? <Pill tone="green">${a.wage_offer}/h</Pill> : null}
+                                    {a.wage_offer ? <Pill tone="green">¤ {a.wage_offer}/h</Pill> : null}
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">

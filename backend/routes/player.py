@@ -52,8 +52,6 @@ async def me(user: dict = Depends(current_user)):
 async def list_backgrounds():
     bgs = await db.character_backgrounds.find({"active": True}, {"_id": 0}).to_list(100)
     bgs.sort(key=lambda x: (x.get("order", 99), x.get("label", "")))
-    if not bgs:  # fallback if the collection hasn't been seeded yet
-        return [{"id": k, **v} for k, v in BACKGROUNDS.items()]
     return bgs
 
 
@@ -61,11 +59,38 @@ async def list_backgrounds():
 
 @api.post("/character/create")
 async def create_character(body: CharacterBody, user: dict = Depends(current_user)):
+    if not body.name.strip():
+        raise HTTPException(422, "Enter a character name.")
     existing = await db.players.find_one({"user_id": user["id"]})
     if existing:
         raise HTTPException(status_code=400, detail="Character already exists")
-    bg = await db.character_backgrounds.find_one({"id": body.background, "active": True}, {"_id": 0})
-    p = new_player(user["id"], body.name, body.background, bg)
+    cfg = await get_config(db)
+    if cfg["world"]["random_creation"]:
+        if body.background != "random":
+            raise HTTPException(400, "This world uses a single random origin roll at creation.")
+        import world_engine as world
+        pool = await db.world_origins.find({"active": {"$ne": False}}, {"_id": 0}).to_list(500)
+        try:
+            origin = world.origin_roll(pool)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        p = new_player(user["id"], body.name.strip(), origin["id"], {"cash": origin["cash"], "bank": 0, "inventory": origin["inventory"], "stats": origin["stats"]})
+        for key, level in origin["skills"].items():
+            p["skills"][key] = {"level": level, "xp": 0}
+        w = world.state(p, cfg)
+        w["origin"] = origin
+        w["training"] = origin["training"]
+        professions = {x["id"]: x for x in await db.world_professions.find({"active": {"$ne": False}}, {"_id": 0}).to_list(500)}
+        eligible = [c for c in origin["professions"] if c["weight"] > 0 and c["id"] in professions and not world.requirements_reason(p, professions[c["id"]].get("requirements", {}), professions)]
+        if eligible:
+            choice, roll = world.pick(eligible)
+            w["profession"] = choice["id"]
+            origin.update(profession=choice["id"], profession_roll=roll)
+    else:
+        bg = await db.character_backgrounds.find_one({"id": body.background, "active": True}, {"_id": 0})
+        if not bg:
+            raise HTTPException(400, "Choose an available origin.")
+        p = new_player(user["id"], body.name.strip(), body.background, bg)
     await db.players.insert_one({**p})
     await add_event(db, p["id"], f"Welcome to Kaeldor, {body.name}. Your new life begins now.", "system", "info")
     return {"ok": True}
@@ -77,14 +102,28 @@ async def create_character(body: CharacterBody, user: dict = Depends(current_use
 async def game_state(user: dict = Depends(current_user)):
     p = await get_state(user)
     cfg = await get_config(db)
+    from copy import deepcopy
+    from realm_engine import standing
+    region_id = p.get("world", {}).get("region", cfg["world"]["start_region"])
+    location = await db.world_regions.find_one({"id": region_id}, {"_id": 0, "id": 1, "name": 1})
+    travel_to = (p.get("current_activity") or {}).get("payload", {}).get("travel_to")
+    destination = await db.world_regions.find_one({"id": travel_to}, {"_id": 0, "id": 1, "name": 1}) if travel_to else None
+    public_player = deepcopy(p)
+    if (public_player.get("current_activity") or {}).get("kind") in ("expedition", "world"):
+        public_player["current_activity"]["payload"] = {}
     return {
-        "player": p,
+        "player": public_player,
+        "world_location": {"current": location, "destination": destination},
+        "realm_standing": await standing(db, p),
+        "player_xp_per_level": cfg["xp"]["player_per_level"],
+        "skill_xp_per_level": cfg["xp"]["skill_per_level"],
         "activity": serialize_activity(p),
         "confinement": confine_remaining(p),
         "net_worth": p["net_worth"],
         "net_worth_breakdown": await net_worth_parts(p),
         "time_scale": cfg["time_scale"],
         "effectiveness": round(effectiveness(p), 2),
+        "needs_rules": cfg["needs"],
         "game_time": game_now(cfg).isoformat(),
         "world_start_real": cfg.get("world_start_real"),
         "world_start_game": cfg.get("world_start_game"),
@@ -108,6 +147,16 @@ async def cancel_activity(user: dict = Depends(current_user)):
     if not p.get("current_activity"):
         raise HTTPException(status_code=400, detail="Nothing to cancel")
     act = p["current_activity"]
+    if act.get("kind") == "world":
+        context = act.get("payload", {}).get("life_event")
+        if context and context["kind"] == "day":
+            record = p.get("world", {}).get("daily_visits", {}).get(context["region"], {})
+            if record.get("event_id") == context["id"]:
+                record["status"] = "cancelled"
+        intent_id = act.get("payload", {}).get("intent_id")
+        for intent in p.get("world", {}).get("intents", []):
+            if intent["id"] == intent_id:
+                intent["status"] = "cancelled"
     if act["kind"] in ("job", "course"):
         p["stress"] = clamp(p["stress"] + 8)
     p["current_activity"] = None
@@ -125,13 +174,13 @@ async def list_actions(user: dict = Depends(current_user)):
     p = await get_state(user)
     actions = await db.actions.find({}, {"_id": 0}).to_list(200)
     out = []
+    now = now_utc()
     for a in actions:
-        ok, reason = meets_requirements(p, a.get("requirements"))
+        reason = action_unavailable_reason(p, a, now=now)
         cd = p.get("cooldowns", {}).get(a["id"])
-        on_cd = cd and parse_dt(cd) > now_utc()
-        out.append({**a, "available": bool(ok and not on_cd),
-                    "reason": reason if not ok else ("On cooldown" if on_cd else ""),
-                    "cooldown_remaining": round((parse_dt(cd) - now_utc()).total_seconds()) if on_cd else 0})
+        on_cd = cd and parse_dt(cd) > now
+        out.append({**a, "available": not bool(reason), "reason": reason,
+                    "cooldown_remaining": math.ceil((parse_dt(cd) - now).total_seconds()) if on_cd else 0})
     return out
 
 
@@ -144,6 +193,9 @@ async def start_action(action_id: str, user: dict = Depends(current_user)):
     a = await db.actions.find_one({"id": action_id}, {"_id": 0})
     if not a:
         raise HTTPException(status_code=404, detail="Action not found")
+    unavailable = action_unavailable_reason(p, a)
+    if unavailable:
+        raise HTTPException(status_code=409, detail=unavailable)
     ok, reason = meets_requirements(p, a.get("requirements"))
     if not ok:
         raise HTTPException(status_code=400, detail=reason)
@@ -211,7 +263,7 @@ async def list_job_sectors(user: dict = Depends(current_user)):
     if unassigned:
         open_count = sum(1 for j in unassigned if meets_requirements(p, j.get("requirements"))[0])
         out.append({"id": "unassigned", "name": "General Listings", "icon": "Briefcase",
-                    "desc": "Other openings across the city that aren't in a dedicated sector yet.",
+                    "desc": "Other openings across the realm that aren't in a dedicated sector yet.",
                     "order": 999, "active": True, "virtual": True,
                     "job_count": len(unassigned), "open_count": open_count})
     return out
@@ -228,7 +280,7 @@ async def job_sector_detail(sector_id: str, user: dict = Depends(current_user)):
         sectors = await db.job_sectors.find({"active": True}, {"_id": 0, "job_ids": 1}).to_list(100)
         covered = {jid for s in sectors for jid in (s.get("job_ids") or [])}
         s = {"id": "unassigned", "name": "General Listings", "icon": "Briefcase",
-             "desc": "Other openings across the city that aren't in a dedicated sector yet.", "virtual": True}
+             "desc": "Other openings across the realm that aren't in a dedicated sector yet.", "virtual": True}
         job_ids = [jid for jid in all_jobs if jid not in covered]
     else:
         s = await db.job_sectors.find_one({"id": sector_id, "active": True}, {"_id": 0})
@@ -543,6 +595,7 @@ async def use_item(item_id: str, user: dict = Depends(current_user)):
         eff.pop(k)
         add_skill_xp(p, k, skill_eff[k], cfg)
     apply_effects(p, eff)
+    await admit_if_collapsed(db, p, cfg)
     inv[item_id] = inv.get(item_id, 0) - 1
     if inv[item_id] <= 0:
         inv.pop(item_id, None)
@@ -569,7 +622,7 @@ def _wanted_level(heat):
 
 @api.get("/underworld/most-wanted")
 async def most_wanted(user: dict = Depends(current_user)):
-    """City-wide 'Most Wanted' board: players ranked by police HEAT — a blend of high criminal
+    """Realm-wide 'Most Wanted' board: players ranked by watch HEAT — a blend of high criminal
     suspicion and a poor legal standing. Only genuinely 'hot' players (heat > 0) appear."""
     me = await fetch_raw_player(user["id"])
     rows = await db.players.find(
@@ -677,18 +730,18 @@ async def jail_status(user: dict = Depends(current_user)):
 async def post_bail(user: dict = Depends(current_user)):
     p = await get_state(user)
     if p.get("status") != "jail":
-        raise HTTPException(status_code=400, detail="You are not in jail")
+        raise HTTPException(status_code=400, detail="You are not in dungeon")
     cfg = await get_config(db)
     rem = confine_remaining(p).get("jail", 0)
     bail = round(rem / 60 * cfg["time_scale"] * cfg["economy"]["bail_per_minute"])
     if p["cash"] + p["bank"] < bail:
-        raise HTTPException(status_code=400, detail=f"Bail costs ${bail}, you can't afford it")
+        raise HTTPException(status_code=400, detail=f"Bail costs ¤ {bail}, you can't afford it")
     charge(p, bail)
     ledger_add(p, "fines", -bail)
     p["jail_until"] = None
     p["status"] = "free"
     p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + 5)
-    await add_event(db, p["id"], f"You posted ${bail} bail and walked free.", "legal", "info")
+    await add_event(db, p["id"], f"You posted ¤ {bail} bail and walked free.", "legal", "info")
     await save_player(p)
     return {"ok": True}
 
@@ -701,7 +754,10 @@ async def hospital_status(user: dict = Depends(current_user)):
     cfg = await get_config(db)
     return {"in_hospital": p.get("status") == "hospital",
             "remaining_seconds": confine_remaining(p).get("hospital", 0),
-            "health": p["health"], "treat_cost": cfg["economy"]["hospital_treat_cost"]}
+            "health": p["health"], "treat_cost": cfg["economy"]["hospital_treat_cost"],
+            "until": p.get("hospital_until"),
+            "duration_game_minutes": cfg["hospital"]["duration_minutes"],
+            "discharge_health": cfg["hospital"]["discharge_health"]}
 
 
 
@@ -710,9 +766,13 @@ async def hospital_status(user: dict = Depends(current_user)):
 async def hospital_treat(user: dict = Depends(current_user)):
     p = await get_state(user)
     cfg = await get_config(db)
+    if p.get("status") == "jail":
+        raise HTTPException(status_code=409, detail="You must leave dungeon before visiting the infirmary.")
+    if p["health"] >= 100 and p.get("status") != "hospital":
+        raise HTTPException(status_code=409, detail="Your health is already full.")
     cost = cfg["economy"]["hospital_treat_cost"]
     if p["cash"] + p["bank"] < cost:
-        raise HTTPException(status_code=400, detail=f"Treatment costs ${cost}")
+        raise HTTPException(status_code=400, detail=f"Treatment costs ¤ {cost}")
     charge(p, cost)
     if p.get("status") == "hospital":
         p["hospital_until"] = None
@@ -720,7 +780,7 @@ async def hospital_treat(user: dict = Depends(current_user)):
     p["health"] = 100.0
     p["stress"] = clamp(p["stress"] - 10)
     ledger_add(p, "medical", -cost)
-    await add_event(db, p["id"], f"You paid ${cost} for treatment. Health restored.", "health", "success")
+    await add_event(db, p["id"], f"You paid ¤ {cost} for treatment. Health restored.", "health", "success")
     await save_player(p)
     return {"ok": True}
 
@@ -782,7 +842,7 @@ async def accept_offer(app_id: str, user: dict = Depends(current_user)):
     await db.applications.update_one({"id": app_id}, {"$set": {"status": "hired"}})
     await db.applications.update_many({"player_id": p["id"], "status": {"$in": ["pending", "accepted"]}, "id": {"$ne": app_id}},
                                       {"$set": {"status": "withdrawn"}})
-    await add_event(db, p["id"], f"You accepted the offer — now a {j['title']} at ${p['job']['hourly_wage']}/h.", "job", "success")
+    await add_event(db, p["id"], f"You accepted the offer — now a {j['title']} at ¤ {p['job']['hourly_wage']}/h.", "job", "success")
     await save_player(p)
     await social_engine.ensure_job_contacts(db, p, j)
     return {"ok": True}
@@ -917,7 +977,7 @@ async def accept_business_offer(app_id: str, user: dict = Depends(current_user))
     await db.business_applications.update_one({"id": app_id}, {"$set": {"status": "accepted"}})
     sched = emp["schedule"]
     await add_notification(db, a["owner_id"], "business", "Offer accepted", f"{p['name']} accepted your offer at {a['business_name']}.", "success", f"/businesses/{a['business_id']}")
-    await add_event(db, p["id"], f"You're now working at {a['business_name']} as {a.get('role', 'staff')} (${a['wage_offer']}/h, {sched['label']} {sched['start']:02d}:00–{sched['end']:02d}:00).", "job", "success")
+    await add_event(db, p["id"], f"You're now working at {a['business_name']} as {a.get('role', 'staff')} (¤ {a['wage_offer']}/h, {sched['label']} {sched['start']:02d}:00–{sched['end']:02d}:00).", "job", "success")
     return {"ok": True}
 
 
@@ -997,7 +1057,7 @@ async def respond_training(emp_id: str, action: str, user: dict = Depends(curren
             add_money(owner, offer.get("cost", 0))
             await db.players.update_one({"id": owner["id"]}, {"$set": {"cash": owner["cash"]}})
             await add_notification(db, owner["id"], "business", "Training declined",
-                                   f"{p['name']} declined {offer['label']}; ${offer.get('cost', 0)} refunded.", "warning", f"/businesses/{emp['business_id']}")
+                                   f"{p['name']} declined {offer['label']}; ¤ {offer.get('cost', 0)} refunded.", "warning", f"/businesses/{emp['business_id']}")
         await db.player_employment.update_one({"id": emp_id}, {"$set": {"training_offer": None}})
         await add_event(db, p["id"], f"You declined the training offer from {emp['business_name']}.", "job", "info")
         return {"ok": True}

@@ -4,6 +4,10 @@ import random
 from datetime import datetime, timezone, timedelta
 from game_models import now_utc, clamp, SKILLS, empty_ledger
 import game_models
+from config_schema import merge_config
+from contextvars import ContextVar
+
+_event_time = ContextVar("kaeldor_event_time", default=None)
 
 
 def _tax_rate_for(gross):
@@ -29,7 +33,8 @@ def parse_dt(v):
         return None
     if isinstance(v, datetime):
         return v if v.tzinfo else v.replace(tzinfo=timezone.utc)
-    return datetime.fromisoformat(v).replace(tzinfo=timezone.utc) if "+" not in str(v) and "Z" not in str(v) else datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def real_seconds(game_minutes, time_scale):
@@ -43,11 +48,8 @@ def game_hours(real_secs, time_scale):
 
 
 async def get_config(db):
-    cfg = await db.config.find_one({"id": "global"}, {"_id": 0})
-    if not cfg:
-        from game_models import DEFAULT_CONFIG
-        cfg = {**DEFAULT_CONFIG}
-    import game_models
+    stored = await db.config.find_one({"id": "global"}, {"_id": 0})
+    cfg = merge_config(game_models.DEFAULT_CONFIG, stored or {})
     game_models.apply_tuning(cfg)
     cfg["tuning"] = dict(game_models.TUNE)  # return the full effective tuning (defaults merged) for the admin UI
     return cfg
@@ -57,7 +59,7 @@ async def add_event(db, player_id, message, etype="info", severity="info", busin
     doc = {
         "id": uuid.uuid4().hex,
         "player_id": player_id,
-        "ts": now_utc().isoformat(),
+        "ts": (_event_time.get() or now_utc()).isoformat(),
         "type": etype,
         "severity": severity,
         "message": message,
@@ -71,7 +73,7 @@ async def add_notification(db, player_id, ntype, title, body="", severity="info"
     doc = {
         "id": uuid.uuid4().hex, "player_id": player_id, "type": ntype,
         "title": title, "body": body, "severity": severity, "read": False,
-        "ts": now_utc().isoformat(),
+        "ts": (_event_time.get() or now_utc()).isoformat(),
     }
     if link:
         doc["link"] = link
@@ -184,9 +186,9 @@ async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
     p["day_start_snapshot"] = close_snap  # this day's close becomes tomorrow's opening baseline
     sign = "+" if net >= 0 else ""
     await add_notification(db, p["id"], "daily_summary", "Daily summary ready",
-                           f"Net cash for the day: {sign}${round(net)}",
+                           f"Net coin for the day: {sign}${round(net)}",
                            "success" if net >= 0 else "warning", "/daily-summary")
-    await add_event(db, p["id"], f"A new day begins in Kaeldor. Net cash yesterday: {sign}${round(net)}.", "system", "info")
+    await add_event(db, p["id"], f"A new day begins in Kaeldor. Net coin yesterday: {sign}${round(net)}.", "system", "info")
 
 
 def effectiveness(p):
@@ -203,7 +205,7 @@ def effectiveness(p):
 
 
 def charge(p, amount):
-    """Deduct money: cash -> bank -> debt. Returns True if fully covered without debt."""
+    """Deduct money: coin -> vault -> debt. Returns True if fully covered without debt."""
     amount = round(amount, 2)
     if amount <= 0:
         return True
@@ -258,54 +260,95 @@ def apply_effects(p, effects, mult=1.0):
             add_money(p, v * mult)
 
 
-def decay_needs(p, gh, cfg, resting, studying=False, mood_bonus=0.0):
-    d = cfg.get("decay", {})
+def decay_needs(p, gh, cfg, resting, studying=False, mood_bonus=0.0, stop_at_collapse=False):
+    """Integrate needs at their thresholds, independent of how often the UI polls.
+
+    Return the consumed game hours. The timeline can stop exactly at a collapse,
+    admit the player at that time, and spend the remaining interval in care.
+    """
+    if gh <= 0:
+        return 0.0
+    d = {**game_models.DEFAULT_CONFIG["decay"], **cfg.get("decay", {})}
+    n = {**game_models.DEFAULT_CONFIG["needs"], **cfg.get("needs", {})}
     eb = p.get("equip_bonus", {})
-    p["hunger"] = clamp(p["hunger"] + d.get("hunger", 3.2) * gh)
-    if not resting:
-        p["energy"] = clamp(p["energy"] - d.get("energy_awake", 2.4) * gh * eb.get("energy_drain_mult", 1.0))
-        p["fatigue"] = clamp(p["fatigue"] + d.get("fatigue_awake", 1.8) * gh)
-        p["stress"] = clamp(p["stress"] - d.get("stress_relax", 1.2) * gh)
-    # derived health/mood pressure
-    if p["hunger"] > 80:
-        p["health"] = clamp(p["health"] - 1.4 * gh)
-        p["mood"] = clamp(p["mood"] - 1.0 * gh)
-    if p["fatigue"] > 80:
-        p["health"] = clamp(p["health"] - 0.6 * gh)
-    if p["stress"] > 80:
-        p["health"] = clamp(p["health"] - 0.8 * gh)
-        p["mood"] = clamp(p["mood"] - 1.0 * gh)
-    if p["energy"] < 15:
-        p["stress"] = clamp(p["stress"] + 1.0 * gh)
-    # criminal suspicion cools down while not committing crimes (admin-tunable, 0 = never cools)
-    if p.get("criminal_suspicion", 0) > 0:
-        _susp_decay = float(game_models.TUNE.get("suspicion_decay_per_hour", 1.5))
-        p["criminal_suspicion"] = clamp(p["criminal_suspicion"] - _susp_decay * gh)
-    # slow passive health regen when reasonably fed/rested/calm (+ equipped fitness gear)
-    if p["health"] < 100 and p["hunger"] < 80 and p["fatigue"] < 85 and p["stress"] < 85:
-        p["health"] = clamp(p["health"] + (0.8 + eb.get("health_regen", 0.0)) * gh)
-    # mood drifts toward a baseline set by HOUSING quality: better homes lift the target mood,
-    # a cramped studio drags it down (housing mood_bonus, see PLAYER_STATS_LOGIC.md).
-    baseline = clamp(d.get("mood_baseline", 60.0) + float(mood_bonus or 0.0), 0.0, 100.0)
-    if p["mood"] < baseline:
-        p["mood"] = clamp(p["mood"] + 0.5 * gh, 0.0, baseline)
-    elif p["mood"] > baseline + 20:
-        p["mood"] = clamp(p["mood"] - 0.3 * gh)
-    # equipped-gear passive floors: stat won't fall below the floor while the item is worn
+    welfare = studying and n["student_welfare_enabled"]
+    remaining, consumed = gh, 0.0
+    baseline = clamp(d["mood_baseline"] + float(mood_bonus or 0.0))
+    upper_mood = clamp(baseline + n["mood_upper_margin"])
+    eps = 1e-9
+
+    def above(value, threshold, rate=0):
+        return value > threshold + eps or (abs(value - threshold) <= eps and rate > 0)
+
+    def below(value, threshold, rate=0):
+        return value < threshold - eps or (abs(value - threshold) <= eps and rate < 0)
+
+    while remaining > eps:
+        rates = {
+            "hunger": d["hunger"],
+            "energy": 0.0 if resting else -d["energy_awake"] * eb.get("energy_drain_mult", 1.0),
+            "fatigue": 0.0 if resting else d["fatigue_awake"],
+            "stress": 0.0 if resting else -d["stress_relax"],
+        }
+        if below(p["energy"], n["low_energy_threshold"], rates["energy"]):
+            rates["stress"] += n["low_energy_stress_per_hour"]
+        damage, mood_pressure = 0.0, 0.0
+        if above(p["hunger"], n["hunger_damage_threshold"], rates["hunger"]):
+            damage += n["hunger_health_loss_per_hour"]
+            mood_pressure += n["hunger_mood_loss_per_hour"]
+        if above(p["fatigue"], n["fatigue_damage_threshold"], rates["fatigue"]):
+            damage += n["fatigue_health_loss_per_hour"]
+        if above(p["stress"], n["stress_damage_threshold"], rates["stress"]):
+            damage += n["stress_health_loss_per_hour"]
+            mood_pressure += n["stress_mood_loss_per_hour"]
+        regen = 0.0
+        if all(below(p[k], n[f"regen_max_{k}"], rates[k]) for k in ("hunger", "fatigue", "stress")):
+            regen = n["health_regen_per_hour"] + eb.get("health_regen", 0.0)
+        rates["health"] = regen - damage
+        rates["mood"] = -mood_pressure
+        if p["mood"] < baseline - eps:
+            rates["mood"] += n["mood_recovery_per_hour"]
+        elif abs(p["mood"] - baseline) <= eps:
+            rates["mood"] = min(0.0, rates["mood"] + n["mood_recovery_per_hour"])
+        elif p["mood"] > upper_mood + eps:
+            rates["mood"] -= n["mood_fade_per_hour"]
+
+        boundaries = {
+            "hunger": [n["hunger_damage_threshold"], n["regen_max_hunger"]],
+            "fatigue": [n["fatigue_damage_threshold"], n["regen_max_fatigue"]],
+            "stress": [n["stress_damage_threshold"], n["regen_max_stress"]],
+            "energy": [n["low_energy_threshold"]],
+            "health": [], "mood": [baseline, upper_mood],
+        }
+        step = remaining
+        for key, rate in rates.items():
+            floor = clamp(eb.get("mood_floor", 0)) if key == "mood" else 0.0
+            p[key] = clamp(p[key], floor, 100.0)
+            if (p[key] <= floor + eps and rate < 0) or (p[key] >= 100 - eps and rate > 0):
+                rates[key] = 0.0
+                continue
+            if rate:
+                for bound in [floor, 100.0, *boundaries[key]]:
+                    crossing = (bound - p[key]) / rate
+                    if crossing > eps:
+                        step = min(step, crossing)
+        if welfare:
+            # Welfare is a state for the studying interval, never the time after graduation.
+            step = remaining
+            p.update(health=100.0, energy=100.0, mood=100.0, hunger=0.0, fatigue=0.0, stress=0.0)
+        else:
+            for key, rate in rates.items():
+                p[key] = clamp(p[key] + rate * step)
+        consumed += step
+        remaining = max(0.0, remaining - step)
+        if stop_at_collapse and p["health"] <= eps and not welfare:
+            p["health"] = 0.0
+            break
+    p["criminal_suspicion"] = clamp(p.get("criminal_suspicion", 0) - float(game_models.TUNE.get("suspicion_decay_per_hour", 1.5)) * consumed)
     for stat, key in (("mood", "mood_floor"), ("social_status", "social_status_floor"), ("reputation", "reputation_floor")):
-        fl = eb.get(key)
-        if fl:
-            p[stat] = clamp(max(p.get(stat, 0.0), fl))
-    # STUDENT WELFARE: while actively in education (kind == "course"), needs are held at their
-    # perfect states as a safety net so long courses can never starve/collapse a player.
-    # See docs/PLAYER_STATS_LOGIC.md.
-    if studying:
-        p["health"] = 100.0
-        p["energy"] = 100.0
-        p["mood"] = 100.0
-        p["hunger"] = 0.0
-        p["fatigue"] = 0.0
-        p["stress"] = 0.0
+        if key in eb:
+            p[stat] = clamp(max(p.get(stat, 0.0), eb[key]))
+    return consumed
 
 
 def weighted_event(events, scope):
@@ -322,7 +365,8 @@ def weighted_event(events, scope):
     return pool[-1]
 
 
-async def complete_activity(db, p, cfg):
+async def complete_activity(db, p, cfg, at=None):
+    at = at or now_utc()
     act = p.get("current_activity")
     if not act:
         return
@@ -351,7 +395,7 @@ async def complete_activity(db, p, cfg):
         p["stats_meta"]["actions_done"] = p["stats_meta"].get("actions_done", 0) + 1
         msg = payload.get("result_text", "Action complete.")
         if reward:
-            msg += f" (+${round(reward * eff)})"
+            msg += f" (+¤ {round(reward * eff)})"
         await add_event(db, pid, f"{payload.get('name','Action')}: {msg}", "action", "success")
 
     elif kind == "job":
@@ -389,7 +433,7 @@ async def complete_activity(db, p, cfg):
         p["stats_meta"]["shifts_worked"] = p["stats_meta"].get("shifts_worked", 0) + 1
         p["stats_meta"]["total_hours_worked"] = round(p["stats_meta"].get("total_hours_worked", 0) + hours, 1)
         shift_name = payload.get("shift_name") or f"{hours}h"
-        await add_event(db, pid, f"Finished {shift_name} shift as {payload.get('title')} (+${net_pay} after ${tax} tax{f', incl. ${tip} tips' if tip > 0 else ''}).", "job", "success")
+        await add_event(db, pid, f"Finished {shift_name} shift as {payload.get('title')} (+¤ {net_pay} after ¤ {tax} tax{f', incl. ¤ {tip} tips' if tip > 0 else ''}).", "job", "success")
         # SHIFT INJURY RISK — hazardous/night shifts can hurt you (health + stress); the shift still completes.
         injury_risk = float(payload.get("injury_risk", 0.0))
         if injury_risk > 0 and random.random() < injury_risk:
@@ -424,18 +468,27 @@ async def complete_activity(db, p, cfg):
         await add_event(db, pid, f"Graduated: {payload.get('title')}! New skills unlocked.", "education", "success")
 
     elif kind == "illegal":
-        await _resolve_illegal(db, p, cfg, payload, eff)
+        await _resolve_illegal(db, p, cfg, payload, eff, at=at)
+
+    elif kind == "world":
+        import world_engine
+        await world_engine.complete(db, p, cfg, payload, at)
+
+    elif kind == "expedition":
+        import realm_engine
+        await realm_engine.complete(db, p, cfg, payload, at)
 
     elif kind == "social":
         import social_engine
         await social_engine.complete_social_activity(db, p, cfg, payload, eff, act.get("started_at"))
 
     p["current_activity"] = None
-    p["status"] = "jail" if parse_dt(p.get("jail_until")) and parse_dt(p["jail_until"]) > now_utc() else \
-        ("hospital" if parse_dt(p.get("hospital_until")) and parse_dt(p["hospital_until"]) > now_utc() else "free")
+    p["status"] = "jail" if parse_dt(p.get("jail_until")) and parse_dt(p["jail_until"]) > at else \
+        ("hospital" if parse_dt(p.get("hospital_until")) and parse_dt(p["hospital_until"]) > at else "free")
 
 
-async def _resolve_illegal(db, p, cfg, payload, eff):
+async def _resolve_illegal(db, p, cfg, payload, eff, at=None):
+    at = at or now_utc()
     pid = p["id"]
     name = payload.get("name", "Illegal job")
     street = p["skills"].get("street_smarts", {}).get("level", 1)
@@ -457,7 +510,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
     if roll < catch:
         jail_minutes = payload.get("jail_minutes", 720)
         ts = cfg["time_scale"]
-        p["jail_until"] = (now_utc() + timedelta(seconds=real_seconds(jail_minutes, ts))).isoformat()
+        p["jail_until"] = (at + timedelta(seconds=real_seconds(jail_minutes, ts))).isoformat()
         p["status"] = "jail"
         charge(p, payload.get("fine_amount", 200))
         ledger_add(p, "fines", -payload.get("fine_amount", 200))
@@ -466,11 +519,11 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
         p["reputation"] = clamp(p["reputation"] + payload.get("reputation_impact", -5))
         p["stress"] = clamp(p["stress"] + 25)
         p["criminal_record"].append({
-            "type": name, "outcome": "caught", "date": now_utc().isoformat(),
+            "type": name, "outcome": "caught", "date": at.isoformat(),
             "fine": payload.get("fine_amount", 0),
         })
         p["stats_meta"]["times_jailed"] = p["stats_meta"].get("times_jailed", 0) + 1
-        await add_event(db, pid, f"BUSTED during {name}! Fined ${payload.get('fine_amount',0)} and jailed.", "crime", "danger")
+        await add_event(db, pid, f"BUSTED during {name}! Fined ¤ {payload.get('fine_amount',0)} and jailed.", "crime", "danger")
     elif roll < catch + fail:
         p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + sg * 0.5)
         p["stress"] = clamp(p["stress"] + 12)
@@ -491,7 +544,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff):
             await add_event(db, pid, f"{name} succeeded. Your record looks cleaner now.", "crime", "info")
         else:
             verb = "scored" if reward >= 0 else "lost"
-            await add_event(db, pid, f"{name} succeeded. You {verb} ${abs(reward)}. Suspicion rising.", "crime", "warning")
+            await add_event(db, pid, f"{name} succeeded. You {verb} ¤ {abs(reward)}. Suspicion rising.", "crime", "warning")
 
 
 def _decay_skills(p, gh):
@@ -513,8 +566,8 @@ def _decay_skills(p, gh):
 
 
 async def accrue_recurring(db, p, cfg, gh, housing_doc):
-    """Hourly-accruing money flows: utility bills, loan/savings interest, skill & vehicle wear.
-    NOTE: fixed RENT and VEHICLE costs (fuel/insurance/maintenance) are NO LONGER charged here —
+    """Hourly-accruing money flows: utility bills, loan/savings interest, skill & mount or cart wear.
+    NOTE: fixed RENT and VEHICLE costs (fodder/stable dues/maintenance) are NO LONGER charged here —
     they are deducted once per day as a single sum at the 00:00 game-day boundary
     (see _charge_daily_fixed). This keeps continuous flows (interest/bills) hourly while making
     the big fixed costs land at midnight, matching the Daily Summary receipt."""
@@ -555,7 +608,7 @@ async def accrue_recurring(db, p, cfg, gh, housing_doc):
 
 async def _charge_daily_fixed(db, p, cfg, days, housing_doc):
     """00:00 GAME-DAY BOUNDARY: charge the day's fixed RENT and VEHICLE costs
-    (fuel + insurance + maintenance) as a single daily lump, once per day crossed.
+    (fodder + stable dues + maintenance) as a single daily lump, once per day crossed.
     Replaces the old hourly proration so these land exactly at midnight."""
     if days <= 0:
         return
@@ -584,15 +637,15 @@ async def _charge_daily_fixed(db, p, cfg, days, housing_doc):
         ledger_add(p, "vehicle_costs", -round(veh, 2))
     if not paid:
         p["credit_missed_flag"] = True
-        ledger_warn(p, "Your 00:00 rent & vehicle bill pushed you into debt.")
-        await add_event(db, p["id"], "Your daily rent & vehicle costs pushed you into debt — vehicles left unmaintained and wearing fast.", "finance", "warning")
+        ledger_warn(p, "Your 00:00 rent & mount or cart bill pushed you into debt.")
+        await add_event(db, p["id"], "Your daily rent & mount or cart costs pushed you into debt — mounts & carts left unmaintained and wearing fast.", "finance", "warning")
     else:
         parts = []
         if rent > 0:
-            parts.append(f"rent ${round(rent)}")
+            parts.append(f"rent ¤ {round(rent)}")
         if veh > 0:
-            parts.append(f"vehicle ${round(veh)}")
-        await add_event(db, p["id"], f"00:00 daily charge: {', '.join(parts)} (${round(total)} total). Vehicles maintained.", "finance", "info")
+            parts.append(f"mount or cart ¤ {round(veh)}")
+        await add_event(db, p["id"], f"00:00 daily charge: {', '.join(parts)} (¤ {round(total)} total). Mounts & Carts maintained.", "finance", "info")
 
 
 async def accrue_businesses(db, p, cfg, gh, now):
@@ -602,20 +655,80 @@ async def accrue_businesses(db, p, cfg, gh, now):
         await employee_engine.resolve_business(db, cfg, now, b)
 
 
-async def release_confinement(db, p):
-    now = now_utc()
+async def release_confinement(db, p, now=None, cfg=None):
+    now = now or now_utc()
+    hospital = {**game_models.DEFAULT_CONFIG["hospital"], **(cfg or {}).get("hospital", {})}
     ju = parse_dt(p.get("jail_until"))
     if ju and ju <= now and p.get("status") == "jail":
         p["jail_until"] = None
         p["status"] = "free"
         p["legal_reputation"] = clamp(p["legal_reputation"] + 5)
-        await add_event(db, p["id"], "You served your time and walked out of jail.", "legal", "info")
+        await add_event(db, p["id"], "You served your time and walked out of dungeon.", "legal", "info")
     hu = parse_dt(p.get("hospital_until"))
     if hu and hu <= now and p.get("status") == "hospital":
         p["hospital_until"] = None
         p["status"] = "free"
-        p["health"] = clamp(max(p["health"], 60))
-        await add_event(db, p["id"], "You were discharged from the hospital.", "health", "info")
+        p["health"] = clamp(max(p["health"], hospital["discharge_health"]))
+        await add_event(db, p["id"], "You were discharged from the infirmary.", "health", "info")
+
+
+async def admit_if_collapsed(db, p, cfg, at=None):
+    if p["health"] > 0 or p.get("status") in ("jail", "hospital"):
+        return False
+    at = at or now_utc()
+    care = {**game_models.DEFAULT_CONFIG["hospital"], **cfg.get("hospital", {})}
+    p["health"] = care["admission_health"]
+    p["current_activity"] = None
+    p["hospital_until"] = (at + timedelta(seconds=real_seconds(care["duration_minutes"], cfg["time_scale"]))).isoformat()
+    p["status"] = "hospital"
+    await add_event(db, p["id"], "You collapsed from poor health and were rushed to infirmary.", "health", "danger")
+    return True
+
+
+async def advance_player_time(db, p, cfg, last, now, mood_bonus=0.0):
+    """Resolve needs and timed state changes in chronological order, guild or offline."""
+    cursor = min(last, now)
+    ts = cfg["time_scale"]
+    care = {**game_models.DEFAULT_CONFIG["hospital"], **cfg.get("hospital", {})}
+    while True:
+        token = _event_time.set(cursor)
+        try:
+            await release_confinement(db, p, now=cursor, cfg=cfg)
+            act = p.get("current_activity")
+            if act and parse_dt(act["ends_at"]) <= cursor:
+                await complete_activity(db, p, cfg, at=cursor)
+            await admit_if_collapsed(db, p, cfg, at=cursor)
+            await maybe_autostart_shift(db, p, cfg, cursor)
+        finally:
+            _event_time.reset(token)
+        if cursor >= now:
+            break
+        act = p.get("current_activity")
+        rs = p.get("registered_shift") or {}
+        deadlines = [now]
+        for value in ((act or {}).get("ends_at"), rs.get("start_real"), p.get("hospital_until"), p.get("jail_until")):
+            dt = parse_dt(value)
+            if dt and cursor < dt <= now:
+                deadlines.append(dt)
+        end = min(deadlines)
+        hours = game_hours((end - cursor).total_seconds(), ts)
+        if p.get("status") == "hospital":
+            # Hospital care protects needs; recovery uses the same configurable game time
+            # as admission/discharge. No starvation is retroactively charged for this stay.
+            until = parse_dt(p.get("hospital_until"))
+            remaining_hours = game_hours((until - cursor).total_seconds(), ts) if until else care["duration_minutes"] / 60.0
+            rate = max(0.0, care["discharge_health"] - p["health"]) / max(remaining_hours, 1e-9)
+            p["health"] = max(p["health"], min(care["discharge_health"], p["health"] + rate * hours))
+        elif act and act.get("kind") == "job":
+            # Job payloads already charge all working needs once on completion.
+            pass
+        else:
+            consumed = decay_needs(p, hours, cfg, bool(act and act.get("sleep_flag")),
+                                   bool(act and act.get("kind") == "course"), mood_bonus=mood_bonus,
+                                   stop_at_collapse=p.get("status") != "jail")
+            if consumed < hours - 1e-9:
+                end = cursor + timedelta(seconds=real_seconds(consumed * 60, ts))
+        cursor = end
 
 
 async def maybe_autostart_shift(db, p, cfg, now):
@@ -663,7 +776,7 @@ async def maybe_autostart_shift(db, p, cfg, now):
 
 async def maybe_police_event(db, p, cfg, gh):
     """PROACTIVE POLICING (legal_standing link): a player with a criminal record (legal_standing < 40)
-    gets randomly stopped/searched by police. The lower the standing and the higher the suspicion,
+    gets randomly stopped/searched by watch. The lower the standing and the higher the suspicion,
     the more frequent and harsher the encounter. Only fires while the player is free (not confined,
     not mid-activity, not on shift). See docs/PLAYER_STATS_LOGIC.md."""
     if gh <= 0 or p.get("status") in ("jail", "hospital"):
@@ -687,18 +800,18 @@ async def maybe_police_event(db, p, cfg, gh):
         p["status"] = "jail"
         p["criminal_suspicion"] = clamp(susp + 5)
         p["legal_reputation"] = clamp(legal - 2)
-        await add_event(db, p["id"], "Police detained you for questioning — your record made you a target.", "legal", "danger")
-        await add_notification(db, p["id"], "legal", "Detained by police", "Your criminal record got you pulled in for questioning.", "danger", "/police-record")
+        await add_event(db, p["id"], "Watch detained you for questioning — your record made you a target.", "legal", "danger")
+        await add_notification(db, p["id"], "legal", "Detained by watch", "Your criminal record got you pulled in for questioning.", "danger", "/police-record")
     elif susp >= 40 and roll < 0.5:
         fine = round(50 + susp * 2)
         charge(p, fine)
         ledger_add(p, "fines", -fine)
         p["criminal_suspicion"] = clamp(susp - 8)
-        await add_event(db, p["id"], f"Police stopped and searched you — cited you ${fine}.", "legal", "warning")
-        await add_notification(db, p["id"], "legal", "Stopped and searched", f"Police searched you and issued a ${fine} citation.", "warning", "/police-record")
+        await add_event(db, p["id"], f"Watch stopped and searched you — cited you ¤ {fine}.", "legal", "warning")
+        await add_notification(db, p["id"], "legal", "Stopped and searched", f"Watch searched you and issued a ¤ {fine} citation.", "warning", "/police-record")
     else:
         p["criminal_suspicion"] = clamp(susp - 4)
-        await add_event(db, p["id"], "Police stopped you for questioning, then let you off with a warning.", "legal", "info")
+        await add_event(db, p["id"], "Watch stopped you for questioning, then let you off with a warning.", "legal", "info")
 
 
 async def resolve_player(db, p):
@@ -713,12 +826,6 @@ async def resolve_player(db, p):
     if p.get("day_start_snapshot") is None:
         p["day_start_snapshot"] = _player_snapshot(p)
 
-    act = p.get("current_activity")
-    resting = bool(act and act.get("sleep_flag"))
-    studying = bool(act and act.get("kind") == "course")
-
-    await release_confinement(db, p)
-
     # Load housing early so its mood_bonus feeds the mood baseline in decay_needs (and reuse below).
     if p.get("housing") is None:
         p["housing"] = {}
@@ -726,53 +833,7 @@ async def resolve_player(db, p):
     housing_doc = await db.housing.find_one({"id": hid}, {"_id": 0}) if hid else None
     housing_mood = housing_doc.get("mood_bonus", 0.0) if housing_doc else 0.0
 
-    do_split = False
-    if gh > 0:
-        rs = p.get("registered_shift")
-        rs_start = parse_dt(rs.get("start_real")) if rs else None
-        # A registered shift starts within this (offline) catch-up window while the player is idle.
-        do_split = bool(rs_start and last <= rs_start <= now and not resting
-                        and not studying and not p.get("current_activity"))
-        if do_split:
-            # PERSISTENT / ASYNC SHIFTS: split the idle-decay around the shift so it clocks in with
-            # the state the character WOULD have had at its start time (not after a full window of
-            # offline idle-decay), and the working hours themselves are NOT idle-decayed. This makes
-            # shifts fully offline-safe — they auto clock-in and clock-out on the game clock alone.
-            gh_pre = game_hours((rs_start - last).total_seconds(), ts)
-            if gh_pre > 0:
-                decay_needs(p, gh_pre, cfg, False, False, mood_bonus=housing_mood)
-            await maybe_autostart_shift(db, p, cfg, now)  # evaluated with start-time energy
-            act = p.get("current_activity")
-            if act and act.get("kind") == "job" and parse_dt(act["ends_at"]) <= now:
-                end_dt = parse_dt(act["ends_at"])
-                await complete_activity(db, p, cfg)  # pay + XP + work effects accrue in background
-                gh_rest = game_hours((now - end_dt).total_seconds(), ts)  # idle only AFTER shift ends
-            elif act:
-                gh_rest = 0.0  # shift still in progress up to now — no idle-decay for working time
-            else:
-                gh_rest = game_hours((now - rs_start).total_seconds(), ts)  # shift missed -> idle rest
-            if gh_rest > 0:
-                decay_needs(p, gh_rest, cfg, False, False, mood_bonus=housing_mood)
-        else:
-            decay_needs(p, gh, cfg, resting, studying, mood_bonus=housing_mood)
-        # health collapse -> hospital (after decay is fully applied)
-        if p["health"] <= 0 and p.get("status") not in ("jail", "hospital"):
-            p["health"] = 1
-            p["current_activity"] = None
-            p["hospital_until"] = (now + timedelta(seconds=real_seconds(360, ts))).isoformat()
-            p["status"] = "hospital"
-            await add_event(db, p["id"], "You collapsed from poor health and were rushed to hospital.", "health", "danger")
-
-    # Non-split cases (online play, in-progress activity, or no elapsed time): finish any ended
-    # activity first so it frees the slot, then evaluate shift auto-start, then finish the shift.
-    if not do_split:
-        act = p.get("current_activity")
-        if act and parse_dt(act["ends_at"]) <= now:
-            await complete_activity(db, p, cfg)
-        await maybe_autostart_shift(db, p, cfg, now)
-        act = p.get("current_activity")
-        if act and parse_dt(act["ends_at"]) <= now:
-            await complete_activity(db, p, cfg)
+    await advance_player_time(db, p, cfg, last, now, mood_bonus=housing_mood)
 
     # housing already loaded above (housing_doc / housing_mood) for the mood baseline
     if gh > 0:
@@ -807,6 +868,8 @@ async def resolve_player(db, p):
             if claim.modified_count == 1:
                 await _charge_daily_fixed(db, p, cfg, cur_day - last_day, housing_doc)
                 await _flush_daily_summary(db, p, cfg, last_day, cur_day, now)
+
+    await admit_if_collapsed(db, p, cfg, at=now)
 
     # finalize status
     if p.get("status") not in ("jail", "hospital"):

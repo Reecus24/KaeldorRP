@@ -4,10 +4,10 @@ import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/pri
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
 import {
-    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
-    MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
-    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles, User, BadgeCheck,
-    ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
+    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, Coins as DollarSign, Gauge,
+    MapPin, Store, Clock, Hammer as Briefcase, Castle as LayoutDashboard, Castle as Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
+    Activity, TrendingUp, Wallet, Shield as Zap, BookOpen as GraduationCap, Sparkles, User, BadgeCheck,
+    ShoppingCart, Scale, Home, Compass as Car, Footprints as Bike, Package as Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,12 @@ import { SortableContext, horizontalListSortingStrategy, useSortable, arrayMove 
 import { CSS } from "@dnd-kit/utilities";
 
 import { ContentEditor } from "./admin/shared";
+import { Shield as ShieldRealm } from "lucide-react";
+import JourneyStudio from "./admin/JourneyStudio";
+import StorytellerDesk from "./admin/StorytellerDesk";
+import WorldCharacters from "./admin/WorldCharacters";
+import EventPickerStudio from "./admin/EventPickerStudio";
+import MapEditor from "./admin/MapEditor";
 import { ConfigEditor, EconomyTuner, TuningPanel, MarketsPanel } from "./admin/EconomyPanels";
 import { PlayersTable, StatsView, CharacterOriginsPanel } from "./admin/PlayerPanels";
 import { LocationsPanel, CityShopsPanel, JobSectorsPanel, VehicleCategoriesPanel } from "./admin/CityPanels";
@@ -23,46 +29,50 @@ import { JobShiftsPanel, JobApplicationsPanel } from "./admin/JobPanels";
 import { LiveCityFeed } from "./admin/OverviewPanels";
 
 const ADMIN_GROUPS = [
+    { key: "world", label: "Open World", icon: MapPin, children: [{ key: "world_day_events", label: "Day Picker" }, { key: "world_travel_events", label: "Travel Picker" }, { key: "world_weather", label: "Weather Picker" }, { key: "world_intents", label: "Storyteller Desk" }, { key: "world_characters", label: "Characters & Memories" }, { key: "world_regions", label: "Map & Routes" }, { key: "world_npcs", label: "People & Routines" }, { key: "world_actions", label: "Actions & Dice" }, { key: "world_quests", label: "NPC Quests" }, { key: "world_professions", label: "Learned Professions" }, { key: "world_skills", label: "Skills" }, { key: "world_charters", label: "Founding Charters" }, { key: "world_origins", label: "Origin Picker" }] },
+    { key: "realm", label: "Fantasy Realm", icon: ShieldRealm, children: [{ key: "realm_ranks", label: "Life Ranks" }, { key: "factions", label: "Factions & Ranks" }, { key: "expeditions", label: "Expeditions" }] },
+    { key: "journey", label: "Stories & Goals", icon: Sparkles,
+      children: [{ key: "journey_goals", label: "Ambitions" }, { key: "story_arcs", label: "Stories" }, { key: "city_events", label: "Realm Events" }] },
     { key: "overview", label: "Overview", icon: LayoutDashboard, locked: true,
-      children: [{ key: "stats", label: "Dashboard" }, { key: "feed", label: "Live Feed" }] },
+      children: [{ key: "stats", label: "Village" }, { key: "feed", label: "Live Feed" }] },
     { key: "economy", label: "Economy", icon: DollarSign,
       children: [
-          { key: "economy", label: "Economy Sandbox" }, { key: "business_types", label: "Businesses" },
-          { key: "items", label: "Items" }, { key: "housing", label: "Housing" }, { key: "vehicles", label: "Vehicles" }] },
+          { key: "economy", label: "Economy Sandbox" }, { key: "business_types", label: "Workshops" },
+          { key: "items", label: "Items" }, { key: "housing", label: "Housing" }, { key: "vehicles", label: "Mounts & Carts" }] },
     { key: "tuning", label: "Gameplay Tuning", icon: Gauge,
       children: [
           { key: "tuning", label: "Tuning" }, { key: "config", label: "Config" }, { key: "actions", label: "Actions" },
           { key: "courses", label: "Courses" }, { key: "jobs", label: "Jobs" }, { key: "jobshifts", label: "Job Shifts" }, { key: "jobapps", label: "Applications" }, { key: "random_events", label: "Events" }] },
     { key: "players", label: "Player Management", icon: Users,
       children: [
-          { key: "players", label: "Players" }, { key: "origins", label: "Character Origins" }, { key: "employee_roles", label: "Emp Roles" }, { key: "employee_traits", label: "Emp Traits" },
+          { key: "players", label: "Players" }, { key: "origins", label: "Peasant Origins" }, { key: "employee_roles", label: "Emp Roles" }, { key: "employee_traits", label: "Emp Traits" },
           { key: "staffing_requirements", label: "Staffing" }, { key: "training_options", label: "Training" }, { key: "employee_events", label: "Staff Events" },
           { key: "npc_archetypes", label: "NPC Archetypes" }, { key: "social_traits", label: "Personality" },
           { key: "relationship_actions", label: "Rel. Actions" }, { key: "gift_types", label: "Gifts" }, { key: "social_events", label: "Social Events" }] },
-    { key: "city", label: "City Infrastructure", icon: Building2,
-      children: [{ key: "cityshops", label: "City Shops" }, { key: "jobsectors", label: "Job Sectors" }, { key: "vehiclecats", label: "Vehicle Categories" }, { key: "locations", label: "Locations" }] },
-    { key: "underworld", label: "Underworld & Finance", icon: Skull,
+    { key: "city", label: "Realm Stewardship", icon: Building2,
+      children: [{ key: "cityshops", label: "Realm Shops" }, { key: "jobsectors", label: "Job Sectors" }, { key: "vehiclecats", label: "Stable Categories" }, { key: "locations", label: "Locations" }] },
+    { key: "underworld", label: "Underworld & Stewardship", icon: Skull,
       children: [{ key: "illegal_actions", label: "Illegal" }, { key: "markets", label: "Markets" }] },
 ];
 const cmoney = (n) => {
     const v = Number(n || 0);
     const a = Math.abs(v);
     const sign = v < 0 ? "-" : "";
-    if (a >= 1e6) return `${sign}$${(a / 1e6).toFixed(2)}M`;
-    if (a >= 1e3) return `${sign}$${(a / 1e3).toFixed(1)}K`;
+    if (a >= 1e6) return `${sign}¤ ${(a / 1e6).toFixed(2)}M`;
+    if (a >= 1e3) return `${sign}¤ ${(a / 1e3).toFixed(1)}K`;
     return money(v);
 };
 const ADMIN_SUMMARY = {
     overview: (m) => [
         { label: "Players", value: m.players_total, icon: Users },
         { label: "Employed", value: m.players_employed, icon: Briefcase },
-        { label: "Businesses", value: m.businesses_total, icon: Building2 },
+        { label: "Workshops", value: m.businesses_total, icon: Building2 },
         { label: "Active Workers", value: m.active_workers, icon: Activity },
         { label: "Market Value", value: cmoney(m.market_value), icon: TrendingUp },
         { label: "Total Debt", value: cmoney(m.total_debt), icon: Wallet },
     ],
     economy: (m) => [
-        { label: "Businesses", value: m.businesses_total, icon: Building2 },
+        { label: "Workshops", value: m.businesses_total, icon: Building2 },
         { label: "Hiring Now", value: m.businesses_hiring, icon: Briefcase },
         { label: "Active Workers", value: m.active_workers, icon: Activity },
         { label: "Market Value", value: cmoney(m.market_value), icon: TrendingUp },
@@ -81,7 +91,7 @@ const ADMIN_SUMMARY = {
         { label: "Avg Net Worth", value: cmoney(m.avg_net_worth), icon: TrendingUp },
     ],
     city: (m) => [
-        { label: "City Shops", value: `${m.shops_active}/${m.shops_total}`, icon: Store },
+        { label: "Realm Shops", value: `${m.shops_active}/${m.shops_total}`, icon: Store },
         { label: "Job Sectors", value: m.sectors_total, icon: Briefcase },
         { label: "Locations", value: m.locations_total, icon: MapPin },
     ],
@@ -93,6 +103,15 @@ const ADMIN_SUMMARY = {
 };
 function renderAdminLeaf(key, ctx = {}) {
     switch (key) {
+        case "world_day_events":
+        case "world_travel_events":
+        case "world_weather": return <EventPickerStudio key={key} kind={key} />;
+        case "world_regions": return <MapEditor />;
+        case "world_characters": return <WorldCharacters />;
+        case "world_intents": return <StorytellerDesk />;
+        case "journey_goals":
+        case "story_arcs":
+        case "city_events": return <JourneyStudio key={key} kind={key} />;
         case "stats": return <StatsView />;
         case "feed": return <LiveCityFeed onPlayerClick={ctx.onFeedPlayerClick} />;
         case "economy": return <EconomyTuner />;
@@ -206,7 +225,7 @@ export default function Admin() {
 
     return (
         <div className="space-y-5">
-            <SectionTitle icon={Settings} kicker="Game Master" title="Admin Dashboard"
+            <SectionTitle icon={Settings} kicker="Game Master" title="Admin Village"
                 sub="Balance every part of Kaeldor. Tabs are grouped by domain — drag to reorder in Customize mode." />
 
             {/* Main groups (draggable) */}

@@ -366,7 +366,7 @@ async def send_message(body: SendMessageBody, user: dict = Depends(current_user)
     if body.channel not in ("sms", "email"):
         raise HTTPException(status_code=400, detail="Invalid channel")
     if not comms.has_device(me, body.channel):
-        need = "a Laptop" if body.channel == "email" else "a Smartphone"
+        need = "a Scribe's Kit" if body.channel == "email" else "a Courier Seal"
         raise HTTPException(status_code=403, detail=f"You need {need} to use this. Buy one in the Shop.")
     text = (body.body or "").strip()
     if not text:

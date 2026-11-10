@@ -1,0 +1,44 @@
+:root {
+    --background: 150 17% 8%; --foreground: 42 31% 89%; --card: 149 13% 11%; --card-foreground: 42 31% 89%;
+    --popover: 150 13% 10%; --popover-foreground: 42 31% 89%; --primary: 40 49% 65%; --primary-foreground: 150 20% 8%;
+    --secondary: 146 12% 16%; --secondary-foreground: 42 31% 89%; --muted: 146 12% 16%; --muted-foreground: 43 12% 67%;
+    --accent: 40 49% 65%; --accent-foreground: 150 20% 8%; --destructive: 7 58% 63%; --border: 42 18% 24%; --input: 42 18% 24%; --ring: 40 49% 65%;
+    --game-surface: #1b2520; --game-edge: #b8a06c33; --realm-gold: #d1b579; --realm-paper: #eee5d0; --realm-ink: #101a16;
+}
+html, body { background: var(--realm-ink); color: var(--realm-paper); }
+.font-display { font-family: "Cormorant Garamond", Georgia, serif; letter-spacing: .01em !important; }
+.font-display.font-black, .font-display.font-extrabold { font-weight: 700; }
+.font-mono { font-family: "Manrope", system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.kael-grid { background-image: radial-gradient(ellipse at 70% 0, #52644a22, transparent 60%), linear-gradient(110deg, #101a16, #17231d); background-size: auto; }
+.kael-panel { border-radius: 9px; box-shadow: 0 4px 16px #00000012; background: linear-gradient(115deg, #202b24, #19231e); }
+.kael-panel:hover { border-color: #b8a06c55; }
+.neon-text { text-shadow: none; } .neon-border { box-shadow: 0 0 0 1px #d1b57915; }
+.realm-shell > header { background: #101a16f5 !important; border-bottom: 1px solid #b8a06c33; }
+.realm-shell aside { background: #142019 !important; }
+.realm-shell nav a { border-radius: 4px; } .realm-shell nav button { letter-spacing: .12em; font-size: 10px; }
+.realm-shell nav a svg { color: #b6ac89; } .realm-shell main { max-width: 1280px; }
+.realm-shell [data-testid="needs-strip"] { background: #19251e !important; border-color: #b8a06c33; border-radius: 8px; }
+.realm-shell .text-white { color: #f0e8d7; }
+.realm-banner { position: relative; overflow: hidden; min-height: 310px; border: 1px solid #c4ab744a; border-radius: 12px; background: #263d30 url('./assets/ashen-march.svg') center right / cover; }
+.realm-banner::before { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, #14241af5 0%, #14241ad9 35%, #14241a15 78%); }
+.realm-banner-small { min-height: 250px; }
+.realm-eyebrow { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .2em; color: #d1b579; line-height: 1.7; }
+.realm-seal { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 48px; border: 1px solid #d1b57966; border-radius: 6px 6px 18px 18px; color: #d1b579; background: #d1b5790d; }
+.realm-button { display: inline-flex; gap: 10px; align-items: center; justify-content: center; min-height: 44px; padding: 10px 20px; border-radius: 5px; background: #d1b579; color: #142019; font-weight: 700; font-size: 13px; border: 1px solid #e7cd94; transition: background .15s; }
+.realm-button:hover { background: #e1c891; } .realm-button.secondary { background: #16241bc9; border: 1px solid #d1b57966; color: #eee5d0; }
+.realm-path { display: flex; flex-direction: column; padding: 24px; border: 1px solid #b8a06c33; border-radius: 9px; background: #1b2820; transition: border-color .15s, transform .15s; }
+.realm-path:hover { border-color: #d1b57999; transform: translateY(-2px); } .realm-path svg { color: #d1b579; }
+.realm-path h3 { font-size: 24px; margin: 12px 0 6px; color: #f0e8d7; } .realm-path p { font-size: 13px; line-height: 1.6; color: #b7b19e; flex: 1; }
+.realm-tabs { display: flex; gap: 6px; border-bottom: 1px solid #b8a06c33; overflow-x: auto; }
+.realm-tabs button { display: flex; align-items: center; gap: 8px; padding: 12px 16px; font-size: 13px; white-space: nowrap; border-bottom: 2px solid transparent; color: #b7b19e; }
+.realm-tabs button[aria-selected="true"] { color: #e1c891; border-color: #d1b579; background: #d1b57908; }
+.tactic-card { display: block; padding: 16px; border: 1px solid #b8a06c33; border-radius: 6px; background: #1b2820; cursor: pointer; }
+.tactic-card.selected { border-color: #d1b579; background: #d1b5790b; } .tactic-card strong { font-size: 19px; }
+.realm-text-link { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #d1b579; text-decoration: underline; text-underline-offset: 4px; }
+.rank-ladder { margin: 12px 0 24px; } .rank-ladder li { display: flex; gap: 12px; padding-bottom: 20px; position: relative; }
+.rank-ladder li:not(:last-child)::before { content: ''; position: absolute; left: 13px; top: 28px; height: calc(100% - 28px); border-left: 1px solid #b8a06c44; }
+.rank-dot { flex-shrink: 0; width: 28px; height: 28px; border: 1px solid #b8a06c66; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #d1b579; }
+.battle-report { display: flex; gap: 14px; padding-bottom: 18px; border-bottom: 1px solid #b8a06c22; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #d1b579; outline-offset: 3px; }
+@media (max-width: 640px) { .realm-banner { min-height: 315px; background-position: 67% center; } .realm-banner::before { background: linear-gradient(90deg, #14241af2, #14241a77); } .realm-banner-small { min-height: 270px; } .realm-tabs button { padding: 12px 10px; font-size: 12px; } .realm-tabs button svg { display: none; } }
+@media (prefers-reduced-motion: reduce) { .realm-path { transition: none; } .realm-path:hover { transform: none; } }

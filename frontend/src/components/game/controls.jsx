@@ -13,9 +13,11 @@ const VARIANTS = {
 export function KButton({ children, variant = "primary", className, loading, disabled, ...props }) {
     return (
         <button
+            type="button"
             disabled={disabled || loading}
+            aria-busy={loading || undefined}
             className={cn(
-                "inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-sm transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent",
+                "inline-flex min-h-[42px] items-center justify-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-transparent",
                 VARIANTS[variant],
                 className,
             )}
@@ -30,11 +32,11 @@ export function KButton({ children, variant = "primary", className, loading, dis
 export function KInput({ className, label, testid, ...props }) {
     return (
         <label className="block">
-            {label && <span className="block text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 font-medium">{label}</span>}
+            {label && <span className="block text-xs tracking-wide text-muted-foreground mb-1.5 font-medium">{label}</span>}
             <input
                 data-testid={testid}
                 className={cn(
-                    "w-full bg-[#050505] border border-white/12 rounded-sm px-3 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-neon-cyan/60 font-mono",
+                    "w-full bg-[#101A16] border border-white/12 rounded-sm px-3 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-neon-cyan/60 font-mono",
                     className,
                 )}
                 {...props}

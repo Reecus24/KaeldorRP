@@ -1,7 +1,8 @@
 # Kaeldor Admin Sandbox — Source of Truth
 
 Full live control of the simulation without code changes. Admin-only (`admin_user` dependency,
-seeded admin = `admin@kaeldor.com`). All tunables live in the `config` collection (`id:"global"`)
+Owner account configured through `ADMIN_EMAIL` and an explicit `ADMIN_PASSWORD` on first install).
+All tunables live in the `config` collection (`id:"global"`)
 under `economy`, `social`, `time_scale`, and the `tuning` block. The engine reads these every tick
 via `game_engine.get_config()` → `game_models.apply_tuning(cfg)` → `game_models.TUNE`.
 
@@ -25,14 +26,14 @@ Business economics live on `business_types` (and are propagated onto each `busin
 
 ## API (admin-only)
 - `GET /api/admin/config` — full config doc (incl. `tuning`).
-- `PUT /api/admin/config` — shallow-merges the body into config (send `{tuning:{...}}` or `{time_scale:n}`).
+- `PUT /api/admin/config` — recursively patches individual fields (send `{tuning:{...}}` or `{time_scale:n}`); nested sibling settings are preserved. Non-finite numbers, invalid types, unsafe field names and invalid ranges return a readable 422 error.
 - `GET /api/admin/business-economy` — per-type economy rows.
 - `PUT /api/admin/business-economy/{type_id}` — body: price, material_cost, daily_demand,
   production_per_worker_hour, base_hourly_wage, opening_open, opening_close, apply_existing(bool).
   When `apply_existing` is true, changes propagate to every existing business of that type.
 - `GET /api/admin/players` — all players + key stats.
 - `PUT /api/admin/players/{player_id}` — adjust cash, bank, debt, reputation, legal_reputation,
-  criminal_suspicion, social_status, health, energy, skills{id:level}.
+  criminal_suspicion, social_status, health, energy, hunger, fatigue, mood, stress, skills{id:level}.
 
 ## Admin UI (`/admin`)
 - **Economy Sandbox** — editable grid for all 10 businesses (price, material $, demand, PPH,
@@ -131,6 +132,35 @@ The layout (order + hidden list) is **saved per admin account** in the backend v
   the engine reads it live from `TUNE` on the next resolve — no restart needed.
 - Note: `GET /admin/config` now returns the full effective `tuning` (defaults merged), so newly added
   tuning knobs always appear in the UI even for older config documents.
+
+## Persistent Owner control (2026-11-10)
+
+- Existing saved values are authoritative, including `0`, empty recipes, empty requirements and
+  disabled shift lists. Startup only backfills missing fields; it no longer resets business prices,
+  production, demand, worker schedules, satisfaction, job requirements or the configured world clock.
+- Live business definitions are copied to legacy businesses only for missing fields. Use the
+  Sandbox's explicit **Apply to existing** control to propagate an intentional rebalance.
+- Config reads recursively combine `DEFAULT_CONFIG` and saved values. Newly introduced defaults
+  are available without wiping old customizations; unknown future settings remain intact.
+- Partial config saves update dotted leaf paths. Saving one nested value does not erase its siblings.
+- Creating content with an existing ID returns 409 rather than silently replacing the existing entry.
+- `AGENTS.md` requires all future gameplay rates, thresholds, probabilities, timers and content to
+  remain Owner-editable and covered by a test using a nondefault value.
+- Business upgrade/marketing estimates use the same configured duration as the started activity.
+- The bootstrap admin password is used only when creating an account. Restarting the server no
+  longer replaces an existing Owner's password with the configured/default bootstrap password.
+- A fresh installation must set `ADMIN_PASSWORD` (and preferably `ADMIN_EMAIL`) in the backend
+  environment before first startup. With no explicit password, no Owner account is created.
+  Existing Owner accounts keep their credentials. An existing ordinary account is never silently
+  promoted because its email matches `ADMIN_EMAIL`; use an unused bootstrap email for a new Owner.
+- All six survival needs can be edited in Player Management, including hunger, fatigue, mood and stress.
+- Player overrides first settle old offline progress, then apply the edited values at the current
+  time. The next poll no longer reapplies old decay to newly reset needs.
+
+Regression checks: `backend/tests/test_sandbox_persistence.py` uses an isolated in-memory database
+(`mongomock-motor`) and never contacts the live world.
+Install its dependencies from `backend/requirements-test.txt`; asset-preservation route tests live
+in `backend/tests/test_economy_consistency.py`.
 
 ## Criminal Suspicion tuning (2026-07-01)
 - **Admin ▸ Gameplay Tuning ▸ Tuning ▸ Criminal Suspicion** adds two fields:

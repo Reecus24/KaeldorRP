@@ -4,7 +4,7 @@ import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
 import { SKILL_LABELS, realDurationLabel } from "@/lib/helpers";
-import { GraduationCap, Lock, CheckCircle2, Clock } from "lucide-react";
+import { BookOpen as GraduationCap, Lock, CheckCircle2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function Education() {
@@ -28,10 +28,10 @@ export default function Education() {
 
     return (
         <div className="space-y-6">
-            <SectionTitle icon={GraduationCap} kicker="Invest in yourself" title="Education"
-                sub="Courses take real time but unlock better jobs, higher pay, business advantages and legal options. Study runs in the background — you can still do other things." />
+            <SectionTitle icon={GraduationCap} kicker="Invest in yourself" title="Apprenticeships"
+                sub="Courses take real time but unlock better jobs, higher pay, workshop advantages and legal options. Study runs in the background — you can still do other things." />
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {courses.map((c) => (
                     <Panel key={c.id} className={cn("p-5 flex flex-col", c.completed && "border-neon-green/40")} data-testid={`course-card-${c.id}`}>
                         <div className="flex items-start justify-between gap-2 mb-1">
@@ -49,7 +49,7 @@ export default function Education() {
 
                         <div className="flex items-center justify-between text-[11px] font-mono text-muted-foreground mb-3">
                             <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {realDurationLabel(c.duration_minutes, state?.time_scale || 1)}</span>
-                            <span className="text-neon-red">Tuition ${c.cost}</span>
+                            <span className="text-neon-red">Tuition ¤ {c.cost}</span>
                         </div>
 
                         {c.completed ? (

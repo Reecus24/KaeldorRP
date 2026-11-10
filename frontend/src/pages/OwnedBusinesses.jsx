@@ -47,7 +47,7 @@ function BizCard({ b }) {
                 <div className="mb-3 border border-white/10 rounded-sm p-2.5" data-testid={`biz-activity-${b.id}`}>
                     <div className="flex items-center justify-between text-[11px] font-mono mb-1.5">
                         <span className="flex items-center gap-1.5 text-white"><ai.Icon className={cn("w-3.5 h-3.5", ai.upgrade ? "text-neon-yellow" : "text-neon-purple")} />
-                            {ai.upgrade ? "Upgrading (income −50%)" : "Marketing campaign"}</span>
+                            {ai.upgrade ? "Upgrading (income −50%)" : "Heralds campaign"}</span>
                         <span className="text-neon-cyan">{ai.remLabel}</span>
                     </div>
                     <div className="h-1.5 bg-white/8 rounded-full overflow-hidden">
@@ -57,17 +57,17 @@ function BizCard({ b }) {
             )}
 
             <div className="grid grid-cols-3 gap-2 text-[11px] font-mono mb-3">
-                <div><div className="text-muted-foreground">Uncollected</div><Money value={b.cash} /></div>
+                <div><div className="text-muted-foreground">Workshop cash</div><Money value={b.cash} /></div>
                 <div><div className="text-muted-foreground">Debt</div><span className="text-neon-red tnum">{money(b.debt)}</span></div>
                 <div><div className="text-muted-foreground">Staff</div><span className="text-white tnum">{staff}</span></div>
             </div>
 
-            <div className="mb-3"><StatBar label="Reputation" value={b.reputation} color="#00FF66" /></div>
+            <div className="mb-3"><StatBar label="Reputation" value={b.reputation} color="#8EB89B" /></div>
 
             {b.metrics && (
                 <div className="grid grid-cols-4 gap-2 text-center mb-3 py-2 border-y border-white/8">
                     <div><div className="text-[9px] uppercase text-muted-foreground">Active</div><div className={cn("font-mono text-sm", b.metrics.coverage >= 0.9 ? "text-neon-green" : b.metrics.coverage < 0.6 ? "text-neon-red" : "text-neon-yellow")}>{Math.round((b.metrics.coverage || 0) * 100)}%</div></div>
-                    <div><div className="text-[9px] uppercase text-muted-foreground">Stock</div><div className="font-mono text-sm text-neon-purple">{Math.round(b.metrics.products_in_stock || 0)}</div></div>
+                    <div><div className="text-[9px] uppercase text-muted-foreground">Commodity</div><div className="font-mono text-sm text-neon-purple">{Math.round(b.metrics.products_in_stock || 0)}</div></div>
                     <div><div className="text-[9px] uppercase text-muted-foreground">Satis.</div><div className="font-mono text-sm text-neon-cyan">{b.metrics.satisfaction}%</div></div>
                     <div><div className="text-[9px] uppercase text-muted-foreground">Total rev</div><div className="font-mono text-sm text-white" title="Lifetime revenue collected since purchase (not comparable to the per-day estimate)">{money(b.revenue_total)}</div></div>
                 </div>
@@ -79,8 +79,9 @@ function BizCard({ b }) {
                 <div className="flex items-center gap-1 text-[11px] text-neon-red font-mono mb-2"><AlertTriangle className="w-3 h-3" /> Open Manage to inject cash, revive, or sell.</div>
             )}
 
+            {b.operations && <div className="mb-4 text-sm space-y-2"><div className="text-neon-cyan">Available payout: {money(b.operations.safe_to_collect)}</div><p className="text-xs text-muted-foreground">{b.operations.alerts[0]?.title || "Operations are on track"} · Reserve {money(b.operations.reserve)}</p></div>}
             <Link to={`/businesses/${b.id}`} className="block">
-                <KButton variant="primary" className="w-full" data-testid={`manage-${b.id}`}><Settings2 className="w-3.5 h-3.5" /> Manage Business</KButton>
+                <KButton variant="primary" className="w-full" data-testid={`manage-${b.id}`}><Settings2 className="w-3.5 h-3.5" /> Manage Workshop</KButton>
             </Link>
         </Panel>
     );
@@ -96,17 +97,17 @@ export default function OwnedBusinesses() {
 
     return (
         <div className="space-y-6">
-            <SectionTitle icon={Boxes} kicker="Your empire" title="My Businesses"
-                sub="A quick glance at each venture. Open Manage to collect profits, hire staff, upgrade, run marketing, buy materials or sell." />
+            <SectionTitle icon={Boxes} kicker="Your empire" title="My Workshops"
+                sub="A quick glance at each venture. Open Manage to collect profits, hire staff, upgrade, run word of mouth, buy materials or sell." />
 
             {bizs.length === 0 ? (
-                <EmptyState icon={Boxes} title="You don't own any business yet" sub="Visit the Business Marketplace to buy your first venture." />
+                <EmptyState icon={Boxes} title="You don't own any workshop yet" sub="Visit the Workshop Marketplace to buy your first venture." />
             ) : (
-                <div className="grid md:grid-cols-2 gap-3">
-                    {bizs.map((b) => <BizCard key={b.id} b={b} />)}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {[...bizs].sort((a, b) => (b.operations?.alerts.length || 0) - (a.operations?.alerts.length || 0)).map((b) => <BizCard key={b.id} b={b} />)}
                 </div>
             )}
-            <Link to="/business-market"><KButton variant="ghost" data-testid="goto-market">Buy another business →</KButton></Link>
+            <Link to="/business-market"><KButton variant="ghost" data-testid="goto-market">Buy another workshop →</KButton></Link>
         </div>
     );
 }

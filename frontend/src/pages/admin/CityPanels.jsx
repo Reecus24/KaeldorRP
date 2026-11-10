@@ -4,10 +4,10 @@ import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/pri
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
 import {
-    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
-    MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
-    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles, User, BadgeCheck,
-    ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
+    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, Coins as DollarSign, Gauge,
+    MapPin, Store, Clock, Hammer as Briefcase, Castle as LayoutDashboard, Castle as Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
+    Activity, TrendingUp, Wallet, Shield as Zap, BookOpen as GraduationCap, Sparkles, User, BadgeCheck,
+    ShoppingCart, Scale, Home, Compass as Car, Footprints as Bike, Package as Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -54,7 +54,7 @@ function LocationEditor({ draft, setDraft, archetypes, tagOptions, attrOptions, 
     const total = draft.npcs.reduce((s, n) => s + (Number(n.weight) > 0 ? Number(n.weight) : 0), 0) || 1;
     return (
         <Panel className="p-5 space-y-3 border-neon-cyan/30" data-testid="location-editor">
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Name
                     <KInput value={draft.name} onChange={(e) => set("name", e.target.value)} testid="loc-name" /></label>
                 <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Category
@@ -63,7 +63,7 @@ function LocationEditor({ draft, setDraft, archetypes, tagOptions, attrOptions, 
             <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Description
                 <KInput value={draft.desc} onChange={(e) => set("desc", e.target.value)} testid="loc-desc" /></label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Cost $
+                <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Cost ¤
                     <KInput type="number" value={draft.money_cost} onChange={(e) => set("money_cost", Number(e.target.value))} testid="loc-cost" /></label>
                 <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Duration (min)
                     <KInput type="number" value={draft.duration_minutes} onChange={(e) => set("duration_minutes", Number(e.target.value))} testid="loc-duration" /></label>
@@ -106,7 +106,7 @@ function LocationEditor({ draft, setDraft, archetypes, tagOptions, attrOptions, 
                                 })}
                             </div>
                         </div>
-                        <div className="grid sm:grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <AttrRow label="Min attribute" attrs={draft.min_attrs || {}} options={attrOptions} onChange={(v) => set("min_attrs", v)} />
                             <AttrRow label="Max attribute" attrs={draft.max_attrs || {}} options={attrOptions} onChange={(v) => set("max_attrs", v)} />
                         </div>
@@ -181,7 +181,7 @@ function LocationsPanel() {
             {draft && <LocationEditor draft={draft} setDraft={setDraft} archetypes={data.archetypes} tagOptions={data.tag_options || []} attrOptions={data.attr_options || []} onSave={save} onCancel={() => setDraft(null)} saving={saving} />}
 
             {!draft && (
-                <div className="grid md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {data.locations.map((l) => (
                         <Panel key={l.id} className="p-4" data-testid={`admin-location-${l.id}`}>
                             <div className="flex items-start justify-between mb-1">
@@ -197,7 +197,7 @@ function LocationsPanel() {
                                 </div>
                             </div>
                             <p className="text-[11px] text-muted-foreground mb-2">{l.desc}</p>
-                            <div className="text-[10px] font-mono text-muted-foreground mb-2">${l.money_cost} · {l.duration_minutes}min · CD {l.cooldown_minutes}min{l.suspicion_gain ? ` · +${l.suspicion_gain} suspicion` : ""}</div>
+                            <div className="text-[10px] font-mono text-muted-foreground mb-2">¤ {l.money_cost} · {l.duration_minutes}min · CD {l.cooldown_minutes}min{l.suspicion_gain ? ` · +${l.suspicion_gain} suspicion` : ""}</div>
                             {l.include_filtered && (
                                 <div className="text-[10px] font-mono text-neon-purple/90 mb-2" data-testid={`filter-info-${l.id}`}>
                                     Filters: {(l.category_whitelist || []).length ? l.category_whitelist.join("/") : "any"}
@@ -286,13 +286,13 @@ function CityShopsPanel() {
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">City shops the players browse. A shop's inventory is a list of assigned items — use <span className="text-white">Add item</span> to pull any item from the global list and the trash icon to remove one. Set the Opening Hours (players can only buy while OPEN) and per-item daily Stock + a <span className="text-white">Price %</span> multiplier (100 = base price, 90 = 10% cheaper, 150 = 50% markup). Stock restocks to capacity at game midnight. New shops start pre-filled with all items of their chosen Category.</p>
+                <p className="text-sm text-muted-foreground">Realm shops the players browse. A shop's inventory is a list of assigned items — use <span className="text-white">Add item</span> to pull any item from the global list and the trash icon to remove one. Set the Opening Hours (players can only buy while OPEN) and per-item daily Commodity + a <span className="text-white">Price %</span> multiplier (100 = base price, 90 = 10% cheaper, 150 = 50% markup). Commodity restocks to capacity at game midnight. New shops start pre-filled with all items of their chosen Category.</p>
                 {!draft && <KButton variant="green" onClick={() => setDraft(emptyShop())} data-testid="shop-new"><Plus className="w-4 h-4" /> New Shop</KButton>}
             </div>
 
             {draft && (
                 <Panel className="p-5 space-y-3 border-neon-cyan/30" data-testid="cityshop-editor">
-                    <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Shop name
                             <KInput value={draft.name} onChange={(e) => set("name", e.target.value)} testid="shop-name" /></label>
                         <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Item category
@@ -303,8 +303,8 @@ function CityShopsPanel() {
                     </div>
                     <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Description
                         <KInput value={draft.desc} onChange={(e) => set("desc", e.target.value)} testid="shop-desc" /></label>
-                    <div className="grid sm:grid-cols-3 gap-3 items-end">
-                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Link business type (optional)
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                        <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Link workshop type (optional)
                             <select value={draft.business_type_id || ""} onChange={(e) => set("business_type_id", e.target.value)} data-testid="shop-biztype"
                                 className="bg-black/40 border border-white/15 rounded-sm px-2 py-2 text-xs text-white">
                                 <option value="">— none —</option>
@@ -324,7 +324,7 @@ function CityShopsPanel() {
                         </div>
                     </div>
 
-                    <div className="grid sm:grid-cols-2 gap-3 pt-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                         <label className="text-[11px] text-muted-foreground flex flex-col gap-1"><Clock className="w-3 h-3 inline mr-1" />Opens
                             <KInput type="time" value={draft.opening_hours?.open || "08:00"} onChange={(e) => setHours("open", e.target.value)} testid="shop-open-time" /></label>
                         <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Closes <span className="text-muted-foreground/50">(use 24:00 for round-the-clock)</span>
@@ -339,7 +339,7 @@ function CityShopsPanel() {
                                     <select defaultValue="" onChange={(e) => { addItem(e.target.value); e.target.value = ""; }} data-testid="shop-additem-select"
                                         className="bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white max-w-[220px]">
                                         <option value="">+ Add item…</option>
-                                        {addableItems.map((it) => <option key={it.id} value={it.id}>{it.name} (${it.price} · {it.store_type})</option>)}
+                                        {addableItems.map((it) => <option key={it.id} value={it.id}>{it.name} (¤ {it.price} · {it.store_type})</option>)}
                                     </select>
                                 </div>
                             ) : <span className="text-[10px] text-muted-foreground">Save the shop first to add/remove individual items.</span>}
@@ -359,7 +359,7 @@ function CityShopsPanel() {
                                         <div key={it.id} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center" data-testid={`shop-itemcfg-${it.id}`}>
                                             <div className="min-w-0">
                                                 <span className="text-xs text-white">{it.name}</span>
-                                                <span className="ml-2 text-[10px] font-mono text-muted-foreground">base ${bp} → <span className={pct < 100 ? "text-neon-green" : pct > 100 ? "text-neon-yellow" : "text-muted-foreground"}>${Math.max(1, Math.round(bp * pct / 100))}</span></span>
+                                                <span className="ml-2 text-[10px] font-mono text-muted-foreground">base ¤ {bp} → <span className={pct < 100 ? "text-neon-green" : pct > 100 ? "text-neon-yellow" : "text-muted-foreground"}>¤ {Math.max(1, Math.round(bp * pct / 100))}</span></span>
                                             </div>
                                             <KInput type="number" className="w-24" value={c.capacity ?? defCap} onChange={(e) => setItemCfg(it.id, "capacity", Math.max(0, Number(e.target.value)))} testid={`cfg-cap-${it.id}`} />
                                             <KInput type="number" className="w-24" value={pct} onChange={(e) => setItemCfg(it.id, "price_pct", Math.max(1, Math.min(1000, Number(e.target.value))))} testid={`cfg-price-${it.id}`} />
@@ -381,7 +381,7 @@ function CityShopsPanel() {
             )}
 
             {!draft && (
-                <div className="grid md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {data.shops.map((s) => (
                         <Panel key={s.id} className="p-4" data-testid={`admin-shop-${s.id}`}>
                             <div className="flex items-start justify-between mb-1">
@@ -433,7 +433,7 @@ function JobSectorsPanel() {
             };
             if (draft.id) await api.put(`/admin/job-sectors/${draft.id}`, body);
             else await api.post("/admin/job-sectors", body);
-            toast.success("Sector saved — live in the Job Center immediately");
+            toast.success("Sector saved — live in the Guild Noticeboard immediately");
             setDraft(null); await load();
         } catch (e) { toast.error(errMessage(e)); }
         setSaving(false);
@@ -455,13 +455,13 @@ function JobSectorsPanel() {
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">Job sectors / agencies the players browse in the Job Center. Create sectors, then assign jobs to them. A job assigned here shows only under its sector. Any job left unassigned appears under a "General Listings" fallback so nothing is unreachable.</p>
+                <p className="text-sm text-muted-foreground">Job sectors / agencies the players browse in the Guild Noticeboard. Create sectors, then assign jobs to them. A job assigned here shows only under its sector. Any job left unassigned appears under a "General Listings" fallback so nothing is unreachable.</p>
                 {!draft && <KButton variant="green" onClick={() => setDraft(emptySector())} data-testid="sector-new"><Plus className="w-4 h-4" /> New Sector</KButton>}
             </div>
 
             {draft && (
                 <Panel className="p-5 space-y-3 border-neon-cyan/30" data-testid="jobsector-editor">
-                    <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Sector name
                             <KInput value={draft.name} onChange={(e) => set("name", e.target.value)} testid="sector-name" /></label>
                         <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Icon
@@ -481,7 +481,7 @@ function JobSectorsPanel() {
 
                     <div className="pt-2">
                         <div className="text-[11px] font-mono uppercase tracking-wider text-neon-cyan/80 mb-2">Assign Jobs ({(draft.job_ids || []).length} selected)</div>
-                        <div className="grid sm:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1" data-testid="sector-jobs-picker">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1" data-testid="sector-jobs-picker">
                             {data.jobs.map((j) => {
                                 const checked = (draft.job_ids || []).includes(j.id);
                                 const takenBy = otherAssigned[j.id];
@@ -508,7 +508,7 @@ function JobSectorsPanel() {
             )}
 
             {!draft && (
-                <div className="grid md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {data.sectors.map((s) => (
                         <Panel key={s.id} className="p-4" data-testid={`admin-sector-${s.id}`}>
                             <div className="flex items-start justify-between mb-1">
@@ -531,9 +531,9 @@ function JobSectorsPanel() {
 
             {!draft && (
                 <Panel className="p-4" data-testid="job-visibility-panel">
-                    <div className="font-display font-bold text-white mb-1 flex items-center gap-2"><Eye className="w-4 h-4 text-neon-cyan" /> Job Center Visibility</div>
+                    <div className="font-display font-bold text-white mb-1 flex items-center gap-2"><Eye className="w-4 h-4 text-neon-cyan" /> Guild Noticeboard Visibility</div>
                     <p className="text-[11px] text-muted-foreground mb-3">Hide "rank-up only" jobs so players can't apply for them directly — they'll only be reachable by earning a promotion. Hidden jobs stay fully promotable.</p>
-                    <div className="grid sm:grid-cols-2 gap-1.5 max-h-80 overflow-y-auto pr-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-80 overflow-y-auto pr-1">
                         {data.jobs.map((j) => {
                             const visible = j.visible_in_listings !== false;
                             return (
@@ -579,12 +579,12 @@ function VehicleCategoriesPanel() {
                 active: !!draft.active, order: Number(draft.order) || 50, vehicle_ids: draft.vehicle_ids || [] };
             if (draft.id) await api.put(`/admin/vehicle-categories/${draft.id}`, body);
             else await api.post("/admin/vehicle-categories", body);
-            toast.success("Category saved — live in the Vehicle Dealer immediately");
+            toast.success("Category saved — live in the Stables & Carts immediately");
             setDraft(null); await load();
         } catch (e) { toast.error(errMessage(e)); }
         setSaving(false);
     };
-    const del = async (c) => { if (!window.confirm(`Delete "${c.name}"? Its vehicles become uncategorized.`)) return; try { await api.delete(`/admin/vehicle-categories/${c.id}`); toast.success("Deleted"); await load(); } catch (e) { toast.error(errMessage(e)); } };
+    const del = async (c) => { if (!window.confirm(`Delete "${c.name}"? Its mounts and carts become uncategorized.`)) return; try { await api.delete(`/admin/vehicle-categories/${c.id}`); toast.success("Deleted"); await load(); } catch (e) { toast.error(errMessage(e)); } };
 
     if (!data) return <Spinner />;
     const otherAssigned = {};
@@ -594,13 +594,13 @@ function VehicleCategoriesPanel() {
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <p className="text-sm text-muted-foreground">Showroom categories players browse in the Vehicle Dealer. Create a category, then assign vehicle models to it — each vehicle belongs to one category. Any vehicle left unassigned appears under an "Other Vehicles" fallback so nothing is unreachable.</p>
+                <p className="text-sm text-muted-foreground">Showroom categories players browse in the Stables & Carts. Create a category, then assign mount or cart models to it — each mount or cart belongs to one category. Any mount or cart left unassigned appears under an "Other Mounts & Carts" fallback so nothing is unreachable.</p>
                 {!draft && <KButton variant="green" onClick={() => setDraft(emptyCat())} data-testid="vcat-new"><Plus className="w-4 h-4" /> New Category</KButton>}
             </div>
 
             {draft && (
                 <Panel className="p-5 space-y-3 border-neon-cyan/30" data-testid="vcat-editor">
-                    <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Category name
                             <KInput value={draft.name} onChange={(e) => set("name", e.target.value)} testid="vcat-name" /></label>
                         <label className="text-[11px] text-muted-foreground flex flex-col gap-1">Icon
@@ -619,8 +619,8 @@ function VehicleCategoriesPanel() {
                     </div>
 
                     <div className="pt-2">
-                        <div className="text-[11px] font-mono uppercase tracking-wider text-neon-cyan/80 mb-2">Assign Vehicles ({(draft.vehicle_ids || []).length} selected)</div>
-                        <div className="grid sm:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1" data-testid="vcat-vehicle-picker">
+                        <div className="text-[11px] font-mono uppercase tracking-wider text-neon-cyan/80 mb-2">Assign Mounts & Carts ({(draft.vehicle_ids || []).length} selected)</div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-72 overflow-y-auto pr-1" data-testid="vcat-vehicle-picker">
                             {data.vehicles.map((v) => {
                                 const checked = (draft.vehicle_ids || []).includes(v.id);
                                 const takenBy = otherAssigned[v.id];
@@ -630,7 +630,7 @@ function VehicleCategoriesPanel() {
                                         <input type="checkbox" checked={checked} onChange={() => toggleVeh(v.id)} data-testid={`vcat-vehicle-cb-${v.id}`} />
                                         <div className="min-w-0 flex-1">
                                             <span className="text-xs text-white">{v.name}</span>
-                                            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">{v.type} · ${v.price?.toLocaleString()}</span>
+                                            <span className="ml-1.5 text-[10px] font-mono text-muted-foreground">{v.type} · ¤ {v.price?.toLocaleString()}</span>
                                             {takenBy && !checked && <span className="block text-[9px] text-neon-yellow/80 font-mono">in {catName(takenBy)}</span>}
                                         </div>
                                     </label>
@@ -647,7 +647,7 @@ function VehicleCategoriesPanel() {
             )}
 
             {!draft && (
-                <div className="grid md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     {data.categories.map((c) => (
                         <Panel key={c.id} className="p-4" data-testid={`admin-vcat-${c.id}`}>
                             <div className="flex items-start justify-between mb-1">

@@ -1,4 +1,4 @@
-"""Kaeldor financial markets — stocks (open to all) and crypto (Underworld-gated).
+"""Kaeldor financial markets — stocks (open to all) and relic (Underworld-gated).
 
 A lightweight geometric-random-walk price simulator. Prices advance lazily whenever
 the market is read, based on REAL elapsed time (1 game hour = 1 real hour), using

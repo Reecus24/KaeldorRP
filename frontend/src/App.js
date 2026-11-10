@@ -1,4 +1,7 @@
 import "@/App.css";
+import "@/realm.css";
+import World from "@/pages/World";
+import Realm from "@/pages/Realm";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
@@ -10,6 +13,7 @@ import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import CharacterCreate from "@/pages/CharacterCreate";
 import Dashboard from "@/pages/Dashboard";
+import Journey from "@/pages/Journey";
 import HomeNeeds from "@/pages/HomeNeeds";
 import Skills from "@/pages/Skills";
 import JobCenter from "@/pages/JobCenter";
@@ -37,7 +41,7 @@ import Admin from "@/pages/Admin";
 
 function FullLoader() {
     return (
-        <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <div className="min-h-screen bg-[#101A16] flex items-center justify-center">
             <Spinner />
         </div>
     );
@@ -52,9 +56,18 @@ function PublicOnly({ children }) {
 
 function ProtectedGame() {
     const { user, ready } = useAuth();
-    const { hasCharacter } = useGame();
+    const { hasCharacter, stateError, refresh } = useGame();
     if (!ready) return <FullLoader />;
     if (!user) return <Navigate to="/login" replace />;
+    if (hasCharacter === null && stateError) return (
+        <div className="min-h-screen bg-[#101A16] flex items-center justify-center p-6">
+            <div role="alert" className="kael-panel p-8 max-w-md text-center">
+                <h1 className="font-display text-xl text-white mb-3">Connection interrupted</h1>
+                <p className="text-muted-foreground mb-5">{stateError}</p>
+                <button onClick={refresh} className="px-5 py-3 bg-neon-cyan text-black font-bold rounded-sm">Try again</button>
+            </div>
+        </div>
+    );
     if (hasCharacter === null) return <FullLoader />;
     if (hasCharacter === false) return <Navigate to="/create-character" replace />;
     return (
@@ -86,7 +99,11 @@ function AppRoutes() {
             <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
             <Route path="/create-character" element={<CharacterGate />} />
             <Route element={<ProtectedGame />}>
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={<World />} />
+                <Route path="/world" element={<World />} />
+                <Route path="/village" element={<Dashboard />} />
+                <Route path="/journey" element={<Journey />} />
+                <Route path="/realm" element={<Realm />} />
                 <Route path="/home" element={<HomeNeeds />} />
                 <Route path="/skills" element={<Skills />} />
                 <Route path="/jobs" element={<JobCenter />} />
@@ -128,7 +145,7 @@ export default function App() {
                         theme="dark"
                         toastOptions={{
                             style: {
-                                background: "#0d0d0d",
+                                background: "#1B2520",
                                 border: "1px solid rgba(255,255,255,0.12)",
                                 color: "#fff",
                                 fontFamily: "Manrope, sans-serif",

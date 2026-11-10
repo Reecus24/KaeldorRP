@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback, useRef, us
 import { toast } from "sonner";
 import { api, errMessage } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { gameTimers, nextStateDeadline } from "@/lib/gameTimers";
 
 const GameContext = createContext(null);
 
@@ -11,25 +12,39 @@ export function GameProvider({ children }) {
     const [events, setEvents] = useState([]);
     const [hasCharacter, setHasCharacter] = useState(null); // null=unknown
     const [loading, setLoading] = useState(true);
+    const [stateError, setStateError] = useState(null);
     const [tick, setTick] = useState(0); // 1s ticker for smooth timers
     const [notifications, setNotifications] = useState({ items: [], unread_count: 0 });
     const [msgUnread, setMsgUnread] = useState(0);
     const refreshing = useRef(false);
-    const lastEndRef = useRef(null);
+    const nextDeadlineRef = useRef(null);
+    const stateReceivedAtRef = useRef(0);
+    const stateRequestRef = useRef(0);
 
     const fetchState = useCallback(async () => {
+        const request = ++stateRequestRef.current;
         try {
             const { data } = await api.get("/game/state");
-            setState(data);
+            if (request !== stateRequestRef.current) return;
+            const receivedAt = performance.now();
+            stateReceivedAtRef.current = receivedAt;
+            const deadline = nextStateDeadline(data);
+            nextDeadlineRef.current = deadline === null ? null : receivedAt + deadline * 1000;
+            setState({ ...data, _clientReceivedAt: receivedAt });
+            setStateError(null);
             setHasCharacter(true);
-            lastEndRef.current = data.activity ? data.activity.ends_at : null;
         } catch (e) {
+            if (request !== stateRequestRef.current) return;
             if (e?.response?.status === 404) {
                 setHasCharacter(false);
                 setState(null);
+                nextDeadlineRef.current = null;
+                setStateError(null);
+            } else {
+                setStateError("Couldn't refresh your character. Please try again.");
             }
         } finally {
-            setLoading(false);
+            if (request === stateRequestRef.current) setLoading(false);
         }
     }, []);
 
@@ -75,6 +90,8 @@ export function GameProvider({ children }) {
 
     // Initial + when user changes
     useEffect(() => {
+        stateRequestRef.current += 1;
+        setStateError(null);
         if (user && user.id) {
             setLoading(true);
             refresh();
@@ -82,6 +99,7 @@ export function GameProvider({ children }) {
             setState(null);
             setEvents([]);
             setHasCharacter(null);
+            nextDeadlineRef.current = null;
         }
     }, [user, refresh]);
 
@@ -94,16 +112,16 @@ export function GameProvider({ children }) {
         return () => clearInterval(id);
     }, [user, hasCharacter, refresh]);
 
-    // 1s ticker; when activity end passes, force a refresh once
+    // 1s ticker; refresh when an activity finishes or confinement expires.
     useEffect(() => {
         const id = setInterval(() => {
             setTick((t) => t + 1);
-            const end = lastEndRef.current;
-            if (end) {
-                const remaining = (new Date(end).getTime() - Date.now()) / 1000;
+            const end = nextDeadlineRef.current;
+            if (end !== null) {
+                const remaining = (end - performance.now()) / 1000;
                 if (remaining <= 0 && !refreshing.current) {
                     refreshing.current = true;
-                    lastEndRef.current = null;
+                    nextDeadlineRef.current = null;
                     refresh().finally(() => {
                         refreshing.current = false;
                     });
@@ -159,15 +177,9 @@ export function GameProvider({ children }) {
         return () => { document.removeEventListener("visibilitychange", onVis); if (timer) clearInterval(timer); document.title = BASE; };
     }, [msgUnread]);
 
-    // computed activity remaining (uses local ticker)
-    let activityRemaining = 0;
-    let activityProgress = 0;
-    if (state?.activity) {
-        const end = new Date(state.activity.ends_at).getTime();
-        const total = state.activity.total_seconds;
-        activityRemaining = Math.max(0, (end - Date.now()) / 1000);
-        activityProgress = Math.min(1, (total - activityRemaining) / total);
-    }
+    const { activityRemaining, activityProgress, confinementRemaining } = gameTimers(
+        state, (performance.now() - stateReceivedAtRef.current) / 1000,
+    );
 
     const player = state?.player || null;
 
@@ -178,20 +190,22 @@ export function GameProvider({ children }) {
             events,
             hasCharacter,
             loading,
+            stateError,
             tick,
             refresh,
             act,
             createCharacter,
             activityRemaining,
             activityProgress,
+            confinementRemaining,
             notifications,
             unreadCount: notifications.unread_count || 0,
             markNotificationsRead,
             msgUnread,
             fetchMsgUnread,
         }),
-        [state, player, events, hasCharacter, loading, tick, refresh, act, createCharacter,
-         activityRemaining, activityProgress, notifications, markNotificationsRead, msgUnread, fetchMsgUnread],
+        [state, player, events, hasCharacter, loading, stateError, tick, refresh, act, createCharacter,
+         activityRemaining, activityProgress, confinementRemaining, notifications, markNotificationsRead, msgUnread, fetchMsgUnread],
     );
 
     return (

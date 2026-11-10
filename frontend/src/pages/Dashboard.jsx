@@ -1,123 +1,46 @@
 import { Link } from "react-router-dom";
 import { useGame } from "@/context/GameContext";
-import { Panel, SectionTitle, StatBar, StatTile, Money, Spinner, InfoTip } from "@/components/game/primitives";
+import { Panel, StatBar, StatTile, Spinner } from "@/components/game/primitives";
 import EventLog from "@/components/game/EventLog";
-import { money, STAT_INFO, XP_INFO } from "@/lib/helpers";
-import {
-    LayoutDashboard, Home, Briefcase, GraduationCap, Skull, Store,
-    TrendingUp, Gauge, Shield, AlertTriangle, Star, Activity,
-} from "lucide-react";
+import { money, STAT_INFO } from "@/lib/helpers";
+import { nextMove } from "@/lib/nextMove";
+import { JourneyTeaser } from "@/pages/Journey";
+import { Wheat, Swords, Store, ArrowRight, ScrollText, Shield, Crown } from "lucide-react";
 
-const QUICK = [
-    { to: "/home", label: "Home & Needs", icon: Home, desc: "Eat, sleep, rest, train" },
-    { to: "/jobs", label: "Find Work", icon: Briefcase, desc: "Shifts & careers" },
-    { to: "/education", label: "Study", icon: GraduationCap, desc: "Courses & degrees" },
-    { to: "/business-market", label: "Business", icon: Store, desc: "Build an empire" },
-    { to: "/underworld", label: "Underworld", icon: Skull, desc: "High risk, high reward" },
-    { to: "/leaderboard", label: "Rankings", icon: TrendingUp, desc: "Climb the city" },
+const PATHS = [
+    { to: "/jobs", name: "Earn your bread", label: "Fields & craft", icon: Wheat, desc: "Begin with work in the village. Learn a trade and earn a place in the guilds." },
+    { to: "/realm", name: "Swear an oath", label: "Steel & allegiance", icon: Swords, desc: "Join the Crownwardens or the Thornbound. Prepare your gear and answer the call." },
+    { to: "/business-market", name: "Build a legacy", label: "Trade & prosperity", icon: Store, desc: "Save for a stall, forge or inn. Hire skilled hands and grow a thriving workshop." },
 ];
-
 export default function Dashboard() {
     const { player, state } = useGame();
     if (!player) return <Spinner />;
-
-    const nextXp = 250 * player.level;
-    const xpPct = Math.min(100, (player.xp / nextXp) * 100);
-    const nwb = state?.net_worth_breakdown;
-    const nwInfo = nwb ? (
-        <div className="space-y-0.5" data-testid="networth-breakdown">
-            <div className="font-bold mb-1">Net worth = what you'd have if you cashed out</div>
-            <div className="flex justify-between gap-4"><span>Cash</span><span>{money(nwb.cash)}</span></div>
-            <div className="flex justify-between gap-4"><span>Bank</span><span>{money(nwb.bank)}</span></div>
-            <div className="flex justify-between gap-4"><span>− Debt</span><span>-{money(nwb.debt)}</span></div>
-            <div className="flex justify-between gap-4"><span>Vehicles (resale)</span><span>{money(nwb.vehicles)}</span></div>
-            <div className="flex justify-between gap-4"><span>Property (est.)</span><span>{money(nwb.property)}</span></div>
-            <div className="flex justify-between gap-4"><span>Businesses</span><span>{money(nwb.business)}</span></div>
-            <div className="flex justify-between gap-4 border-t border-white/15 mt-1 pt-1 font-bold"><span>Total</span><span>{money(nwb.total)}</span></div>
-        </div>
-    ) : "Cash + Bank − Debt + Vehicles + Property + Business value.";
-
-    return (
-        <div className="space-y-6">
-            <SectionTitle
-                icon={LayoutDashboard}
-                kicker={`Level ${player.level} · ${player.background}`}
-                title={player.name}
-                sub="Your life, in real time. Everything keeps running while you're away."
-            />
-
-            {/* Money tiles */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <StatTile label="Net Worth" value={money(state?.net_worth)} accent="#00FF66" testid="tile-networth" info={nwInfo} />
-                <StatTile label="Cash" value={money(player.cash)} accent="#00F3FF" testid="tile-cash" />
-                <StatTile label="Bank" value={money(player.bank)} accent="#00F3FF" testid="tile-bank" />
-                <StatTile label="Debt" value={money(player.debt)} accent={player.debt > 0 ? "#FF0055" : "#9CA3AF"} testid="tile-debt" />
+    const move = nextMove(player, state?.activity, state?.needs_rules);
+    const standing = state?.realm_standing;
+    const next = standing?.next;
+    const nextXp = (state?.player_xp_per_level ?? 250) * player.level;
+    return <div className="space-y-6">
+        <section className="realm-banner" aria-label="Your life in the Ashen March">
+            <div className="relative z-10 p-6 sm:p-9 max-w-[650px]">
+                <div className="flex items-center gap-3 mb-5"><span className="realm-seal"><Wheat size={23} /></span><div><div className="realm-eyebrow">Kaeldor · The Ashen March</div><div className="text-xs text-muted-foreground mt-1">A life written in deeds</div></div></div>
+                <div className="realm-eyebrow">{standing?.current?.name || "Peasant"} · Level {player.level}</div>
+                <h1 className="font-display text-4xl sm:text-5xl text-white mt-2 leading-tight">{player.name}</h1>
+                <p className="text-sm text-[#d6d1bc] mt-3 leading-relaxed max-w-md">{player.job ? "Your trade: " + player.job.title + ". " : "No master. No trade. A whole realm ahead of you. "}Every shift, friendship and expedition shapes who you become.</p>
+                <div className="flex flex-wrap gap-3 mt-6"><Link className="realm-button" to={move.to}>{move.label}<ArrowRight size={16} /></Link><Link className="realm-button secondary" to="/journey"><ScrollText size={16} /> Open journal</Link></div>
             </div>
-
-            {/* Level + effectiveness */}
-            <div className="grid md:grid-cols-2 gap-3">
-                <Panel className="p-5">
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                            <Star className="w-4 h-4 text-neon-yellow" />
-                            <span className="font-display font-bold text-white">Level {player.level}</span>
-                            <InfoTip text={XP_INFO} testid="xp-info" />
-                        </div>
-                        <span className="font-mono text-xs text-muted-foreground tnum">{Math.round(player.xp)} / {nextXp} XP</span>
-                    </div>
-                    <div className="h-2.5 bg-white/5 border border-white/10 rounded-sm overflow-hidden">
-                        <div className="h-full" style={{ width: `${xpPct}%`, backgroundImage: "linear-gradient(90deg,#FFC300,#FF8A00)", boxShadow: "0 0 10px #FFC30088" }} />
-                    </div>
-                </Panel>
-                <Panel className="p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                        <Gauge className="w-4 h-4 text-neon-cyan" />
-                        <span className="font-display font-bold text-white">Effectiveness</span>
-                        <span className="font-mono text-xs text-muted-foreground ml-auto">how well you perform</span>
-                    </div>
-                    <div className="flex items-end gap-3">
-                        <div className="font-display font-black text-3xl text-neon-cyan tnum" data-testid="effectiveness-value">
-                            {Math.round((state?.effectiveness || 1) * 100)}%
-                        </div>
-                        <p className="text-xs text-muted-foreground pb-1">Low energy, high fatigue, hunger and stress reduce your pay and XP, and raise accident risk.</p>
-                    </div>
-                </Panel>
-            </div>
-
-            {/* Reputation / Status */}
-            <Panel className="p-5">
-                <div className="flex items-center gap-2 mb-4">
-                    <Shield className="w-4 h-4 text-neon-cyan" />
-                    <span className="font-display font-bold text-white">Standing in the City</span>
-                </div>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <StatBar label="Reputation" value={player.reputation} color="#00FF66" info={STAT_INFO.reputation} testid="stat-reputation" />
-                    <StatBar label="Legal Standing" value={player.legal_reputation} color="#00F3FF" info={STAT_INFO.legal_reputation} testid="stat-legal" />
-                    <StatBar label="Criminal Suspicion" value={player.criminal_suspicion} color="#FFC300" invert info={STAT_INFO.criminal_suspicion} testid="stat-suspicion" />
-                    <StatBar label="Social Status" value={player.social_status} color="#B026FF" info={STAT_INFO.social_status} testid="stat-social" />
-                </div>
+        </section>
+        <Panel className="p-5 flex flex-col sm:flex-row gap-4 items-start sm:items-center" data-testid="next-move">
+            <Shield className="text-neon-yellow shrink-0" size={24} /><div className="flex-1"><h2 className="font-display text-xl text-white">{move.title}</h2><p className="text-sm text-muted-foreground mt-1">{move.detail}</p></div><Link to={move.to} className="realm-text-link shrink-0">Go there <ArrowRight size={15} /></Link>
+        </Panel>
+        <section aria-label="Choose your path"><div className="flex items-center gap-3 mb-4"><span className="realm-eyebrow">Three roads. Your story.</span><span className="h-px bg-white/10 flex-1" /></div><div className="grid grid-cols-1 md:grid-cols-3 gap-4">{PATHS.map(path => <Link key={path.to} to={path.to} className="realm-path"><path.icon size={28} strokeWidth={1.4} /><span className="realm-eyebrow mt-4">{path.label}</span><h3 className="font-display">{path.name}</h3><p>{path.desc}</p><ArrowRight size={18} className="mt-5" /></Link>)}</div></section>
+        <JourneyTeaser />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Panel className="p-5 sm:p-6"><div className="flex items-center gap-2 mb-4"><Crown size={18} className="text-neon-yellow" /><h2 className="font-display text-2xl text-white">Your place in the realm</h2></div><p className="text-sm text-muted-foreground">{standing?.current?.description}</p>
+                {next ? <><div className="flex justify-between text-sm mt-5 mb-2"><span className="text-white">Next: {next.name}</span><span className="text-muted-foreground">Days & deeds</span></div><div className="space-y-3">{[["Life in the realm", standing.days, next.min_days, "real days"], ["Experience", player.level, next.min_level, "level"], ["Completed deeds", standing.deeds, next.min_deeds, "deeds"]].map(([label, value, target, unit]) => <div key={label}><div className="flex justify-between text-xs text-muted-foreground mb-1"><span>{label}</span><span>{Math.min(value, target)} / {target} {unit}</span></div><div className="h-1.5 bg-black/30 rounded overflow-hidden"><div className="h-full bg-neon-cyan" style={{ width: Math.min(100, target === 0 ? 100 : value / target * 100) + "%" }} /></div></div>)}</div><p className="text-xs text-muted-foreground mt-4">All three requirements must be met. Work, activities, study and expeditions count as deeds. Progress lasts; no daily streak is required.</p></> : <p className="text-neon-yellow text-sm mt-4">You have reached the highest standing currently written in the realm's charter.</p>}
             </Panel>
-
-            {/* Quick actions */}
-            <div>
-                <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-muted-foreground mb-3">Quick Access</div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {QUICK.map((q) => (
-                        <Link key={q.to} to={q.to} data-testid={`quick-${q.to.replace("/", "")}`}>
-                            <Panel className="p-4 hover:-translate-y-1 transition-transform hover:border-neon-cyan/40 h-full">
-                                <q.icon className="w-5 h-5 text-neon-cyan mb-2" strokeWidth={1.6} />
-                                <div className="font-display font-bold text-white text-sm">{q.label}</div>
-                                <div className="text-[11px] text-muted-foreground mt-0.5">{q.desc}</div>
-                            </Panel>
-                        </Link>
-                    ))}
-                </div>
-            </div>
-
-            {/* Mobile log */}
-            <div className="xl:hidden">
-                <EventLog max={20} />
-            </div>
+            <Panel className="p-5 sm:p-6"><h2 className="font-display text-2xl text-white mb-4">Purse & provisions</h2><div className="grid grid-cols-2 gap-4"><div><div className="realm-eyebrow">Coin in hand</div><strong className="font-display text-3xl text-neon-yellow" data-testid="tile-cash">{money(player.cash)}</strong></div><div><div className="realm-eyebrow">Guild vault</div><strong className="font-display text-3xl text-white" data-testid="tile-bank">{money(player.bank)}</strong></div></div><div className="flex justify-between mt-5 pt-4 border-t border-white/10 text-sm"><span className="text-muted-foreground">Debt</span><span className={player.debt > 0 ? "text-neon-red" : "text-white"}>{money(player.debt)}</span></div><div className="flex justify-between mt-2 text-sm"><span className="text-muted-foreground">Total wealth</span><span className="text-neon-green" data-testid="tile-networth">{money(state?.net_worth)}</span></div><p className="text-xs text-muted-foreground mt-3">Coin + vault + resale value of property, mounts, workshops and trade goods − debt.</p><Link to="/bank" className="realm-text-link mt-4">Visit the guild vault <ArrowRight size={14} /></Link></Panel>
         </div>
-    );
+        <details className="kael-panel p-5"><summary className="cursor-pointer font-display text-xl text-white">Character ledger · experience, standing & effectiveness</summary><div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mt-5"><StatBar label={"Level " + player.level + " · " + Math.round(player.xp) + " / " + nextXp + " XP"} value={player.xp / nextXp * 100} color="#D1B579" /><StatTile label="Effectiveness" value={Math.round((state?.effectiveness ?? 1) * 100) + "%"} sub="Health, hunger, energy, fatigue and stress affect your work." /><StatBar label="Reputation" value={player.reputation} color="#8EB89B" info={STAT_INFO.reputation} /><StatBar label="Legal standing" value={player.legal_reputation} color="#D1B579" info={STAT_INFO.legal_reputation} /><StatBar label="Watch suspicion" value={player.criminal_suspicion} color="#D9B66B" invert info={STAT_INFO.criminal_suspicion} /><StatBar label="Social standing" value={player.social_status} color="#B6A0CC" info={STAT_INFO.social_status} /></div></details>
+        <div className="2xl:hidden"><EventLog max={12} /></div>
+    </div>;
 }

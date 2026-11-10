@@ -4,10 +4,10 @@ import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/pri
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
 import {
-    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
-    MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
-    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles, User, BadgeCheck,
-    ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
+    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, Coins as DollarSign, Gauge,
+    MapPin, Store, Clock, Hammer as Briefcase, Castle as LayoutDashboard, Castle as Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
+    Activity, TrendingUp, Wallet, Shield as Zap, BookOpen as GraduationCap, Sparkles, User, BadgeCheck,
+    ShoppingCart, Scale, Home, Compass as Car, Footprints as Bike, Package as Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -16,13 +16,17 @@ import { SortableContext, horizontalListSortingStrategy, useSortable, arrayMove 
 import { CSS } from "@dnd-kit/utilities";
 
 const CONTENT_TYPES = [
+    ...[["world_regions", "Map & Routes"], ["world_npcs", "People & Routines"], ["world_actions", "Actions & Dice"], ["world_quests", "NPC Quests"], ["world_professions", "Learned Professions"], ["world_skills", "Skills"], ["world_charters", "Founding Charters"], ["world_origins", "Origin Picker"]].map(([key,label]) => ({key,label,name:"name"})),
+    { key: "realm_ranks", label: "Life Ranks", name: "name" },
+    { key: "factions", label: "Factions", name: "name" },
+    { key: "expeditions", label: "Expeditions", name: "name" },
     { key: "jobs", label: "Jobs", name: "title" },
     { key: "actions", label: "Actions", name: "name" },
     { key: "courses", label: "Courses", name: "title" },
     { key: "items", label: "Items", name: "name" },
     { key: "housing", label: "Housing", name: "name" },
-    { key: "vehicles", label: "Vehicles", name: "name" },
-    { key: "business_types", label: "Businesses", name: "name" },
+    { key: "vehicles", label: "Mounts & Carts", name: "name" },
+    { key: "business_types", label: "Workshops", name: "name" },
     { key: "illegal_actions", label: "Illegal", name: "name" },
     { key: "random_events", label: "Events", name: "name" },
     { key: "employee_roles", label: "Emp Roles", name: "label" },
@@ -59,7 +63,7 @@ function JsonModal({ open, title, initial, onClose, onSave }) {
                     onChange={(e) => setText(e.target.value)}
                     spellCheck={false}
                     data-testid="json-editor"
-                    className={cn("flex-1 min-h-[340px] bg-[#050505] border rounded-sm p-3 font-mono text-xs text-neon-green/90 outline-none resize-none",
+                    className={cn("flex-1 min-h-[340px] bg-[#101A16] border rounded-sm p-3 font-mono text-xs text-neon-green/90 outline-none resize-none",
                         validity.ok ? "border-white/12 focus:border-neon-cyan/60" : "border-neon-red/50 focus:border-neon-red")}
                 />
                 <div className="flex items-center justify-between mt-2">
@@ -79,9 +83,11 @@ function JsonModal({ open, title, initial, onClose, onSave }) {
     );
 }
 function ContentEditor({ ctype }) {
-    const meta = CONTENT_TYPES.find((c) => c.key === ctype);
+    const meta = CONTENT_TYPES.find((c) => c.key === ctype) || { name: "name", label: ctype };
     const [items, setItems] = useState(null);
     const [modal, setModal] = useState({ open: false, item: null, isNew: false });
+    const [worldTemplates, setWorldTemplates] = useState({});
+    useEffect(() => { if (ctype.startsWith("world_")) api.get("/admin/world/templates").then(({data}) => setWorldTemplates(data)).catch(() => {}); }, [ctype]);
 
     const load = useCallback(() => api.get(`/admin/content/${ctype}`).then(({ data }) => setItems(data)).catch(() => setItems([])), [ctype]);
     useEffect(() => { setItems(null); load(); }, [ctype, load]);
@@ -100,11 +106,19 @@ function ContentEditor({ ctype }) {
         try { await api.delete(`/admin/content/${ctype}/${id}`); toast.success("Deleted"); load(); }
         catch (e) { toast.error(errMessage(e)); }
     };
-    const template = items && items[0] ? { ...items[0], id: "" } : {};
+    const template = items && items[0] ? { ...items[0], id: "" } : { ...(worldTemplates[ctype] || {}), id: "" };
 
     if (!items) return <Spinner />;
     return (
         <div>
+            {ctype.startsWith("world_") && <Panel className="p-5 mb-4 text-sm text-muted-foreground space-y-2"><p className="text-white font-display text-xl">Write the rules of your world</p><p>Create, duplicate or edit any entry. Names and IDs can describe new trades, locations, skills, NPCs and outcomes. Keep IDs stable after players start using them. Empty collections and valid zero values remain empty or zero after restart.</p><p>Map x/y use 0–100%; routes and actions use game minutes. NPC schedules use game-clock hours. Skills are absolute levels; training requirements count successful lessons. Qualifications are cumulative and never exclusive classes.</p><p>Origins use weighted selection, inclusive [min, max] ranges and absolute starting skill levels. Set weight to 0 to exclude an origin. Creation rolls once; existing characters are unchanged. Config → world controls the picker, chance formula and limits.</p><p>Action outcomes split into success and setback pools. Skills change the overall success chance; weights distribute the chance within each pool. Coins use inclusive integer ranges. Costs, outcome and quest rewards are snapshotted when started or accepted. Future changes affect new starts.</p></Panel>}
+            {["factions", "expeditions", "realm_ranks"].includes(ctype) && <Panel className="p-5 mb-4 text-sm text-muted-foreground space-y-2">
+                <p className="text-white font-display text-xl">The realm is yours to shape</p>
+                <p>Edit or duplicate an entry below. Keep IDs stable for existing characters. Set active to false to hide new offers; deleting a faction leaves its members free to leave.</p>
+                <p>Expedition durations and cooldowns use game minutes. Rank days and oath cooldown hours use real time. Service hours count completed expedition game hours. Life ranks also require level and completed deeds.</p>
+                <p>Supplies map item IDs to whole quantities. The preview uses your live equipment values. A departed expedition keeps its rules, costs and outcome until it ends; changes apply to the next departure.</p>
+                <p>Combat formulas, tactics, retreat XP and oath cooldown: Gameplay Tuning → Config → realm. Valid zero values are supported. Advanced JSON preserves additional fields.</p>
+            </Panel>}
             <div className="flex justify-between items-center mb-3">
                 <span className="font-mono text-[11px] text-muted-foreground">{items.length} items</span>
                 <KButton variant="green" onClick={() => setModal({ open: true, item: template, isNew: true })} data-testid="admin-new"><Plus className="w-3.5 h-3.5" /> New</KButton>

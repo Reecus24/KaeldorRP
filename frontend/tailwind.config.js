@@ -6,7 +6,7 @@ module.exports = {
         extend: {
             fontFamily: {
                 sans: ["Manrope", "system-ui", "sans-serif"],
-                display: ["Unbounded", "sans-serif"],
+                display: ["Cormorant Garamond", "Georgia", "serif"],
                 mono: ["JetBrains Mono", "monospace"],
             },
             borderRadius: {
@@ -28,11 +28,11 @@ module.exports = {
                 input: "hsl(var(--input))",
                 ring: "hsl(var(--ring))",
                 neon: {
-                    cyan: "#00F3FF",
-                    green: "#00FF66",
-                    yellow: "#FFC300",
-                    red: "#FF0055",
-                    purple: "#B026FF",
+                    cyan: "#D1B579",
+                    green: "#8EB89B",
+                    yellow: "#D9B66B",
+                    red: "#DE8274",
+                    purple: "#B6A0CC",
                 },
             },
             keyframes: {

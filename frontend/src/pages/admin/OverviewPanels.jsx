@@ -4,10 +4,10 @@ import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/pri
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
 import {
-    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
-    MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
-    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles, User, BadgeCheck,
-    ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
+    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, Coins as DollarSign, Gauge,
+    MapPin, Store, Clock, Hammer as Briefcase, Castle as LayoutDashboard, Castle as Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
+    Activity, TrendingUp, Wallet, Shield as Zap, BookOpen as GraduationCap, Sparkles, User, BadgeCheck,
+    ShoppingCart, Scale, Home, Compass as Car, Footprints as Bike, Package as Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -34,9 +34,9 @@ const FEED_META = {
 const FEED_FILTERS = [
     { key: "all", label: "All", types: null },
     { key: "shop", label: "Purchases", types: "shop" },
-    { key: "work", label: "Work & Hiring", types: "job,business" },
+    { key: "work", label: "Work & Hiring", types: "job,workshop" },
     { key: "crime", label: "Crime & Legal", types: "crime,legal,health" },
-    { key: "finance", label: "Finance", types: "finance,bank" },
+    { key: "finance", label: "Stewardship", types: "finance,bank" },
     { key: "social", label: "Social", types: "social" },
 ];
 const feedTimeAgo = (iso) => {

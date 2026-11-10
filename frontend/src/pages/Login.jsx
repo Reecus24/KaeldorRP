@@ -3,9 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { KButton, KInput } from "@/components/game/controls";
 import { errMessage } from "@/lib/api";
-import { Zap } from "lucide-react";
+import { Shield as Zap } from "lucide-react";
 
-const HERO = "https://images.unsplash.com/photo-1590347945111-a14c8efd9249?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwyfHxkYXJrJTIwbmVvJTIwbm9pciUyMGNpdHklMjBzdHJlZXQlMjBuaWdodHxlbnwwfHx8fDE3ODI3ODg1Njh8MA&ixlib=rb-4.1.0&q=85";
+import HERO from "@/assets/ashen-march.svg";
 
 export default function Login() {
     const { login } = useAuth();
@@ -32,20 +32,20 @@ export default function Login() {
     return (
         <div className="min-h-screen flex">
             <div className="hidden lg:block w-1/2 relative">
-                <img src={HERO} alt="Kaeldor city" className="absolute inset-0 w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-r from-[#050505] via-[#050505]/70 to-transparent" />
+                <img src={HERO} alt="The mountains and old keep of the Ashen March" className="absolute inset-0 w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-r from-[#101A16] via-[#101A16]/70 to-transparent" />
                 <div className="absolute bottom-12 left-12 right-12">
                     <h2 className="font-display font-black tracking-tighter text-5xl text-white leading-none neon-text">
-                        THE CITY<br />NEVER SLEEPS.
+                        FROM FIELD<br />TO LEGEND.
                     </h2>
                     <p className="text-muted-foreground mt-4 max-w-md">
-                        Start with nothing. Work shifts, study, hustle, build businesses — or take the risky road.
+                        Begin as a peasant. Master a craft, build a guild, serve the Crown — or disappear into Thornwood.
                         Time keeps moving whether you're online or not.
                     </p>
                 </div>
             </div>
 
-            <div className="flex-1 flex items-center justify-center p-6 kael-grid bg-[#050505]">
+            <div className="flex-1 flex items-center justify-center p-6 kael-grid bg-[#101A16]">
                 <div className="w-full max-w-sm">
                     <div className="flex items-center gap-2 mb-8">
                         <Zap className="w-7 h-7 text-neon-cyan" />
@@ -64,11 +64,8 @@ export default function Login() {
                     </form>
 
                     <p className="text-sm text-muted-foreground mt-6">
-                        New to the city?{" "}
+                        New to the realm?{" "}
                         <Link to="/register" className="text-neon-cyan hover:underline" data-testid="goto-register">Create an account</Link>
-                    </p>
-                    <p className="text-[11px] text-muted-foreground/60 mt-4 font-mono">
-                        Admin demo: admin@kaeldor.com / admin123
                     </p>
                 </div>
             </div>

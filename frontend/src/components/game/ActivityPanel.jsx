@@ -1,11 +1,13 @@
+import { worldLabel } from "@/lib/helpers";
 import { useGame } from "@/context/GameContext";
+import { Link } from "react-router-dom";
 import { Panel } from "@/components/game/primitives";
 import { fmtDuration, scheduleLabel } from "@/lib/helpers";
 import { api } from "@/lib/api";
-import { Loader2, X, Clock, Coffee, Briefcase, LogOut } from "lucide-react";
+import { Loader2, X, Clock, Coffee, Hammer as Briefcase, LogOut, HeartPulse as Stethoscope, Lock } from "lucide-react";
 
 export default function ActivityPanel({ compact = false }) {
-    const { state, player, activityRemaining, activityProgress, act } = useGame();
+    const { state, player, activityRemaining, activityProgress, confinementRemaining, act } = useGame();
     const activity = state?.activity;
     const onShift = player?.on_shift;
 
@@ -13,6 +15,33 @@ export default function ActivityPanel({ compact = false }) {
         act(() => api.post("/game/cancel-activity"), "Activity cancelled");
     const clockOut = () =>
         act(() => api.post(`/jobs/employment/${onShift.employment_id}/clock-out`), "You clocked out early");
+
+    if (["hospital", "jail"].includes(player?.status)) {
+        const hospital = player.status === "hospital";
+        const remaining = confinementRemaining[player.status];
+        const Icon = hospital ? Stethoscope : Lock;
+        return (
+            <Panel className="p-5 border-neon-red/30" data-testid={`activity-panel-${player.status}`}>
+                <div className="flex items-center gap-2 text-neon-red mb-2">
+                    <Icon className="w-4 h-4" />
+                    <span className="font-mono text-[11px] uppercase tracking-[0.25em]">
+                        {hospital ? "In Infirmary" : "In Dungeon"}
+                    </span>
+                </div>
+                <div className="font-mono text-2xl text-white tnum" data-testid="confinement-timer">
+                    {remaining > 0 ? fmtDuration(remaining) : "Checking release…"}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                    {hospital ? "Recovering until discharge. Work and other activities are unavailable."
+                        : "Serving your sentence. Work and other activities are unavailable."}
+                </p>
+                <Link to={hospital ? "/hospital" : "/jail"}
+                    className="inline-block text-xs text-neon-cyan hover:underline mt-3">
+                    {hospital ? "View treatment & recovery" : "View sentence & bail"}
+                </Link>
+            </Panel>
+        );
+    }
 
     if (!activity && onShift) {
         return (
@@ -22,9 +51,9 @@ export default function ActivityPanel({ compact = false }) {
                     <span className="font-mono text-[11px] uppercase tracking-[0.25em]">On Shift</span>
                 </div>
                 <div className="font-display font-bold text-white leading-tight" data-testid="onshift-business">{onShift.business_name}</div>
-                <div className="text-[11px] text-muted-foreground capitalize mt-0.5">{(onShift.role || "").replace(/_/g, " ")}</div>
+                <div className="text-[11px] text-muted-foreground capitalize mt-0.5">{worldLabel(onShift.role || "")}</div>
                 <div className="flex items-center gap-1.5 text-[11px] text-neon-purple mt-1"><Clock className="w-3 h-3" /> {scheduleLabel(onShift.schedule)}</div>
-                <div className="text-[11px] text-muted-foreground mt-2">Auto-working — wages & business output accrue in real time. Physical activities are paused until your shift ends.</div>
+                <div className="text-[11px] text-muted-foreground mt-2">Auto-working — wages & workshop output accrue in real time. Physical activities are paused until your shift ends.</div>
                 {!compact && (
                     <button onClick={clockOut} data-testid="onshift-clock-out"
                         className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-mono uppercase tracking-wider rounded-sm border border-neon-red/60 text-neon-red hover:bg-neon-red hover:text-white transition-colors">
@@ -43,7 +72,7 @@ export default function ActivityPanel({ compact = false }) {
                     <span className="font-mono text-[11px] uppercase tracking-[0.25em]">Idle</span>
                 </div>
                 <div className="text-sm text-muted-foreground">
-                    You're free. Pick a job, run a hustle, study, or take care of yourself.
+                    You're free. Pick a job, run a errand, study, or take care of yourself.
                 </div>
             </Panel>
         );
@@ -84,7 +113,7 @@ export default function ActivityPanel({ compact = false }) {
                     className="h-full bg-neon-cyan transition-all duration-1000 progress-shimmer"
                     style={{
                         width: `${pct}%`,
-                        backgroundImage: "linear-gradient(90deg, #00F3FF, #B026FF)",
+                        backgroundImage: "linear-gradient(90deg, #D1B579, #B6A0CC)",
                     }}
                 />
             </div>

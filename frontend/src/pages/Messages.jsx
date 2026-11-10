@@ -7,11 +7,12 @@ import { SectionTitle, Spinner, Panel, Pill, EmptyState } from "@/components/gam
 import { KButton } from "@/components/game/controls";
 import { relTime } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
-import { Inbox, MessageSquare, Mail, Send, Plus, X, Ban, ShieldAlert, Smartphone, Laptop, ArrowLeft } from "lucide-react";
+import { Inbox, MessageSquare, Mail, Send, Plus, X, Ban, ShieldAlert, ScrollText as Smartphone, BookOpen as Laptop, ArrowLeft } from "lucide-react";
 
 const CHANNELS = {
-    sms: { label: "SMS", icon: MessageSquare, device: "smartphone", deviceLabel: "Smartphone" },
-    email: { label: "Email", icon: Mail, device: "laptop", deviceLabel: "Laptop" },
+    whisper: { label: "Private RP", icon: MessageSquare, device: null },
+    sms: { label: "Courier Note", icon: MessageSquare, device: "smartphone", deviceLabel: "Courier Seal" },
+    email: { label: "Sealed Letter", icon: Mail, device: "laptop", deviceLabel: "Scribe's Kit" },
 };
 
 function Compose({ channel, directory, onClose, onSent }) {
@@ -25,7 +26,8 @@ function Compose({ channel, directory, onClose, onSent }) {
         if (!body.trim()) return toast.error("Write a message");
         setBusy(true);
         try {
-            await api.post("/messages/send", { channel, to_player_id: to, subject: channel === "email" ? subject : null, body });
+            if (channel === "whisper") await api.post("/world/chat", {channel, peer: to, message: body, mode: "ooc"});
+            else await api.post("/messages/send", { channel, to_player_id: to, subject: channel === "email" ? subject : null, body });
             toast.success("Message sent");
             onSent();
         } catch (e) { toast.error(errMessage(e)); }
@@ -78,7 +80,8 @@ function ThreadView({ thread, onBack, onChanged }) {
         if (!reply.trim()) return;
         setBusy(true);
         try {
-            await api.post("/messages/send", { channel: thread.channel, to_player_id: thread.other_id,
+            if (thread.channel === "whisper") await api.post("/world/chat", {channel: "whisper", peer: thread.other_id, message: reply, mode: "ooc"});
+            else await api.post("/messages/send", { channel: thread.channel, to_player_id: thread.other_id,
                 subject: thread.channel === "email" ? `Re: ${thread.subject || ""}` : null, body: reply, thread_id: thread.thread_id });
             setReply("");
             await load();
@@ -105,7 +108,7 @@ function ThreadView({ thread, onBack, onChanged }) {
                 </div>
                 <button onClick={block} title="Block / unblock" data-testid="block-button" className="text-muted-foreground hover:text-neon-red"><Ban className="w-4 h-4" /></button>
             </div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3 bg-[#050505]" data-testid="thread-messages">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3 bg-[#101A16]" data-testid="thread-messages">
                 {!msgs ? <Spinner /> : msgs.map((m) => (
                     <div key={m.id} className={cn(m.from_player_id === meId && "text-right")}>
                         {m.subject && <div className="text-[10px] text-neon-cyan font-mono mb-0.5">{m.subject}</div>}
@@ -134,7 +137,7 @@ export default function Messages() {
     const [directory, setDirectory] = useState([]);
     const [composeOpen, setComposeOpen] = useState(false);
 
-    const hasDevice = !!player?.inventory?.[CHANNELS[channel].device];
+    const hasDevice = !CHANNELS[channel].device || !!player?.inventory?.[CHANNELS[channel].device];
 
     const loadThreads = useCallback(async () => {
         const { data } = await api.get(`/messages/threads?channel=${channel}`);
@@ -150,7 +153,7 @@ export default function Messages() {
     return (
         <div className="space-y-6">
             <SectionTitle icon={Inbox} kicker="Communication" title="Messages"
-                sub="Reach other players directly. SMS is quick and casual (needs a phone); email is for longer, formal notes like job applications and offers (needs a laptop)." />
+                sub="Private RP is available without equipment for planning together. Courier Note is quick and casual (needs a courier seal); sealed letters are for longer, formal notes like job applications and offers (needs a scribe's kit)." />
 
             <div className="flex flex-wrap items-center gap-2">
                 {Object.entries(CHANNELS).map(([k, c]) => (
@@ -173,7 +176,7 @@ export default function Messages() {
                 </Panel>
             )}
 
-            <div className="grid lg:grid-cols-[320px_1fr] gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
                 <div className={cn("space-y-2", selected && "hidden lg:block")}>
                     {!threads ? <Spinner /> : threads.length === 0 ? (
                         <EmptyState icon={meta.icon} title={`No ${meta.label} yet`} sub={hasDevice ? "Start a conversation with the New button." : `Buy a ${meta.deviceLabel} to get started.`} />

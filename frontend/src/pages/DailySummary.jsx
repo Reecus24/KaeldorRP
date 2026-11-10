@@ -5,15 +5,19 @@ import { ScrollText, TrendingUp, TrendingDown, AlertTriangle, Sparkles, ListTree
 import { cn } from "@/lib/utils";
 
 const INCOME = [
+    ["expedition_income", "Expedition Spoils"],
+    ["story_income", "Stories & Milestones"],
     ["wages_earned", "Total Wages"],
-    ["business_income", "Business Dividends / Profits"],
+    ["business_income", "Workshop Dividends / Profits"],
     ["crime_income", "Crime Income"],
     ["social_income", "Social & Deals"],
     ["savings_interest", "Savings Interest"],
 ];
 const EXPENSE = [
+    ["expedition_costs", "Faction Oaths"],
+    ["story_costs", "Story Expenses"],
     ["rent", "Housing Rent"],
-    ["vehicle_costs", "Vehicle Expenses (Fuel / Ins / Maint)"],
+    ["vehicle_costs", "Mount or Cart Expenses (Fodder / Ins / Maint)"],
     ["bills", "Utilities"],
     ["living_costs", "Social Spending"],
     ["fines", "Fines & Bail"],
@@ -22,14 +26,14 @@ const EXPENSE = [
     ["loan_interest", "Loan Interest"],
 ];
 const INFO = [
-    ["business_pnl", "Business P&L (info)"],
-    ["employee_wages", "Staff wages (paid by business)"],
+    ["business_pnl", "Workshop P&L (info)"],
+    ["employee_wages", "Staff wages (paid by workshop)"],
 ];
 const SEV_DOT = { success: "bg-neon-green", warning: "bg-neon-yellow", danger: "bg-neon-red", info: "bg-neon-cyan" };
 
-const fmt = (v) => `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v || 0)).toLocaleString()}`;
+const fmt = (v) => `${v < 0 ? "-" : ""}¤ ${Math.abs(Math.round(v || 0)).toLocaleString()}`;
 
-const BALANCES = [["cash", "Cash", true, true], ["bank", "Bank", true, true], ["debt", "Debt", true, false]];
+const BALANCES = [["cash", "Coin", true, true], ["bank", "Vault", true, true], ["debt", "Debt", true, false]];
 const STATS = [
     ["energy", "Energy", true], ["health", "Health", true], ["mood", "Mood", true],
     ["hunger", "Hunger", false], ["fatigue", "Fatigue", false], ["stress", "Stress", false],
@@ -110,7 +114,7 @@ function SummaryCard({ s }) {
                 </div>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <div className="flex justify-between items-center text-[10px] uppercase tracking-wider text-neon-green mb-1">
                         <span>Income</span><span className="font-mono">{fmt(s.income_total)}</span>
@@ -127,7 +131,7 @@ function SummaryCard({ s }) {
 
             {hasInfo && (
                 <div className="mt-3 pt-3 border-t border-white/8">
-                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Business & debt</div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Workshop & debt</div>
                     {INFO.map(([k, label]) => (
                         <div key={k} className="flex justify-between items-center py-1 text-sm">
                             <span className="text-muted-foreground">{label}</span>
@@ -170,9 +174,9 @@ function SummaryCard({ s }) {
                 <BeforeAfter open={s.open} close={s.close} />
             ) : (
                 <div className="mt-4 pt-3 border-t border-white/8 flex flex-wrap gap-2">
-                    <Pill tone="cyan">Cash ${Math.round(s.cash).toLocaleString()}</Pill>
-                    <Pill tone="green">Bank ${Math.round(s.bank).toLocaleString()}</Pill>
-                    {s.debt > 0 && <Pill tone="red">Debt ${Math.round(s.debt).toLocaleString()}</Pill>}
+                    <Pill tone="cyan">Coin ¤ {Math.round(s.cash).toLocaleString()}</Pill>
+                    <Pill tone="green">Vault ¤ {Math.round(s.bank).toLocaleString()}</Pill>
+                    {s.debt > 0 && <Pill tone="red">Debt ¤ {Math.round(s.debt).toLocaleString()}</Pill>}
                 </div>
             )}
         </Panel>
@@ -189,8 +193,8 @@ export default function DailySummary() {
     if (!items) return <Spinner />;
     return (
         <div className="space-y-6">
-            <SectionTitle icon={ScrollText} kicker="Your ledger" title="Daily Summary"
-                sub="A 100% transparent receipt of every in-game day — income (wages, business dividends), expenses (housing rent, vehicle, utilities, social), business P&L, the day's event log and warnings. Fixed rent & vehicle costs are charged as one daily sum at 00:00; continuous flows (bills, interest) accrue through the day." />
+            <SectionTitle icon={ScrollText} kicker="Your ledger" title="Daily Chronicle"
+                sub="A 100% transparent receipt of every in-game day — income (wages, workshop dividends), expenses (housing rent, mount or cart, utilities, social), workshop P&L, the day's event log and warnings. Fixed rent & mount or cart costs are charged as one daily sum at 00:00; continuous flows (bills, interest) accrue through the day." />
             {items.length === 0 ? (
                 <EmptyState icon={ScrollText} title="No summaries yet" sub="Your first daily report will appear after the next in-game midnight. Keep living your life — it's all being tracked." />
             ) : (

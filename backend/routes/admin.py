@@ -1,5 +1,27 @@
 from core import *  # noqa: F401,F403
 import market_engine
+from config_schema import merge_config, validate_config, validate_content, validate_json, flatten_patch
+from journey_engine import COLLECTIONS as JOURNEY_COLLECTIONS, validate_definition
+from realm_engine import COLLECTIONS as REALM_COLLECTIONS, validate_definition as validate_realm
+from world_engine import COLLECTIONS as WORLD_COLLECTIONS, validate_definition as validate_world
+
+
+@api.get("/admin/journey/templates")
+async def journey_templates(admin: dict = Depends(admin_user)):
+    from copy import deepcopy
+    return {kind: deepcopy(CONTENT_MAP[kind][1][0]) for kind in JOURNEY_COLLECTIONS}
+
+
+@api.post("/admin/journey/{kind}/validate")
+async def validate_journey_draft(kind: str, body: dict, admin: dict = Depends(admin_user)):
+    if kind not in JOURNEY_COLLECTIONS:
+        raise HTTPException(404, "Unknown journey content type.")
+    draft = {**body, "id": body.get("id") or "draft"}
+    try:
+        validate_definition(kind, draft)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"valid": True}
 
 
 
@@ -23,8 +45,19 @@ async def admin_create(ctype: str, body: dict, admin: dict = Depends(admin_user)
     if not body.get("id"):
         body["id"] = uuid.uuid4().hex
     body.pop("_id", None)
-    # replace_one (not $set) so the document is stored in exactly the key order the admin submitted.
-    await db[coll].replace_one({"id": body["id"]}, body, upsert=True)
+    try:
+        validate_content(body)
+        if ctype in WORLD_COLLECTIONS:
+            validate_world(ctype, body)
+        if ctype in REALM_COLLECTIONS:
+            validate_realm(ctype, body)
+        if ctype in JOURNEY_COLLECTIONS:
+            validate_definition(ctype, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if await db[coll].find_one({"id": body["id"]}, {"_id": 1}):
+        raise HTTPException(status_code=409, detail="This content ID already exists. Edit the existing entry instead.")
+    await db[coll].insert_one(dict(body))
     return {"ok": True, "id": body["id"]}
 
 
@@ -40,6 +73,16 @@ async def admin_update(ctype: str, item_id: str, body: dict, admin: dict = Depen
         raise HTTPException(status_code=404, detail="Item not found")
     body.pop("_id", None)
     body["id"] = item_id
+    try:
+        validate_content(body)
+        if ctype in WORLD_COLLECTIONS:
+            validate_world(ctype, {k: v for k, v in {**existing, **body}.items() if k != "_id"})
+        if ctype in REALM_COLLECTIONS:
+            validate_realm(ctype, {k: v for k, v in {**existing, **body}.items() if k != "_id"})
+        if ctype in JOURNEY_COLLECTIONS:
+            validate_definition(ctype, {k: v for k, v in {**existing, **body}.items() if k != "_id"})
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     # Preserve the admin's exact key order (replace_one, not $set which keeps the old DB order and
     # "scatters" the JSON). Any fields managed by other panels but not in the editor payload are
     # retained (appended) so nothing is accidentally dropped.
@@ -75,14 +118,12 @@ async def admin_get_config(admin: dict = Depends(admin_user)):
 async def admin_update_config(body: dict, admin: dict = Depends(admin_user)):
     body.pop("_id", None)
     body.pop("id", None)
-    # Shallow-merge dict sub-documents (e.g. `tuning`) so a partial save never wipes other knobs.
-    set_ops = {}
-    for k, v in body.items():
-        if isinstance(v, dict):
-            for sk, sv in v.items():
-                set_ops[f"{k}.{sk}"] = sv
-        else:
-            set_ops[k] = v
+    current = await get_config(db)
+    try:
+        validate_config(merge_config(current, body), DEFAULT_CONFIG)
+        set_ops = flatten_patch(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     set_ops["id"] = "global"
     await db.config.update_one({"id": "global"}, {"$set": set_ops}, upsert=True)
     return {"ok": True}
@@ -95,7 +136,8 @@ async def admin_players(admin: dict = Depends(admin_user)):
     players = await db.players.find({}, {"_id": 0, "name": 1, "level": 1, "cash": 1, "bank": 1,
                                          "debt": 1, "net_worth": 1, "status": 1, "reputation": 1,
                                          "legal_reputation": 1, "criminal_suspicion": 1, "social_status": 1,
-                                         "health": 1, "energy": 1, "skills": 1,
+                                         "health": 1, "energy": 1, "hunger": 1, "fatigue": 1,
+                                         "mood": 1, "stress": 1, "skills": 1,
                                          "id": 1, "created_at": 1}).to_list(500)
     return players
 
@@ -118,7 +160,7 @@ async def admin_stats(admin: dict = Depends(admin_user)):
 
 @api.get("/admin/overview")
 async def admin_overview(admin: dict = Depends(admin_user)):
-    """City-wide metrics for the Admin Dashboard summary strips."""
+    """Realm-wide metrics for the Admin Dashboard summary strips."""
     agg = await db.players.aggregate([{"$group": {"_id": None,
         "nw": {"$sum": "$net_worth"}, "cash": {"$sum": "$cash"},
         "bank": {"$sum": "$bank"}, "debt": {"$sum": "$debt"},
@@ -176,7 +218,7 @@ async def put_admin_layout(body: AdminLayoutBody, admin: dict = Depends(admin_us
 
 @api.get("/admin/feed")
 async def admin_feed(limit: int = 40, types: Optional[str] = None, admin: dict = Depends(admin_user)):
-    """Live city feed — most recent events across all players (purchases, hirings, crimes, market moves...)."""
+    """Live realm feed — most recent events across all players (purchases, hirings, crimes, market moves...)."""
     q = {}
     if types:
         wanted = [t.strip() for t in types.split(",") if t.strip()]
@@ -257,12 +299,15 @@ async def admin_update_player(player_id: str, body: AdminPlayerBody, admin: dict
     p = await db.players.find_one({"id": player_id}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Player not found")
+    # Settle the old state first. Otherwise the next player request applies all old
+    # offline decay to the Owner's newly edited hunger/health/cash values.
+    await resolve_player(db, p)
     upd = {}
     for f in ["cash", "bank", "debt"]:
         v = getattr(body, f)
         if v is not None:
             upd[f] = round(float(v), 2)
-    for f in ["reputation", "legal_reputation", "criminal_suspicion", "social_status", "health", "energy"]:
+    for f in ["reputation", "legal_reputation", "criminal_suspicion", "social_status", "health", "energy", "hunger", "fatigue", "mood", "stress"]:
         v = getattr(body, f)
         if v is not None:
             upd[f] = clamp(float(v))
@@ -273,8 +318,9 @@ async def admin_update_player(player_id: str, body: AdminPlayerBody, admin: dict
                 skills[sid]["level"] = max(1, int(lvl))
                 skills[sid]["xp"] = 0
         upd["skills"] = skills
-    if upd:
-        await db.players.update_one({"id": player_id}, {"$set": upd})
+    p.update(upd)
+    p["net_worth"] = await compute_net_worth(p)
+    await save_player(p)
     return {"ok": True, "updated": list(upd.keys())}
 
 
@@ -556,14 +602,14 @@ async def admin_update_market_asset(asset_id: str, body: dict, admin: dict = Dep
 
 @api.post("/admin/market")
 async def admin_create_market_asset(body: dict, admin: dict = Depends(admin_user)):
-    """Create a new Stock or Crypto asset. The price engine picks it up automatically."""
+    """Create a new Stock or Relic asset. The price engine picks it up automatically."""
     symbol = str(body.get("symbol") or "").strip().upper()
     name = str(body.get("name") or "").strip()
     kind = str(body.get("kind") or "stock").strip().lower()
     if not symbol or not name:
         raise HTTPException(status_code=400, detail="Symbol and name are required")
     if kind not in ("stock", "crypto"):
-        raise HTTPException(status_code=400, detail="Kind must be 'stock' or 'crypto'")
+        raise HTTPException(status_code=400, detail="Kind must be 'stock' or 'relic'")
     try:
         price = round(max(0.01, float(body.get("base_price", body.get("price", 1)))), 6)
     except (TypeError, ValueError):
@@ -666,8 +712,8 @@ async def admin_delete_background(bg_id: str, admin: dict = Depends(admin_user))
 
 
 async def _assign_vehicles_to_category(category_id, vehicle_ids):
-    """Set category_id on the listed vehicles and clear it from any vehicle that was in this
-    category but is no longer listed (keeps the one-category-per-vehicle invariant)."""
+    """Set category_id on the listed mounts & carts and clear it from any mount or cart that was in this
+    category but is no longer listed (keeps the one-category-per-mount or cart invariant)."""
     ids = list(vehicle_ids or [])
     await db.vehicles.update_many({"category_id": category_id, "id": {"$nin": ids}}, {"$set": {"category_id": None}})
     if ids:
@@ -778,7 +824,7 @@ async def admin_job_applications(admin: dict = Depends(admin_user)):
     for j in jobs:
         j.setdefault("acceptance_base_chance", 0.5)
         j.setdefault("skill_weight", 1.0)
-        j.setdefault("success_response", "Your application for {title} was accepted — the offer is ${wage}/h. Accept it to start working.")
+        j.setdefault("success_response", "Your application for {title} was accepted — the offer is ¤ {wage}/h. Accept it to start working.")
         j.setdefault("failure_response", "Your application for {title} was rejected: {reason}.")
         # Merge stored overrides over the defaults so the editor always shows every reason key.
         rs = j.get("reason_strings") or {}
