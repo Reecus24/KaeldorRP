@@ -18,6 +18,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { ContentEditor } from "./admin/shared";
 import { Shield as ShieldRealm } from "lucide-react";
 import JourneyStudio from "./admin/JourneyStudio";
+import StorytellerDesk from "./admin/StorytellerDesk";
+import WorldCharacters from "./admin/WorldCharacters";
 import { ConfigEditor, EconomyTuner, TuningPanel, MarketsPanel } from "./admin/EconomyPanels";
 import { PlayersTable, StatsView, CharacterOriginsPanel } from "./admin/PlayerPanels";
 import { LocationsPanel, CityShopsPanel, JobSectorsPanel, VehicleCategoriesPanel } from "./admin/CityPanels";
@@ -25,6 +27,7 @@ import { JobShiftsPanel, JobApplicationsPanel } from "./admin/JobPanels";
 import { LiveCityFeed } from "./admin/OverviewPanels";
 
 const ADMIN_GROUPS = [
+    { key: "world", label: "Open World", icon: MapPin, children: [{ key: "world_intents", label: "Storyteller Desk" }, { key: "world_characters", label: "Characters & Memories" }, { key: "world_regions", label: "Map & Routes" }, { key: "world_npcs", label: "People & Routines" }, { key: "world_actions", label: "Actions & Dice" }, { key: "world_quests", label: "NPC Quests" }, { key: "world_professions", label: "Learned Professions" }, { key: "world_skills", label: "Skills" }, { key: "world_charters", label: "Founding Charters" }, { key: "world_origins", label: "Origin Picker" }] },
     { key: "realm", label: "Fantasy Realm", icon: ShieldRealm, children: [{ key: "realm_ranks", label: "Life Ranks" }, { key: "factions", label: "Factions & Ranks" }, { key: "expeditions", label: "Expeditions" }] },
     { key: "journey", label: "Stories & Goals", icon: Sparkles,
       children: [{ key: "journey_goals", label: "Ambitions" }, { key: "story_arcs", label: "Stories" }, { key: "city_events", label: "Realm Events" }] },
@@ -98,6 +101,8 @@ const ADMIN_SUMMARY = {
 };
 function renderAdminLeaf(key, ctx = {}) {
     switch (key) {
+        case "world_characters": return <WorldCharacters />;
+        case "world_intents": return <StorytellerDesk />;
         case "journey_goals":
         case "story_arcs":
         case "city_events": return <JourneyStudio key={key} kind={key} />;

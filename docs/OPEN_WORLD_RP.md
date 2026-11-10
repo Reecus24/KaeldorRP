@@ -1,0 +1,157 @@
+# Kaeldor: a shared map and text role-playing world
+
+The main screen is now the world atlas. The previous village overview remains at
+`/village`; existing needs, jobs, businesses, faction expeditions and social tools
+remain available. This is a map/text RP, with server-owned travel and checks. There
+is no real-time 2D/3D movement layer.
+
+## Playing together
+
+Characters share the same world catalogue, clock, NPC routines, player-founded
+groups and world chat. The map lists other characters at your location. Select an
+adjacent destination and travel; the activity bar shows the real countdown.
+Finishing travel changes your location, including while offline. Cancelling keeps
+you at the origin. Disabling a region moves stranded characters to an available
+region on their next world request. An intentionally empty map stays empty.
+
+The default world contains seven locations, six named NPCs, fourteen actions,
+seven professions, five NPC quests and four founding charters. These are examples,
+not an exhaustive list of what characters may become.
+
+## Free actions and the storyteller
+
+In Explore, describe what your character intends to do. Choose a matching local
+check to start it with your own narrative, or submit a new situation to the Owner.
+The Owner opens **Sandbox → Open World → Storyteller Desk**, selects the proposal
+and defines skill, difficulty, costs, duration and outcomes. Advanced JSON exposes
+every rule. Approval grants no money or skills: it creates one check for that
+player at the proposal's location. The player can review the odds before starting.
+The check is consumed at start and cannot be repeated, including after cancelling.
+A declined proposal can include the storyteller's explanation.
+
+There is no automatic AI adjudicator yet. Free prose never directly grants powers,
+items or money. Owners can turn recurring ideas into reusable World Actions.
+
+## Dice and learning
+
+Success probability is:
+
+`clamp(base_success + (skill_level - difficulty) × chance_per_skill, min_success, max_success)`
+
+These four values are under **Gameplay Tuning → Config → world**. Outcomes are split
+into successful and unsuccessful pools; weights distribute probability within each
+pool. A zero-weight outcome never occurs. If only one pool has positive weight,
+that pool receives the whole probability. All weights zero is invalid.
+
+The server uses `SystemRandom` to pick one outcome, then rolls the inclusive integer
+coin range. The action snapshots its selected outcome, costs, reward, XP, effects
+and odds at departure. Pending dice are hidden from the public player state.
+Completion applies the result once through the existing chronological activity
+engine. The chronicle shows the sampled roll and original probabilities; it is an
+audit trail, not a cryptographic fairness proof. Cancelling forfeits paid costs and
+keeps the cooldown. Injuries use the existing infirmary timeline.
+
+Skill XP uses the existing configurable level thresholds. Qualifications can
+require both skill levels and successful lesson counts. Teachers must be at the
+same location when a lesson starts. Choosing a profession changes your title; it
+does not restrict other qualifications or substitute for actual training.
+
+## Character creation
+
+The default creation mode is a single random roll on submission. Existing
+characters are not reset. **Origin Picker** controls weighted origins, inclusive
+age/coin/skill/need ranges, inventory, prior lesson counts and optional weighted
+starting professions. Skills are absolute levels, not bonus levels. Starting
+professions are drawn only from choices whose qualifications the rolled character
+already meets; otherwise the character starts without a profession. No origin
+or profession forces a paid job contract. Weight zero excludes an entry.
+
+Set `world.random_creation` to false to use the previous selectable origins. The
+old **Peasant Origins** editor affects that mode; **Origin Picker** affects random
+mode. An empty or wholly disabled picker blocks new creation rather than restoring
+defaults. Concurrent creation requests cannot reroll an existing character.
+
+## NPCs and memory
+
+NPCs have editable personalities, aims, home regions and game-clock schedules.
+Schedule entries use `from_hour`, `to_hour`, and `region`; overnight ranges are
+supported, and the first matching entry wins. No match means the home region.
+
+**Dialogue currently uses written responses, not a language model.** There are no
+AI service calls, API charges, model downloads or provider credentials. The future
+self-hosted model can replace the small boundary in `npc_dialogue.py`. It must
+remain separate from authoritative checks and rewards.
+
+Memories are stored per NPC and player: first meeting, visit count and the latest
+configured number of conversation turns. Completed quest facts are kept separately
+and remain available after conversation history is trimmed. A memory-turn limit
+of zero retains no dialogue text on subsequent conversations. No player's private
+conversation is used in another player's NPC dialogue. Owners can inspect and
+edit memories through **Characters & Memories**.
+
+NPC quests are accepted and turned in at that NPC's current location. Acceptance
+snapshots the objective and reward; only subsequent matching actions count.
+Successful-only objectives ignore failed checks. Claiming twice cannot pay twice.
+If an Owner disables the quest giver, re-enable that NPC before turning in an
+already accepted quest. Removing an offer does not erase accepted progress.
+
+## Founding factions and businesses
+
+**Our mark** lets qualified players establish named factions, trading houses,
+smithies and shipyards. Each has a location, founder, purpose and open/closed
+membership. Other players can join or leave; only the founder edits the charter.
+Characters may belong to multiple independent groups. These memberships are
+separate from the Crownwarden/Thornbound service oath.
+
+Members of a smithy, shipyard or trading house can take appropriate commissions
+there, including at another permitted founding location. Each member still needs
+their own qualifications. Commission rewards go to the worker. These player-led
+charters do not yet have a shared treasury, automatic production, territory control
+or pooled construction resources. Existing managed businesses continue to provide
+staffing, inventory, restocking and operating cash through **Managed businesses**.
+
+Founding cost and the charter are saved together in the founder's player document.
+Members are stored with their own character. The shared roster exposes only names
+and IDs, not another character's funds, inventory or memories.
+
+## Owner controls and extension
+
+| Sandbox area | Editable content |
+| --- | --- |
+| Map & Routes | Locations, coordinates from 0–100%, directed links, travel game minutes, prerequisites |
+| People & Routines | Names, roles, personality, goals, greetings and schedules |
+| Actions & Dice | Regions, skills, difficulties, durations, costs, supplies, outcome weights and effects |
+| NPC Quests | Giver, objective action, count, success requirement, prerequisites and coin reward |
+| Learned Professions | Cumulative skill, training and profession prerequisites |
+| Skills | Stable skill IDs and visible names; new skills accrue XP without engine changes |
+| Founding Charters | Group kind, cost, permitted regions and qualifications |
+| Origin Picker | Weights, ranges, prior training, inventory and possible starting titles |
+| Characters & Memories | Current region/title, skill levels/XP, lesson counts and NPC conversations |
+| Config → world | Success formula, start region, creation mode and player limits |
+
+Use stable IDs for references. Disabling content prevents new offers; deleting it
+does not resurrect it on restart. Seed receipts preserve intentionally empty
+collections. Valid zero values remain zero. Started actions and accepted quests
+keep their snapshots. Structural validation rejects invalid ranges, unsafe IDs,
+non-finite numbers, duplicate outcome IDs and impossible probability settings.
+Circular profession prerequisites fail closed with an explanatory message.
+
+In Characters & Memories, skills are merged by ID to retain existing core skills;
+training and memories are replaced exactly, so `{}` clears them. Elapsed play is
+settled before applying Owner changes. A title edit never bypasses qualifications.
+
+Adding a profession or NPC is content work. Introducing an entirely new effect
+type or simulation system still requires code; arbitrary JSON cannot implement a
+new game mechanic by itself.
+
+## Verification and preview limits
+
+The isolated backend suite covers weighted boundaries and zero settings, learning
+gates, NPC memory isolation, creation races, proposal permissions, single-use
+approval, quest replay, shared founding access, persistence and 1×/12× offline
+versus repeated injury/recovery resolution. Browser checks cover the map, dialogue,
+Owner approval, custom completion, learning gates, founding and mobile layouts.
+
+The current localhost preview uses isolated demonstration data. Public hosting and
+production MongoDB operation have not been deployed or load-tested in this change.
+Long-term progression, commission earnings and retention need real playtesting.

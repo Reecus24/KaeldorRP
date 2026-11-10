@@ -86,6 +86,8 @@ def flatten_patch(patch, prefix=""):
 def validate_config(config, defaults):
     validate_json(config)
     _validate_types(config, defaults, "")
+    from world_engine import validate_settings as validate_world_settings
+    validate_world_settings(config["world"])
     from realm_engine import validate_settings
     validate_settings(config["realm"])
     journey = config.get("journey", {})

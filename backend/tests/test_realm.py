@@ -193,6 +193,7 @@ def test_character_creation_requires_an_active_owner_origin(monkeypatch):
     monkeypatch.setattr(route, "db", db)
     async def run():
         await seed_content(db)
+        await db.config.update_one({"id": "global"}, {"$set": {"world.random_creation": False}})
         with pytest.raises(HTTPException) as blocked:
             await route.create_character(core.CharacterBody(name="Test Peasant", background="graduate"), {"id": "test-character"})
         assert blocked.value.status_code == 400

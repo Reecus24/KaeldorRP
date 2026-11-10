@@ -1,7 +1,11 @@
 # KAELDOR
 
-A persistent browser life simulation with a React interface, FastAPI backend and MongoDB storage.
-The Owner Sandbox controls activities, items, jobs, businesses and simulation settings.
+A persistent medieval fantasy map/text RPG with a React interface, FastAPI backend and MongoDB storage.
+Travel, meet NPCs, propose free actions, learn trades and establish player-led factions and workshops.
+The Owner Sandbox controls content, random creation, dice, qualifications and simulation settings.
+
+See [Open-world RP and Owner guide](docs/OPEN_WORLD_RP.md) for the current systems and limits.
+NPC dialogue currently uses written responses and per-character memories; a self-hosted AI is planned later.
 
 ## Local setup
 

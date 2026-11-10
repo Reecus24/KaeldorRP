@@ -17,9 +17,15 @@ export default function CharacterCreate() {
     const [backgrounds, setBackgrounds] = useState([]);
     const [selected, setSelected] = useState("drifter");
     const [loading, setLoading] = useState(false);
+    const [creation, setCreation] = useState(null);
+    const [loadError, setLoadError] = useState("");
 
     useEffect(() => {
-        api.get("/backgrounds").then(({ data }) => { setBackgrounds(data); setSelected(data[0]?.id || ""); }).catch(() => {});
+        api.get("/world/creation").then(async ({data}) => {
+            setCreation(data);
+            if(data.random) { setSelected(data.origins.some(o=>o.weight>0) ? "random" : ""); }
+            else { const res=await api.get("/backgrounds");setBackgrounds(res.data);setSelected(res.data[0]?.id||""); }
+        }).catch(err => setLoadError(errMessage(err)));
     }, []);
 
     const submit = async () => {
@@ -47,13 +53,14 @@ export default function CharacterCreate() {
                     <span className="font-display font-black tracking-tighter text-xl">KAELDOR<span className="text-neon-cyan">.</span></span>
                 </div>
                 <h1 className="font-display font-black tracking-tighter text-4xl text-center text-white">Create Your Character</h1>
-                <p className="text-center text-muted-foreground mt-2 mb-8">Your story begins as an unemployed peasant. No title, no trade — only the future you earn.</p>
+                <p className="text-center text-muted-foreground mt-2 mb-8">{creation?.random ? "A beginning chosen by fate. A future shaped by what you learn." : "Your story begins with the origin you choose."}</p>
 
                 <div className="max-w-sm mx-auto mb-8">
                     <KInput label="Character Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Rowan Ashford" maxLength={24} testid="character-name" />
                 </div>
 
-                {backgrounds.length === 0 ? (
+                {loadError && <p role="alert" className="text-center text-neon-red mb-4">{loadError}</p>}
+                {creation?.random ? <div className="space-y-4"><Panel className="p-5 text-sm text-muted-foreground"><p>Your origin, age, starting coin and skill levels are rolled once when you create your character. You can learn any qualified profession later; this does not lock you into a class.</p><p className="mt-2">The Owner controls this pool, its weights and every range in Open World → Origin Picker.</p></Panel><div className="grid grid-cols-1 sm:grid-cols-3 gap-4">{creation.origins.filter(o=>o.weight>0).map(o=><Panel key={o.id} className="p-5"><p className="font-display text-xl text-white">{o.name}</p><p className="text-xs text-muted-foreground my-3">{o.description}</p><p className="text-xs text-neon-cyan">{Math.round(100*o.weight/creation.origins.reduce((n,x)=>n+x.weight,0))}% chance</p><p className="text-xs mt-2">Age {o.age[0]}–{o.age[1]} · {money(o.coins[0])}–{money(o.coins[1])}</p><div className="text-xs text-muted-foreground mt-3 space-y-1">{Object.entries(o.skills).map(([key,r])=><p key={key}>{worldLabel(key)} · level {r[0]}–{r[1]}</p>)}</div></Panel>)}</div>{!selected&&<p className="text-center">No weighted origins are enabled. Ask the Owner to configure the picker.</p>}</div> : backgrounds.length === 0 ? (
                     <p className="text-center text-muted-foreground">No origins available yet. The Owner can enable one in the Sandbox.</p>
                 ) : (
                     <div className={backgrounds.length === 1 ? "max-w-md mx-auto" : "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"}>
@@ -91,7 +98,7 @@ export default function CharacterCreate() {
 
                 <div className="flex justify-center mt-8">
                     <KButton onClick={submit} loading={loading} disabled={!selected} variant="solid" className="px-10 py-3" data-testid="create-character-submit">
-                        Enter the Ashen March
+                        {creation?.random ? "Roll my beginning & enter" : "Enter the Ashen March"}
                     </KButton>
                 </div>
             </div>

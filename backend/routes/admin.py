@@ -3,6 +3,7 @@ import market_engine
 from config_schema import merge_config, validate_config, validate_content, validate_json, flatten_patch
 from journey_engine import COLLECTIONS as JOURNEY_COLLECTIONS, validate_definition
 from realm_engine import COLLECTIONS as REALM_COLLECTIONS, validate_definition as validate_realm
+from world_engine import COLLECTIONS as WORLD_COLLECTIONS, validate_definition as validate_world
 
 
 @api.get("/admin/journey/templates")
@@ -46,6 +47,8 @@ async def admin_create(ctype: str, body: dict, admin: dict = Depends(admin_user)
     body.pop("_id", None)
     try:
         validate_content(body)
+        if ctype in WORLD_COLLECTIONS:
+            validate_world(ctype, body)
         if ctype in REALM_COLLECTIONS:
             validate_realm(ctype, body)
         if ctype in JOURNEY_COLLECTIONS:
@@ -72,6 +75,8 @@ async def admin_update(ctype: str, item_id: str, body: dict, admin: dict = Depen
     body["id"] = item_id
     try:
         validate_content(body)
+        if ctype in WORLD_COLLECTIONS:
+            validate_world(ctype, {k: v for k, v in {**existing, **body}.items() if k != "_id"})
         if ctype in REALM_COLLECTIONS:
             validate_realm(ctype, {k: v for k, v in {**existing, **body}.items() if k != "_id"})
         if ctype in JOURNEY_COLLECTIONS:
@@ -157,8 +162,8 @@ async def admin_stats(admin: dict = Depends(admin_user)):
 async def admin_overview(admin: dict = Depends(admin_user)):
     """Realm-wide metrics for the Admin Dashboard summary strips."""
     agg = await db.players.aggregate([{"$group": {"_id": None,
-        "nw": {"$sum": "$net_worth"}, "cash": {"$sum": "$coin"},
-        "bank": {"$sum": "$vault"}, "debt": {"$sum": "$debt"},
+        "nw": {"$sum": "$net_worth"}, "cash": {"$sum": "$cash"},
+        "bank": {"$sum": "$bank"}, "debt": {"$sum": "$debt"},
         "susp": {"$avg": "$criminal_suspicion"}}}]).to_list(1)
     a = agg[0] if agg else {}
     players_total = await db.players.count_documents({})

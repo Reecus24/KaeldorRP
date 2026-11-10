@@ -16,6 +16,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable, arrayMove 
 import { CSS } from "@dnd-kit/utilities";
 
 const CONTENT_TYPES = [
+    ...[["world_regions", "Map & Routes"], ["world_npcs", "People & Routines"], ["world_actions", "Actions & Dice"], ["world_quests", "NPC Quests"], ["world_professions", "Learned Professions"], ["world_skills", "Skills"], ["world_charters", "Founding Charters"], ["world_origins", "Origin Picker"]].map(([key,label]) => ({key,label,name:"name"})),
     { key: "realm_ranks", label: "Life Ranks", name: "name" },
     { key: "factions", label: "Factions", name: "name" },
     { key: "expeditions", label: "Expeditions", name: "name" },
@@ -85,6 +86,8 @@ function ContentEditor({ ctype }) {
     const meta = CONTENT_TYPES.find((c) => c.key === ctype) || { name: "name", label: ctype };
     const [items, setItems] = useState(null);
     const [modal, setModal] = useState({ open: false, item: null, isNew: false });
+    const [worldTemplates, setWorldTemplates] = useState({});
+    useEffect(() => { if (ctype.startsWith("world_")) api.get("/admin/world/templates").then(({data}) => setWorldTemplates(data)).catch(() => {}); }, [ctype]);
 
     const load = useCallback(() => api.get(`/admin/content/${ctype}`).then(({ data }) => setItems(data)).catch(() => setItems([])), [ctype]);
     useEffect(() => { setItems(null); load(); }, [ctype, load]);
@@ -103,11 +106,12 @@ function ContentEditor({ ctype }) {
         try { await api.delete(`/admin/content/${ctype}/${id}`); toast.success("Deleted"); load(); }
         catch (e) { toast.error(errMessage(e)); }
     };
-    const template = items && items[0] ? { ...items[0], id: "" } : {};
+    const template = items && items[0] ? { ...items[0], id: "" } : { ...(worldTemplates[ctype] || {}), id: "" };
 
     if (!items) return <Spinner />;
     return (
         <div>
+            {ctype.startsWith("world_") && <Panel className="p-5 mb-4 text-sm text-muted-foreground space-y-2"><p className="text-white font-display text-xl">Write the rules of your world</p><p>Create, duplicate or edit any entry. Names and IDs can describe new trades, locations, skills, NPCs and outcomes. Keep IDs stable after players start using them. Empty collections and valid zero values remain empty or zero after restart.</p><p>Map x/y use 0–100%; routes and actions use game minutes. NPC schedules use game-clock hours. Skills are absolute levels; training requirements count successful lessons. Qualifications are cumulative and never exclusive classes.</p><p>Origins use weighted selection, inclusive [min, max] ranges and absolute starting skill levels. Set weight to 0 to exclude an origin. Creation rolls once; existing characters are unchanged. Config → world controls the picker, chance formula and limits.</p><p>Action outcomes split into success and setback pools. Skills change the overall success chance; weights distribute the chance within each pool. Coins use inclusive integer ranges. Costs, outcome and quest rewards are snapshotted when started or accepted. Future changes affect new starts.</p></Panel>}
             {["factions", "expeditions", "realm_ranks"].includes(ctype) && <Panel className="p-5 mb-4 text-sm text-muted-foreground space-y-2">
                 <p className="text-white font-display text-xl">The realm is yours to shape</p>
                 <p>Edit or duplicate an entry below. Keep IDs stable for existing characters. Set active to false to hide new offers; deleting a faction leaves its members free to leave.</p>

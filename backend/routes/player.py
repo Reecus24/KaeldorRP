@@ -59,13 +59,38 @@ async def list_backgrounds():
 
 @api.post("/character/create")
 async def create_character(body: CharacterBody, user: dict = Depends(current_user)):
+    if not body.name.strip():
+        raise HTTPException(422, "Enter a character name.")
     existing = await db.players.find_one({"user_id": user["id"]})
     if existing:
         raise HTTPException(status_code=400, detail="Character already exists")
-    bg = await db.character_backgrounds.find_one({"id": body.background, "active": True}, {"_id": 0})
-    if not bg:
-        raise HTTPException(400, "Choose an available origin.")
-    p = new_player(user["id"], body.name, body.background, bg)
+    cfg = await get_config(db)
+    if cfg["world"]["random_creation"]:
+        if body.background != "random":
+            raise HTTPException(400, "This world uses a single random origin roll at creation.")
+        import world_engine as world
+        pool = await db.world_origins.find({"active": {"$ne": False}}, {"_id": 0}).to_list(500)
+        try:
+            origin = world.origin_roll(pool)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc))
+        p = new_player(user["id"], body.name.strip(), origin["id"], {"cash": origin["cash"], "bank": 0, "inventory": origin["inventory"], "stats": origin["stats"]})
+        for key, level in origin["skills"].items():
+            p["skills"][key] = {"level": level, "xp": 0}
+        w = world.state(p, cfg)
+        w["origin"] = origin
+        w["training"] = origin["training"]
+        professions = {x["id"]: x for x in await db.world_professions.find({"active": {"$ne": False}}, {"_id": 0}).to_list(500)}
+        eligible = [c for c in origin["professions"] if c["weight"] > 0 and c["id"] in professions and not world.requirements_reason(p, professions[c["id"]].get("requirements", {}), professions)]
+        if eligible:
+            choice, roll = world.pick(eligible)
+            w["profession"] = choice["id"]
+            origin.update(profession=choice["id"], profession_roll=roll)
+    else:
+        bg = await db.character_backgrounds.find_one({"id": body.background, "active": True}, {"_id": 0})
+        if not bg:
+            raise HTTPException(400, "Choose an available origin.")
+        p = new_player(user["id"], body.name.strip(), body.background, bg)
     await db.players.insert_one({**p})
     await add_event(db, p["id"], f"Welcome to Kaeldor, {body.name}. Your new life begins now.", "system", "info")
     return {"ok": True}
@@ -80,12 +105,13 @@ async def game_state(user: dict = Depends(current_user)):
     from copy import deepcopy
     from realm_engine import standing
     public_player = deepcopy(p)
-    if (public_player.get("current_activity") or {}).get("kind") == "expedition":
+    if (public_player.get("current_activity") or {}).get("kind") in ("expedition", "world"):
         public_player["current_activity"]["payload"] = {}
     return {
         "player": public_player,
         "realm_standing": await standing(db, p),
         "player_xp_per_level": cfg["xp"]["player_per_level"],
+        "skill_xp_per_level": cfg["xp"]["skill_per_level"],
         "activity": serialize_activity(p),
         "confinement": confine_remaining(p),
         "net_worth": p["net_worth"],
@@ -116,6 +142,11 @@ async def cancel_activity(user: dict = Depends(current_user)):
     if not p.get("current_activity"):
         raise HTTPException(status_code=400, detail="Nothing to cancel")
     act = p["current_activity"]
+    if act.get("kind") == "world":
+        intent_id = act.get("payload", {}).get("intent_id")
+        for intent in p.get("world", {}).get("intents", []):
+            if intent["id"] == intent_id:
+                intent["status"] = "cancelled"
     if act["kind"] in ("job", "course"):
         p["stress"] = clamp(p["stress"] + 8)
     p["current_activity"] = None

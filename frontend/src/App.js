@@ -1,5 +1,6 @@
 import "@/App.css";
 import "@/realm.css";
+import World from "@/pages/World";
 import Realm from "@/pages/Realm";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
@@ -98,7 +99,9 @@ function AppRoutes() {
             <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
             <Route path="/create-character" element={<CharacterGate />} />
             <Route element={<ProtectedGame />}>
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={<World />} />
+                <Route path="/world" element={<World />} />
+                <Route path="/village" element={<Dashboard />} />
                 <Route path="/journey" element={<Journey />} />
                 <Route path="/realm" element={<Realm />} />
                 <Route path="/home" element={<HomeNeeds />} />

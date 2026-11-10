@@ -1026,9 +1026,13 @@ CONTENT_MAP.update({"realm_ranks": ("realm_ranks", REALM_RANKS), "factions": ("f
                     "expeditions": ("expeditions", EXPEDITIONS)})
 
 
+from world_content import WORLD_CONTENT
+CONTENT_MAP.update(WORLD_CONTENT)
+
+
 async def seed_content(db):
     established = await db.config.find_one({"id": "global"}) is not None
-    new_collections = {"journey_goals", "story_arcs", "city_events", "realm_ranks", "factions", "expeditions"}
+    new_collections = {"journey_goals", "story_arcs", "city_events", "realm_ranks", "factions", "expeditions"} | set(WORLD_CONTENT)
     for ctype, (coll, data) in CONTENT_MAP.items():
         # A seed receipt preserves an intentionally empty Owner collection.
         await db[coll].create_index("id", unique=True)

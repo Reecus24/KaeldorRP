@@ -470,6 +470,10 @@ async def complete_activity(db, p, cfg, at=None):
     elif kind == "illegal":
         await _resolve_illegal(db, p, cfg, payload, eff, at=at)
 
+    elif kind == "world":
+        import world_engine
+        await world_engine.complete(db, p, cfg, payload, at)
+
     elif kind == "expedition":
         import realm_engine
         await realm_engine.complete(db, p, cfg, payload, at)

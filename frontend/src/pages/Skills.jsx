@@ -1,10 +1,14 @@
 import { useGame } from "@/context/GameContext";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
 import { SectionTitle, Spinner, Panel, InfoTip } from "@/components/game/primitives";
 import { SKILL_LABELS, SKILL_INFO, XP_INFO } from "@/lib/helpers";
 import { Sparkles } from "lucide-react";
 
 export default function Skills() {
-    const { player } = useGame();
+    const { player, state } = useGame();
+    const [definitions, setDefinitions] = useState([]);
+    useEffect(() => { api.get("/world/skills").then(({data}) => setDefinitions(data)).catch(() => {}); }, []);
     if (!player) return <Spinner />;
 
     const skills = player.skills || {};
@@ -20,9 +24,9 @@ export default function Skills() {
             </Panel>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {Object.entries(SKILL_LABELS).map(([key, label]) => {
+                {Object.entries({...SKILL_LABELS, ...Object.fromEntries(Object.keys(skills).map(k=>[k,SKILL_LABELS[k]||k.replaceAll("_"," ")])), ...Object.fromEntries(definitions.map(d=>[d.id,d.name]))}).map(([key, label]) => {
                     const s = skills[key] || { level: 1, xp: 0 };
-                    const next = 120 * s.level;
+                    const next = (state?.skill_xp_per_level ?? 120) * s.level;
                     const pct = Math.min(100, (s.xp / next) * 100);
                     return (
                         <Panel key={key} className="p-4" data-testid={`skill-${key}`}>

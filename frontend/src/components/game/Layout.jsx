@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Compass as CompassWorld } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useGame } from "@/context/GameContext";
@@ -17,9 +18,10 @@ import {
 
 const NAV = [
     { section: "The March" },
+    { to: "/", label: "Open World", icon: CompassWorld, end: true },
     { to: "/realm", label: "Oaths & Expeditions", icon: Swords },
     { section: "Life" },
-    { to: "/", label: "Village", icon: LayoutDashboard, end: true },
+    { to: "/village", label: "Village", icon: LayoutDashboard, end: true },
     { to: "/journey", label: "Chronicle", icon: ScrollText },
     { to: "/home", label: "Hearth & Rest", icon: Home },
     { to: "/skills", label: "Skills", icon: Sparkles },
@@ -206,7 +208,7 @@ export default function Layout({ children }) {
     const [mobileNav, setMobileNav] = useState(false);
     const [mobileNeeds, setMobileNeeds] = useState(false);
     const location = useLocation();
-    const focusedPage = location.pathname === "/" || location.pathname === "/realm" || location.pathname === "/journey" || location.pathname.startsWith("/businesses") || location.pathname === "/admin";
+    const focusedPage = location.pathname === "/" || location.pathname === "/world" || location.pathname === "/village" || location.pathname === "/realm" || location.pathname === "/journey" || location.pathname.startsWith("/businesses") || location.pathname === "/admin";
 
     const isAdmin = user?.role === "admin";
     const status = player?.status || "free";
