@@ -44,6 +44,8 @@ function PlayersTable({ focus, onFocusHandled }) {
                 reputation: Number(edit.reputation), legal_reputation: Number(edit.legal_reputation),
                 criminal_suspicion: Number(edit.criminal_suspicion), social_status: Number(edit.social_status),
                 health: Number(edit.health), energy: Number(edit.energy),
+                hunger: Number(edit.hunger), fatigue: Number(edit.fatigue),
+                mood: Number(edit.mood), stress: Number(edit.stress),
             });
             toast.success(`${edit.name} updated`); setEdit(null); load();
         } catch (e) { toast.error(errMessage(e)); }
@@ -83,13 +85,11 @@ function PlayersTable({ focus, onFocusHandled }) {
             </div>
             {edit && (
                 <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setEdit(null)}>
-                    <Panel className="p-5 w-full max-w-md" onClick={(e) => e.stopPropagation()} data-testid="player-edit-modal">
-                        <div className="flex items-center justify-between mb-3"><div className="font-display font-bold text-white">Edit {edit.name}</div><button onClick={() => setEdit(null)}><X className="w-4 h-4 text-muted-foreground" /></button></div>
+                    <Panel className="p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto" role="dialog" aria-modal="true" aria-label={`Edit ${edit.name}`} onClick={(e) => e.stopPropagation()} data-testid="player-edit-modal">
+                        <div className="flex items-center justify-between mb-3"><div className="font-display font-bold text-white">Edit {edit.name}</div><button aria-label="Close player editor" className="p-2" onClick={() => setEdit(null)}><X className="w-4 h-4 text-muted-foreground" /></button></div>
                         <div className="grid grid-cols-2 gap-3">
-                            {[["cash", "Cash"], ["bank", "Bank"], ["debt", "Debt"], ["reputation", "Reputation"], ["legal_reputation", "Legal Standing"], ["criminal_suspicion", "Criminal Suspicion"], ["social_status", "Social Status"], ["health", "Health"], ["energy", "Energy"]].map(([k, label]) => (
-                                <label key={k} className="text-[11px] text-muted-foreground flex flex-col gap-1">{label}
-                                    <KInput type="number" value={edit[k] ?? 0} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} testid={`edit-${k}`} />
-                                </label>
+                            {[["cash", "Cash"], ["bank", "Bank"], ["debt", "Debt"], ["reputation", "Reputation"], ["legal_reputation", "Legal Standing"], ["criminal_suspicion", "Criminal Suspicion"], ["social_status", "Social Status"], ["health", "Health"], ["energy", "Energy"], ["hunger", "Hunger (lower is better)"], ["fatigue", "Fatigue (lower is better)"], ["mood", "Mood"], ["stress", "Stress (lower is better)"]].map(([k, label]) => (
+                                <KInput key={k} label={label} type="number" step="any" value={edit[k] ?? 0} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} testid={`edit-${k}`} />
                             ))}
                         </div>
                         <KButton variant="green" className="w-full mt-4" onClick={save} data-testid="save-player">Save Player</KButton>

@@ -72,29 +72,30 @@ export default function ChatWidget() {
 
     if (!open) {
         return (
-            <button onClick={() => setOpen(true)} data-testid="chat-widget-open"
-                className="fixed bottom-4 right-4 z-50 flex items-center gap-2 px-4 py-2.5 bg-neon-cyan text-black font-display font-bold text-sm rounded-full shadow-[0_0_20px_rgba(0,243,255,0.4)] hover:scale-105 transition-transform">
+            <button type="button" onClick={() => setOpen(true)} data-testid="chat-widget-open"
+                aria-label={`Open world chat${unread ? `, ${unread} unread messages` : ""}`} title="Open world chat" aria-expanded="false"
+                className="fixed bottom-4 right-4 z-50 flex items-center justify-center gap-2 w-12 h-12 sm:w-auto sm:h-auto sm:px-4 sm:py-2.5 bg-neon-cyan text-black font-display font-bold text-sm rounded-full shadow-[0_0_20px_rgba(0,243,255,0.3)] hover:bg-neon-cyan/85 transition-colors">
                 {unread > 0 && (
                     <span data-testid="chat-unread-badge"
-                        className="min-w-[20px] h-[20px] px-1 rounded-full bg-[#EF4444] text-[11px] font-bold text-white flex items-center justify-center ring-2 ring-[#0A0A0A] shadow-[0_0_10px_rgba(239,68,68,0.8)] animate-pulse-dot shrink-0">
+                        className="absolute -top-1 -right-1 sm:static min-w-[20px] h-[20px] px-1 rounded-full bg-[#EF4444] text-[11px] font-bold text-white flex items-center justify-center ring-2 ring-[#0A0A0A] shrink-0">
                         {unread > 9 ? "9+" : unread}
                     </span>
                 )}
-                <MessageSquare className="w-4 h-4" /> World Chat
-                <span className="flex items-center gap-1 text-[11px] bg-black/20 px-1.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse-dot" />{data.online_count}</span>
+                <MessageSquare className="w-5 h-5 sm:w-4 sm:h-4" aria-hidden="true" /> <span className="hidden sm:inline">World Chat</span>
+                <span className="hidden sm:flex items-center gap-1 text-[11px] bg-black/20 px-1.5 py-0.5 rounded-full"><span className="w-1.5 h-1.5 rounded-full bg-neon-green" />{data.online_count}</span>
             </button>
         );
     }
 
     return (
-        <div className="fixed bottom-4 right-4 z-50 w-[92vw] max-w-[360px] h-[460px] flex flex-col bg-[#0A0A0A] border border-neon-cyan/30 rounded-md shadow-2xl overflow-hidden" data-testid="chat-widget">
+        <section aria-label="World chat" className="fixed bottom-4 right-4 z-50 w-[calc(100vw-2rem)] max-w-[360px] h-[460px] max-h-[calc(100dvh-2rem)] flex flex-col bg-[#0A0A0A] border border-neon-cyan/30 rounded-md shadow-2xl overflow-hidden" data-testid="chat-widget">
             <div className="flex items-center justify-between px-3 h-11 border-b border-white/10 bg-[#0C0C0C] shrink-0">
                 <div className="flex items-center gap-2">
                     <MessageSquare className="w-4 h-4 text-neon-cyan" />
                     <span className="font-display font-bold text-white text-sm">World Chat</span>
                     <span className="flex items-center gap-1 text-[10px] text-muted-foreground"><Users className="w-3 h-3 text-neon-green" />{data.online_count} online</span>
                 </div>
-                <button onClick={() => setOpen(false)} data-testid="chat-widget-close" className="text-muted-foreground hover:text-white"><Minus className="w-4 h-4" /></button>
+                <button type="button" aria-label="Minimize world chat" onClick={() => setOpen(false)} data-testid="chat-widget-close" className="p-2 text-muted-foreground hover:text-white"><Minus className="w-4 h-4" /></button>
             </div>
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 bg-[#050505]" data-testid="chat-messages">
@@ -114,11 +115,11 @@ export default function ChatWidget() {
 
             <div className="flex items-center gap-2 p-2 border-t border-white/10 bg-[#0C0C0C] shrink-0">
                 <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
-                    maxLength={280} placeholder="Message the city…" data-testid="chat-input"
-                    className="flex-1 bg-white/5 border border-white/12 rounded-sm px-3 py-2 text-sm text-white placeholder:text-muted-foreground/50 focus:outline-none focus:border-neon-cyan/50" />
-                <button onClick={send} disabled={sending || !text.trim()} data-testid="chat-send"
+                    maxLength={280} placeholder="Message the city…" aria-label="World chat message" data-testid="chat-input"
+                    className="min-w-0 flex-1 bg-white/5 border border-white/12 rounded-sm px-3 py-2 text-sm text-white placeholder:text-muted-foreground/50 focus:outline-none focus:border-neon-cyan/50" />
+                <button type="button" aria-label="Send world chat message" onClick={send} disabled={sending || !text.trim()} data-testid="chat-send"
                     className="p-2 bg-neon-cyan text-black rounded-sm disabled:opacity-40 hover:bg-neon-cyan/80 transition-colors"><Send className="w-4 h-4" /></button>
             </div>
-        </div>
+        </section>
     );
 }

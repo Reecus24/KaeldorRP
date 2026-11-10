@@ -1,11 +1,12 @@
 import { useGame } from "@/context/GameContext";
+import { Link } from "react-router-dom";
 import { Panel } from "@/components/game/primitives";
 import { fmtDuration, scheduleLabel } from "@/lib/helpers";
 import { api } from "@/lib/api";
-import { Loader2, X, Clock, Coffee, Briefcase, LogOut } from "lucide-react";
+import { Loader2, X, Clock, Coffee, Briefcase, LogOut, Stethoscope, Lock } from "lucide-react";
 
 export default function ActivityPanel({ compact = false }) {
-    const { state, player, activityRemaining, activityProgress, act } = useGame();
+    const { state, player, activityRemaining, activityProgress, confinementRemaining, act } = useGame();
     const activity = state?.activity;
     const onShift = player?.on_shift;
 
@@ -13,6 +14,33 @@ export default function ActivityPanel({ compact = false }) {
         act(() => api.post("/game/cancel-activity"), "Activity cancelled");
     const clockOut = () =>
         act(() => api.post(`/jobs/employment/${onShift.employment_id}/clock-out`), "You clocked out early");
+
+    if (["hospital", "jail"].includes(player?.status)) {
+        const hospital = player.status === "hospital";
+        const remaining = confinementRemaining[player.status];
+        const Icon = hospital ? Stethoscope : Lock;
+        return (
+            <Panel className="p-5 border-neon-red/30" data-testid={`activity-panel-${player.status}`}>
+                <div className="flex items-center gap-2 text-neon-red mb-2">
+                    <Icon className="w-4 h-4" />
+                    <span className="font-mono text-[11px] uppercase tracking-[0.25em]">
+                        {hospital ? "In Hospital" : "In Jail"}
+                    </span>
+                </div>
+                <div className="font-mono text-2xl text-white tnum" data-testid="confinement-timer">
+                    {remaining > 0 ? fmtDuration(remaining) : "Checking release…"}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                    {hospital ? "Recovering until discharge. Work and other activities are unavailable."
+                        : "Serving your sentence. Work and other activities are unavailable."}
+                </p>
+                <Link to={hospital ? "/hospital" : "/jail"}
+                    className="inline-block text-xs text-neon-cyan hover:underline mt-3">
+                    {hospital ? "View treatment & recovery" : "View sentence & bail"}
+                </Link>
+            </Panel>
+        );
+    }
 
     if (!activity && onShift) {
         return (

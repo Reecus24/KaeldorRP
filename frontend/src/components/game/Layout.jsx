@@ -1,18 +1,18 @@
 import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useGame } from "@/context/GameContext";
 import { Money, StatBar, Pill, InfoTip } from "@/components/game/primitives";
 import ActivityPanel from "@/components/game/ActivityPanel";
 import EventLog from "@/components/game/EventLog";
 import ChatWidget from "@/components/game/ChatWidget";
-import { NEED_META, statusLabel, statusColor, timeMode, computeGameTime, fmtGameClock, STAT_INFO } from "@/lib/helpers";
+import { NEED_META, needWarningThreshold, statusLabel, statusColor, timeMode, computeGameTime, fmtGameClock, STAT_INFO } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import {
     LayoutDashboard, Home, Briefcase, BadgeCheck, GraduationCap, ShoppingCart,
     Landmark, Building2, Car, Store, Boxes, Sparkles, Skull, Stethoscope,
     Lock, Trophy, Settings, LogOut, Menu, X, Activity, Zap, Clock3, Users,
-    Bell, ScrollText, CalendarClock, MessageSquare, Backpack,
+    Bell, ScrollText, CalendarClock, MessageSquare, Backpack, Search, ChevronDown,
 } from "lucide-react";
 
 const NAV = [
@@ -47,14 +47,34 @@ const NAV = [
 
 function NavItems({ onNavigate, isAdmin }) {
     const { msgUnread } = useGame();
+    const { pathname } = useLocation();
+    const [query, setQuery] = useState("");
+    const [collapsed, setCollapsed] = useState({});
+    const groups = [];
+    NAV.forEach((item) => {
+        if (item.section) groups.push({ name: item.section, items: [] });
+        else groups[groups.length - 1].items.push(item);
+    });
+    const matches = (label) => label.toLowerCase().includes(query.trim().toLowerCase());
+    const visibleGroups = groups.map((group) => ({ ...group, items: group.items.filter((item) => matches(item.label) || matches(group.name)) }))
+        .filter((group) => group.items.length);
     return (
-        <nav className="px-3 py-2 space-y-0.5">
-            {NAV.map((item, i) =>
-                item.section ? (
-                    <div key={i} className="px-3 pt-4 pb-1 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground/50">
-                        {item.section}
-                    </div>
-                ) : (
+        <nav className="px-3 py-4 space-y-1" aria-label="Game navigation">
+            <label className="flex items-center gap-2 px-3 py-2.5 border border-white/15 rounded-sm mb-4 bg-black/30">
+                <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a place…" aria-label="Search navigation"
+                    className="min-w-0 w-full bg-transparent text-sm text-white outline-none placeholder:text-muted-foreground/70" />
+            </label>
+            {visibleGroups.map((group) => {
+                const currentGroup = group.items.some((item) => item.to === "/" ? pathname === "/" : pathname.startsWith(item.to));
+                const expanded = query.trim() || !(collapsed[group.name] ?? (!currentGroup && !["Life", "Work"].includes(group.name)));
+                return (
+                <div key={group.name}>
+                    <button type="button" onClick={() => setCollapsed((old) => ({ ...old, [group.name]: !!expanded }))}
+                        aria-expanded={!!expanded} className="w-full flex items-center justify-between px-3 py-3 text-xs font-mono uppercase tracking-widest text-muted-foreground hover:text-white">
+                        {group.name}<ChevronDown className={cn("w-3.5 h-3.5 transition-transform", !expanded && "-rotate-90")} />
+                    </button>
+                    {expanded && group.items.map((item) => (
                     <NavLink
                         key={item.to}
                         to={item.to}
@@ -63,7 +83,7 @@ function NavItems({ onNavigate, isAdmin }) {
                         data-testid={`nav-${item.label.toLowerCase().replace(/[^a-z]+/g, "-")}`}
                         className={({ isActive }) =>
                             cn(
-                                "flex items-center gap-3 px-3 py-2 text-sm rounded-sm transition-all group border-l-2",
+                                "flex min-h-[42px] items-center gap-3 px-3 py-2 text-sm rounded-sm transition-colors group border-l-2",
                                 isActive
                                     ? "bg-neon-cyan/10 text-neon-cyan border-neon-cyan font-medium"
                                     : "text-muted-foreground hover:text-white hover:bg-white/5 border-transparent",
@@ -76,12 +96,15 @@ function NavItems({ onNavigate, isAdmin }) {
                         )}
                         <span className="flex-1">{item.label}</span>
                     </NavLink>
-                ),
-            )}
-            {isAdmin && (
+                    ))}
+                </div>
+                );
+            })}
+            {!visibleGroups.length && !(isAdmin && matches("Owner Sandbox Admin")) && <p className="text-sm text-muted-foreground px-3 py-4">No places match your search.</p>}
+            {isAdmin && (!query.trim() || matches("Owner Sandbox Admin")) && (
                 <>
-                    <div className="px-3 pt-4 pb-1 font-mono text-[10px] uppercase tracking-[0.25em] text-neon-red/60">
-                        Admin
+                    <div className="px-3 pt-5 pb-2 font-mono text-xs uppercase tracking-widest text-neon-purple">
+                        Owner Tools
                     </div>
                     <NavLink
                         to="/admin"
@@ -97,7 +120,7 @@ function NavItems({ onNavigate, isAdmin }) {
                         }
                     >
                         <Settings className="w-4 h-4 shrink-0" strokeWidth={1.7} />
-                        Admin Dashboard
+                        Owner Sandbox
                     </NavLink>
                 </>
             )}
@@ -175,7 +198,7 @@ function GameClock() {
 
 export default function Layout({ children }) {
     const { user, logout } = useAuth();
-    const { player, state } = useGame();
+    const { player, state, stateError, refresh } = useGame();
     const navigate = useNavigate();
     const [mobileNav, setMobileNav] = useState(false);
 
@@ -193,7 +216,7 @@ export default function Layout({ children }) {
             {/* TOP BAR */}
             <header className="sticky top-0 z-40 bg-[#0A0A0A]/90 backdrop-blur-md border-b border-white/8">
                 <div className="flex items-center gap-3 px-4 h-14">
-                    <button className="lg:hidden text-white" onClick={() => setMobileNav(true)} data-testid="mobile-menu-button">
+                    <button className="lg:hidden text-white p-2 -ml-2" aria-label="Open navigation" onClick={() => setMobileNav(true)} data-testid="mobile-menu-button">
                         <Menu className="w-5 h-5" />
                     </button>
                     <div className="flex items-center gap-2 mr-2">
@@ -244,7 +267,7 @@ export default function Layout({ children }) {
 
             <div className="flex">
                 {/* SIDEBAR (desktop) */}
-                <aside className="hidden lg:block w-60 shrink-0 border-r border-white/8 bg-[#080808] h-[calc(100vh-3.5rem)] sticky top-14 overflow-y-auto">
+                <aside className="hidden lg:block w-64 shrink-0 border-r border-white/8 bg-[#080808] h-[calc(100vh-3.5rem)] sticky top-14 overflow-y-auto">
                     <NavItems isAdmin={isAdmin} />
                 </aside>
 
@@ -255,7 +278,7 @@ export default function Layout({ children }) {
                         <div className="absolute left-0 top-0 h-full w-72 bg-[#080808] border-r border-white/10 overflow-y-auto animate-fade">
                             <div className="flex items-center justify-between px-4 h-14 border-b border-white/8">
                                 <span className="font-display font-extrabold tracking-tighter">KAELDOR<span className="text-neon-cyan">.</span></span>
-                                <button onClick={() => setMobileNav(false)}><X className="w-5 h-5 text-muted-foreground" /></button>
+                                <button aria-label="Close navigation" className="p-2" onClick={() => setMobileNav(false)}><X className="w-5 h-5 text-muted-foreground" /></button>
                             </div>
                             <NavItems isAdmin={isAdmin} onNavigate={() => setMobileNav(false)} />
                         </div>
@@ -263,10 +286,16 @@ export default function Layout({ children }) {
                 )}
 
                 {/* MAIN */}
-                <main className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 max-w-[1100px] mx-auto w-full">
+                <main className="flex-1 min-w-0 p-4 pb-24 sm:p-6 sm:pb-24 lg:p-8 lg:pb-24 max-w-[1100px] mx-auto w-full">
+                    {stateError && (
+                        <div role="alert" className="mb-5 p-4 rounded-sm border border-neon-yellow/40 bg-neon-yellow/5 text-sm">
+                            <p className="text-neon-yellow">{stateError} Displayed values may be out of date.</p>
+                            <button type="button" onClick={refresh} className="text-white underline mt-2">Retry now</button>
+                        </div>
+                    )}
                     {/* Needs strip */}
                     {player && (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3 mb-6" data-testid="needs-strip">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-x-5 gap-y-4 mb-6 p-4 bg-[#0d1115]/90 border border-white/10 rounded-sm" data-testid="needs-strip">
                             {Object.entries(NEED_META).map(([key, meta]) => (
                                 <StatBar
                                     key={key}
@@ -274,6 +303,8 @@ export default function Layout({ children }) {
                                     value={player[key]}
                                     color={meta.color}
                                     invert={meta.invert}
+                                    warningThreshold={needWarningThreshold(key, state?.needs_rules)}
+                                    showDirection
                                     info={STAT_INFO[key]}
                                     testid={`need-${key}`}
                                 />
@@ -282,7 +313,7 @@ export default function Layout({ children }) {
                     )}
 
                     {/* Mobile activity (above content) */}
-                    <div className="xl:hidden mb-6">
+                    <div className="2xl:hidden mb-6">
                         <ActivityPanel compact />
                     </div>
 
@@ -290,7 +321,7 @@ export default function Layout({ children }) {
                 </main>
 
                 {/* RIGHT RAIL */}
-                <aside className="hidden xl:block w-80 shrink-0 border-l border-white/8 bg-[#080808] h-[calc(100vh-3.5rem)] sticky top-14 overflow-y-auto p-4 space-y-4">
+                <aside className="hidden 2xl:block w-80 shrink-0 border-l border-white/8 bg-[#080808] h-[calc(100vh-3.5rem)] sticky top-14 overflow-y-auto p-4 space-y-4">
                     <ActivityPanel />
                     <EventLog max={30} />
                 </aside>

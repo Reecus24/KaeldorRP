@@ -44,10 +44,13 @@ export function realDurationLabel(gameMinutes, timeScale = 1) {
     return `${Math.round(realMin * 60)} sec`;
 }
 
-// Describes whether the world clock runs in true real-time or accelerated test mode.
+// Describe slower, real-time and faster world clocks without rounding away the scale.
 export function timeMode(timeScale = 1) {
-    if (timeScale <= 1.0001) return { realtime: true, label: "REAL-TIME", tone: "green" };
-    return { realtime: false, label: `FAST ×${Math.round(timeScale)}`, tone: "yellow" };
+    const scale = Number(timeScale);
+    if (!Number.isFinite(scale) || scale <= 0) return { realtime: false, label: "CLOCK UNAVAILABLE", tone: "default" };
+    if (scale === 1) return { realtime: true, label: "REAL-TIME", tone: "green" };
+    const display = scale.toLocaleString("en-US", { maximumSignificantDigits: 8 });
+    return { realtime: false, label: `${scale < 1 ? "SLOW" : "FAST"} ×${display}`, tone: scale < 1 ? "cyan" : "yellow" };
 }
 
 // risk level -> color classes
@@ -60,13 +63,18 @@ export const RISK_COLORS = {
 
 // stat metadata: invert=true means higher value is BAD
 export const NEED_META = {
-    energy: { label: "Energy", invert: false, color: "#00F3FF" },
-    fatigue: { label: "Fatigue", invert: true, color: "#FFC300" },
-    hunger: { label: "Hunger", invert: true, color: "#FF8A00" },
-    mood: { label: "Mood", invert: false, color: "#00FF66" },
-    stress: { label: "Stress", invert: true, color: "#FF0055" },
-    health: { label: "Health", invert: false, color: "#FF3B6B" },
+    energy: { label: "Energy", invert: false, color: "#00F3FF", warningKey: "low_energy_threshold", warningDefault: 15 },
+    fatigue: { label: "Fatigue", invert: true, color: "#FFC300", warningKey: "fatigue_damage_threshold", warningDefault: 80 },
+    hunger: { label: "Hunger", invert: true, color: "#FF8A00", warningKey: "hunger_damage_threshold", warningDefault: 80 },
+    mood: { label: "Mood", invert: false, color: "#00FF66", warningKey: "mood_warning_threshold", warningDefault: 25 },
+    stress: { label: "Stress", invert: true, color: "#B026FF", warningKey: "stress_damage_threshold", warningDefault: 80 },
+    health: { label: "Health", invert: false, color: "#00FF66", warningKey: "health_warning_threshold", warningDefault: 35 },
 };
+
+export function needWarningThreshold(key, rules = {}) {
+    const meta = NEED_META[key];
+    return rules?.[meta?.warningKey] ?? meta?.warningDefault;
+}
 
 export const SKILL_LABELS = {
     sales: "Sales",
@@ -134,9 +142,15 @@ const GAME_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Se
 
 // Compute the current in-game Date from world anchors + time_scale (client-side ticking).
 export function computeGameTime(state) {
+    const ts = state?.time_scale || 1;
+    if (state?.game_time && Number.isFinite(state?._clientReceivedAt)) {
+        const snapshot = new Date(state.game_time).getTime();
+        if (Number.isFinite(snapshot)) {
+            return new Date(snapshot + Math.max(0, performance.now() - state._clientReceivedAt) * ts);
+        }
+    }
     const wr = state?.world_start_real ? new Date(state.world_start_real).getTime() : null;
     const wg = state?.world_start_game ? new Date(state.world_start_game).getTime() : null;
-    const ts = state?.time_scale || 1;
     if (!wr || !wg) return null;
     return new Date(wg + (Date.now() - wr) * ts);
 }

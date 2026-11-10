@@ -114,3 +114,30 @@ So a high-end home (e.g. penthouse `mood_bonus` +30 → baseline 90) pulls mood 
 cramped studio (negative bonus → baseline < 60) drags the mood ceiling down. Effect is continuous and
 compounds over a day; verified a penthouse resident trends ~5–8 mood points higher than a no-bonus home
 over 10 game-hours. Falls back to baseline 60 when no housing/bonus is set.
+
+## Chronological needs and recovery (2026-11-10)
+
+`resolve_player` advances from `last_resolved_at` through activity completions, registered shift
+starts, collapses and confinement deadlines in time order. Meals take effect when finished;
+sleep and student welfare end at their saved completion time. Working needs are applied once
+through the job payload, consistently for online and offline shifts.
+
+`decay_needs` splits at threshold crossings. Hunger damage only applies to time actually spent
+above the configured threshold, rather than retroactively to an entire offline interval.
+Rates, warning/damage thresholds, regeneration conditions, mood drift and student welfare are
+editable under `config.needs`; ordinary hunger/energy/fatigue drift remains under `config.decay`.
+
+A collapse is admitted at its simulated time. Hospital care freezes other needs and steadily
+recovers health toward `hospital.discharge_health` at the saved discharge deadline. Defaults:
+360 game minutes, admission health 1, discharge health 60. Paid treatment restores health to100.
+Changing the default duration affects new admissions; an existing admission keeps its saved
+deadline, and its remaining healing is calculated against that deadline. No hospital time is
+charged again as idle starvation after release. Completion events retain their simulated times.
+
+The client displays server-provided remaining seconds using a monotonic clock, refreshes at
+release/completion and never predicts need values itself. It receives the Owner's warning
+thresholds in `needs_rules`; bars and next-action guidance use those values.
+
+Each authenticated player operation holds a Mongo lease around read/resolve/mutate/save.
+An Owner edit shares the target player's lease, resolves old progress first and then applies
+the new values. Configuration patches preserve unedited nested fields and valid zero settings.

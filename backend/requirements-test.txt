@@ -1,0 +1,6 @@
+# Isolated backend regression tests, in addition to the runtime dependencies.
+pytest>=8.0.0
+pytest-xdist>=3.6.0
+mongomock-motor==0.0.36
+httpx>=0.28.1
+requests>=2.31.0

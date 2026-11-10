@@ -1,5 +1,6 @@
 from core import *  # noqa: F401,F403
 import market_engine
+from config_schema import merge_config, validate_config, validate_content, validate_json, flatten_patch
 
 
 
@@ -23,8 +24,13 @@ async def admin_create(ctype: str, body: dict, admin: dict = Depends(admin_user)
     if not body.get("id"):
         body["id"] = uuid.uuid4().hex
     body.pop("_id", None)
-    # replace_one (not $set) so the document is stored in exactly the key order the admin submitted.
-    await db[coll].replace_one({"id": body["id"]}, body, upsert=True)
+    try:
+        validate_content(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if await db[coll].find_one({"id": body["id"]}, {"_id": 1}):
+        raise HTTPException(status_code=409, detail="This content ID already exists. Edit the existing entry instead.")
+    await db[coll].insert_one(dict(body))
     return {"ok": True, "id": body["id"]}
 
 
@@ -40,6 +46,10 @@ async def admin_update(ctype: str, item_id: str, body: dict, admin: dict = Depen
         raise HTTPException(status_code=404, detail="Item not found")
     body.pop("_id", None)
     body["id"] = item_id
+    try:
+        validate_content(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     # Preserve the admin's exact key order (replace_one, not $set which keeps the old DB order and
     # "scatters" the JSON). Any fields managed by other panels but not in the editor payload are
     # retained (appended) so nothing is accidentally dropped.
@@ -75,14 +85,12 @@ async def admin_get_config(admin: dict = Depends(admin_user)):
 async def admin_update_config(body: dict, admin: dict = Depends(admin_user)):
     body.pop("_id", None)
     body.pop("id", None)
-    # Shallow-merge dict sub-documents (e.g. `tuning`) so a partial save never wipes other knobs.
-    set_ops = {}
-    for k, v in body.items():
-        if isinstance(v, dict):
-            for sk, sv in v.items():
-                set_ops[f"{k}.{sk}"] = sv
-        else:
-            set_ops[k] = v
+    current = await get_config(db)
+    try:
+        validate_config(merge_config(current, body), DEFAULT_CONFIG)
+        set_ops = flatten_patch(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     set_ops["id"] = "global"
     await db.config.update_one({"id": "global"}, {"$set": set_ops}, upsert=True)
     return {"ok": True}
@@ -95,7 +103,8 @@ async def admin_players(admin: dict = Depends(admin_user)):
     players = await db.players.find({}, {"_id": 0, "name": 1, "level": 1, "cash": 1, "bank": 1,
                                          "debt": 1, "net_worth": 1, "status": 1, "reputation": 1,
                                          "legal_reputation": 1, "criminal_suspicion": 1, "social_status": 1,
-                                         "health": 1, "energy": 1, "skills": 1,
+                                         "health": 1, "energy": 1, "hunger": 1, "fatigue": 1,
+                                         "mood": 1, "stress": 1, "skills": 1,
                                          "id": 1, "created_at": 1}).to_list(500)
     return players
 
@@ -257,12 +266,15 @@ async def admin_update_player(player_id: str, body: AdminPlayerBody, admin: dict
     p = await db.players.find_one({"id": player_id}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Player not found")
+    # Settle the old state first. Otherwise the next player request applies all old
+    # offline decay to the Owner's newly edited hunger/health/cash values.
+    await resolve_player(db, p)
     upd = {}
     for f in ["cash", "bank", "debt"]:
         v = getattr(body, f)
         if v is not None:
             upd[f] = round(float(v), 2)
-    for f in ["reputation", "legal_reputation", "criminal_suspicion", "social_status", "health", "energy"]:
+    for f in ["reputation", "legal_reputation", "criminal_suspicion", "social_status", "health", "energy", "hunger", "fatigue", "mood", "stress"]:
         v = getattr(body, f)
         if v is not None:
             upd[f] = clamp(float(v))
@@ -273,8 +285,9 @@ async def admin_update_player(player_id: str, body: AdminPlayerBody, admin: dict
                 skills[sid]["level"] = max(1, int(lvl))
                 skills[sid]["xp"] = 0
         upd["skills"] = skills
-    if upd:
-        await db.players.update_one({"id": player_id}, {"$set": upd})
+    p.update(upd)
+    p["net_worth"] = await compute_net_worth(p)
+    await save_player(p)
     return {"ok": True, "updated": list(upd.keys())}
 
 

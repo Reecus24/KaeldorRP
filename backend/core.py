@@ -7,14 +7,17 @@ load_dotenv(ROOT_DIR / ".env")
 
 import uuid
 import logging
+import math
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
 import bcrypt
 import jwt
 from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import FastAPI, APIRouter, Request, Response, HTTPException, Depends
-from pydantic import BaseModel, EmailStr, Field
+from fastapi.routing import APIRoute
+from pydantic import BaseModel, EmailStr, Field, FiniteFloat
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 
@@ -23,7 +26,7 @@ from game_engine import (
     resolve_player, get_config, add_event, real_seconds, parse_dt,
     charge, add_money, effectiveness, apply_effects, add_skill_xp,
     add_notification, ledger_add, game_now, game_day_index, game_to_real,
-    effective_loan_rate,
+    effective_loan_rate, admit_if_collapsed,
 )
 from seed_data import seed_content, CONTENT_MAP, JOBS
 import seed_data
@@ -39,8 +42,6 @@ db = client[os.environ["DB_NAME"]]
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-secret-change-me")
 JWT_ALGORITHM = "HS256"
-
-api = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("kaeldor")
@@ -80,6 +81,8 @@ def set_auth_cookie(response: Response, token: str):
 
 
 async def current_user(request: Request) -> dict:
+    if getattr(request.state, "kaeldor_user", None) is not None:
+        return request.state.kaeldor_user
     # Prefer the explicit Authorization: Bearer header (the SPA's source of truth) over the cookie.
     # A stale/mismatched access_token cookie from a prior different-account login must NOT override
     # the token the client actively sends, otherwise admin requests can wrongly resolve to a
@@ -103,7 +106,7 @@ async def current_user(request: Request) -> dict:
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
+    except (jwt.InvalidTokenError, KeyError, ValueError, InvalidId):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
@@ -113,6 +116,36 @@ async def admin_user(user: dict = Depends(current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     return user
+
+
+class PlayerOperationRoute(APIRoute):
+    """Keep a state read/resolve/mutate/save request together, including concurrent polls."""
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        def needs_auth(dependant):
+            return dependant.call in (current_user, admin_user) or any(needs_auth(d) for d in dependant.dependencies)
+
+        if not needs_auth(self.dependant):
+            return handler
+
+        async def serialized(request):
+            from player_lock import player_operation
+            user = await current_user(request)
+            request.state.kaeldor_user = user
+            user_id = user["id"]
+            # Owner edits to a player share that player's lock with gameplay requests.
+            if request.url.path.startswith("/api/admin/players/") and user.get("role") == "admin":
+                target = await db.players.find_one({"id": request.path_params.get("player_id")}, {"user_id": 1})
+                if target:
+                    user_id = target["user_id"]
+            async with player_operation(db, user_id):
+                return await handler(request)
+
+        return serialized
+
+
+api = APIRouter(prefix="/api", route_class=PlayerOperationRoute)
 
 
 
@@ -234,16 +267,39 @@ def decorate_employment_live(e, cfg, g_now):
 
 
 
-def ensure_free(p):
+def activity_block_reason(p):
     if p.get("status") == "jail":
-        raise HTTPException(status_code=409, detail="You are in jail. Wait it out or post bail.")
+        return "You are in jail. Wait it out or post bail."
     if p.get("status") == "hospital":
-        raise HTTPException(status_code=409, detail="You are in hospital recovering.")
+        return "You are in hospital recovering."
     os_shift = p.get("on_shift")
     if os_shift:
-        raise HTTPException(status_code=409, detail=f"You're on shift at {os_shift.get('business_name', 'work')}. Clock out early first to do something else.")
+        return f"You're on shift at {os_shift.get('business_name', 'work')}. Clock out early first to do something else."
     if p.get("current_activity"):
-        raise HTTPException(status_code=409, detail="You are already busy with another activity.")
+        return "You are already busy with another activity."
+    return ""
+
+
+def ensure_free(p):
+    reason = activity_block_reason(p)
+    if reason:
+        raise HTTPException(status_code=409, detail=reason)
+
+
+def action_unavailable_reason(p, action, now=None):
+    reason = activity_block_reason(p)
+    if reason:
+        return reason
+    ok, reason = meets_requirements(p, action.get("requirements"))
+    if not ok:
+        return reason
+    now = now or now_utc()
+    cooldown = parse_dt(p.get("cooldowns", {}).get(action["id"]))
+    if cooldown and cooldown > now:
+        return "On cooldown"
+    if p["cash"] + p["bank"] < action.get("money_cost", 0):
+        return "Not enough money"
+    return ""
 
 
 
@@ -446,10 +502,11 @@ def serialize_activity(p):
 
 def confine_remaining(p):
     out = {}
+    now = now_utc()
     for key, label in (("jail_until", "jail"), ("hospital_until", "hospital")):
         dt = parse_dt(p.get(key))
-        if dt and dt > now_utc():
-            out[label] = round((dt - now_utc()).total_seconds())
+        if dt and dt > now:
+            out[label] = math.ceil((dt - now).total_seconds())
     return out
 
 
@@ -520,9 +577,16 @@ async def _resolve_shop_stock(shop, cfg):
     for it in cat_items:
         cap = int((cfgmap.get(it["id"]) or {}).get("capacity", SHOP_DEFAULT_CAPACITY))
         stock[it["id"]] = max(0, cap)
-    shop["stock"] = stock
-    shop["last_refresh_day"] = day
-    await db.city_shops.update_one({"id": shop["id"]}, {"$set": {"stock": stock, "last_refresh_day": day}})
+    refreshed = await db.city_shops.update_one(
+        {"id": shop["id"], "last_refresh_day": {"$ne": day}},
+        {"$set": {"stock": stock, "last_refresh_day": day}})
+    if refreshed.modified_count:
+        shop.update(stock=stock, last_refresh_day=day)
+        return shop
+    # Another player may already have refreshed AND bought stock. Never overwrite it.
+    latest = await db.city_shops.find_one({"id": shop["id"]}, {"_id": 0})
+    if latest:
+        shop.update(latest)
     return shop
 
 
@@ -570,7 +634,7 @@ async def _recompute_equip_bonus(p):
 
 # ============================ BANK ============================
 class AmountBody(BaseModel):
-    amount: float
+    amount: FiniteFloat = Field(gt=0)
 
 
 
@@ -624,14 +688,14 @@ class RenameBody(BaseModel):
 
 
 class MaterialsBody(BaseModel):
-    units: Optional[float] = None  # product-equivalent units to top up to (defaults to restock target)
+    units: Optional[FiniteFloat] = None  # product-equivalent units to top up to (defaults to restock target)
 
 
 
 
 class RestockBody(BaseModel):
     auto_restock: Optional[bool] = None
-    restock_target: Optional[float] = None
+    restock_target: Optional[FiniteFloat] = None
 
 
 
@@ -680,7 +744,7 @@ def _effective_crime_risk(p, a, risk_mult=1.0):
 # ---------------- FINANCIAL MARKETS: stocks (open) + crypto (Underworld-gated) ----------------
 class TradeBody(BaseModel):
     asset_id: str
-    qty: float
+    qty: FiniteFloat = Field(gt=0)
 
 
 
@@ -735,11 +799,11 @@ class AdminLayoutBody(BaseModel):
 
 # ---------------- ADMIN SANDBOX: business economy tuning ----------------
 class BizEconomyBody(BaseModel):
-    price: float | None = None
-    material_cost: float | None = None
-    daily_demand: float | None = None
-    production_per_worker_hour: float | None = None
-    base_hourly_wage: float | None = None
+    price: FiniteFloat | None = None
+    material_cost: FiniteFloat | None = None
+    daily_demand: FiniteFloat | None = None
+    production_per_worker_hour: FiniteFloat | None = None
+    base_hourly_wage: FiniteFloat | None = None
     opening_open: str | None = None
     opening_close: str | None = None
     apply_existing: bool = True
@@ -749,15 +813,19 @@ class BizEconomyBody(BaseModel):
 
 # ---------------- ADMIN SANDBOX: player management ----------------
 class AdminPlayerBody(BaseModel):
-    cash: float | None = None
-    bank: float | None = None
-    debt: float | None = None
-    reputation: float | None = None
-    legal_reputation: float | None = None
-    criminal_suspicion: float | None = None
-    social_status: float | None = None
-    health: float | None = None
-    energy: float | None = None
+    cash: FiniteFloat | None = None
+    bank: FiniteFloat | None = None
+    debt: FiniteFloat | None = None
+    reputation: FiniteFloat | None = None
+    legal_reputation: FiniteFloat | None = None
+    criminal_suspicion: FiniteFloat | None = None
+    social_status: FiniteFloat | None = None
+    health: FiniteFloat | None = None
+    energy: FiniteFloat | None = None
+    hunger: FiniteFloat | None = Field(default=None, ge=0, le=100)
+    fatigue: FiniteFloat | None = Field(default=None, ge=0, le=100)
+    mood: FiniteFloat | None = Field(default=None, ge=0, le=100)
+    stress: FiniteFloat | None = Field(default=None, ge=0, le=100)
     skills: dict | None = None  # {skill_id: level}
 
 
@@ -899,13 +967,13 @@ class LocationBody(BaseModel):
     category: Optional[str] = "other"
     desc: Optional[str] = ""
     icon: Optional[str] = "MapPin"
-    money_cost: Optional[float] = 0
+    money_cost: Optional[FiniteFloat] = 0
     duration_minutes: Optional[int] = 60
     cooldown_minutes: Optional[int] = 120
     requires_job: Optional[bool] = False
-    suspicion_gain: Optional[float] = 0
-    success_base: Optional[float] = 0.72
-    charisma_factor: Optional[float] = 0.3
+    suspicion_gain: Optional[FiniteFloat] = 0
+    success_base: Optional[FiniteFloat] = 0.72
+    charisma_factor: Optional[FiniteFloat] = 0.3
     active: Optional[bool] = True
     order: Optional[int] = 50
     npcs: Optional[list] = None
@@ -913,7 +981,7 @@ class LocationBody(BaseModel):
     category_whitelist: Optional[list] = None
     min_attrs: Optional[dict] = None
     max_attrs: Optional[dict] = None
-    filter_weight: Optional[float] = 1.0
+    filter_weight: Optional[FiniteFloat] = 1.0
 
 
 
@@ -1019,7 +1087,7 @@ class MarketApplyBody(BaseModel):
 
 
 class OfferBody(BaseModel):
-    wage_per_hour: float
+    wage_per_hour: FiniteFloat
     role: Optional[str] = None
     schedule: Optional[str] = None
 
@@ -1047,7 +1115,7 @@ class ProposeScheduleBody(BaseModel):
 
 
 class WageBody(BaseModel):
-    wage_per_hour: float
+    wage_per_hour: FiniteFloat
 
 
 

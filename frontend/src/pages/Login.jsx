@@ -67,9 +67,6 @@ export default function Login() {
                         New to the city?{" "}
                         <Link to="/register" className="text-neon-cyan hover:underline" data-testid="goto-register">Create an account</Link>
                     </p>
-                    <p className="text-[11px] text-muted-foreground/60 mt-4 font-mono">
-                        Admin demo: admin@kaeldor.com / admin123
-                    </p>
                 </div>
             </div>
         </div>

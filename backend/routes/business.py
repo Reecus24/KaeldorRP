@@ -171,9 +171,16 @@ async def inject_business(biz_id: str, body: AmountBody, user: dict = Depends(cu
 async def sell_business(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     b = await _get_owned_business(p, biz_id)
+    if await db.player_employment.find_one({"business_id": biz_id, "status": "active"}, {"_id": 1}):
+        raise HTTPException(status_code=409, detail="End active player employment contracts before selling this business, so employees are not left working at a closed business.")
     value = round(b["purchase_price"] * 0.5 * b["level"] * (0.6 + 0.4 * b["reputation"] / 100) - b.get("debt", 0) + b.get("cash", 0))
     value = max(0, value)
     await db.businesses.delete_one({"id": biz_id})
+    await db.employees.update_many({"business_id": biz_id, "status": {"$in": ["active", "sick", "applicant"]}},
+                                  {"$set": {"status": "fired"}})
+    await db.business_applications.update_many(
+        {"business_id": biz_id, "status": {"$in": ["pending", "offered"]}},
+        {"$set": {"status": "rejected", "reason": "The business has been sold."}})
     add_money(p, value)
     await add_event(db, p["id"], f"Sold {b['name']} for ${value}.", "business", "info")
     await save_player(p)
@@ -255,6 +262,8 @@ async def buy_materials(biz_id: str, body: MaterialsBody, user: dict = Depends(c
 async def business_detail(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     b = await _get_owned_business(p, biz_id)
+    cfg = await get_config(db)
+    tuning = cfg.get("tuning") or {}
     pp = b.get("purchase_price", 1)
     lvl = b.get("level", 1)
     mkt = b.get("marketing_level", 0)
@@ -265,11 +274,11 @@ async def business_detail(biz_id: str, user: dict = Depends(current_user)):
         "upgrade_cost": round(pp * 0.4 * lvl) if can_upgrade else None,
         "upgrade_from_level": lvl, "upgrade_to_level": lvl + 1 if can_upgrade else lvl,
         "upgrade_adds_slot": can_upgrade, "upgrade_reputation_gain": 4, "can_upgrade": can_upgrade,
-        "upgrade_duration_days": 7,
+        "upgrade_duration_days": int(tuning.get("upgrade_days", 7)),
         "marketing_cost": round(pp * 0.12 * (mkt + 1)),
         "marketing_level": mkt, "marketing_next_level": mkt + 1,
         "marketing_demand_boost_pct": 25, "marketing_price_boost_pct": 12, "marketing_reputation_gain": 8,
-        "marketing_duration_days": 3,
+        "marketing_duration_days": int(tuning.get("marketing_days", 3)),
         "activity_in_progress": bool(activity), "activity": activity,
         "sell_value": max(0, round(pp * 0.5 * lvl * (0.6 + 0.4 * rep / 100) - b.get("debt", 0) + b.get("cash", 0))),
     }

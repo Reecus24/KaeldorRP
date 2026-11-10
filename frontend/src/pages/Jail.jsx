@@ -7,7 +7,7 @@ import { fmtDuration, money } from "@/lib/helpers";
 import { Lock, Scale } from "lucide-react";
 
 export default function Jail() {
-    const { player, act, tick } = useGame();
+    const { player, act, confinementRemaining } = useGame();
     const [info, setInfo] = useState(null);
     const [busy, setBusy] = useState(false);
 
@@ -15,10 +15,7 @@ export default function Jail() {
     useEffect(() => { load(); }, [player?.status]);
 
     const inJail = player?.status === "jail";
-    let remaining = 0;
-    if (inJail && player?.jail_until) remaining = Math.max(0, (new Date(player.jail_until).getTime() - Date.now()) / 1000);
-    // eslint-disable-next-line no-unused-expressions
-    tick;
+    const remaining = confinementRemaining.jail;
 
     const bail = async () => {
         setBusy(true);
@@ -44,7 +41,9 @@ export default function Jail() {
                 <Panel className="p-8 text-center border-neon-red/40">
                     <Lock className="w-10 h-10 mx-auto text-neon-red mb-3 animate-pulse-dot" />
                     <div className="font-display font-bold text-xl text-white">Locked Up</div>
-                    <div className="font-mono text-4xl text-neon-red mt-4 tnum neon-text">{fmtDuration(remaining)}</div>
+                    <div className="font-mono text-4xl text-neon-red mt-4 tnum neon-text">
+                        {remaining > 0 ? fmtDuration(remaining) : "Checking release…"}
+                    </div>
                     <div className="text-sm text-muted-foreground mt-2">remaining sentence</div>
                     <KButton variant="danger" className="mt-6" loading={busy} disabled={info && player.cash + player.bank < info.bail_cost} onClick={bail} data-testid="bail-button">
                         Post Bail · {info ? money(info.bail_cost) : "…"}

@@ -85,6 +85,7 @@ async def game_state(user: dict = Depends(current_user)):
         "net_worth_breakdown": await net_worth_parts(p),
         "time_scale": cfg["time_scale"],
         "effectiveness": round(effectiveness(p), 2),
+        "needs_rules": cfg["needs"],
         "game_time": game_now(cfg).isoformat(),
         "world_start_real": cfg.get("world_start_real"),
         "world_start_game": cfg.get("world_start_game"),
@@ -125,13 +126,13 @@ async def list_actions(user: dict = Depends(current_user)):
     p = await get_state(user)
     actions = await db.actions.find({}, {"_id": 0}).to_list(200)
     out = []
+    now = now_utc()
     for a in actions:
-        ok, reason = meets_requirements(p, a.get("requirements"))
+        reason = action_unavailable_reason(p, a, now=now)
         cd = p.get("cooldowns", {}).get(a["id"])
-        on_cd = cd and parse_dt(cd) > now_utc()
-        out.append({**a, "available": bool(ok and not on_cd),
-                    "reason": reason if not ok else ("On cooldown" if on_cd else ""),
-                    "cooldown_remaining": round((parse_dt(cd) - now_utc()).total_seconds()) if on_cd else 0})
+        on_cd = cd and parse_dt(cd) > now
+        out.append({**a, "available": not bool(reason), "reason": reason,
+                    "cooldown_remaining": math.ceil((parse_dt(cd) - now).total_seconds()) if on_cd else 0})
     return out
 
 
@@ -144,6 +145,9 @@ async def start_action(action_id: str, user: dict = Depends(current_user)):
     a = await db.actions.find_one({"id": action_id}, {"_id": 0})
     if not a:
         raise HTTPException(status_code=404, detail="Action not found")
+    unavailable = action_unavailable_reason(p, a)
+    if unavailable:
+        raise HTTPException(status_code=409, detail=unavailable)
     ok, reason = meets_requirements(p, a.get("requirements"))
     if not ok:
         raise HTTPException(status_code=400, detail=reason)
@@ -543,6 +547,7 @@ async def use_item(item_id: str, user: dict = Depends(current_user)):
         eff.pop(k)
         add_skill_xp(p, k, skill_eff[k], cfg)
     apply_effects(p, eff)
+    await admit_if_collapsed(db, p, cfg)
     inv[item_id] = inv.get(item_id, 0) - 1
     if inv[item_id] <= 0:
         inv.pop(item_id, None)
@@ -701,7 +706,10 @@ async def hospital_status(user: dict = Depends(current_user)):
     cfg = await get_config(db)
     return {"in_hospital": p.get("status") == "hospital",
             "remaining_seconds": confine_remaining(p).get("hospital", 0),
-            "health": p["health"], "treat_cost": cfg["economy"]["hospital_treat_cost"]}
+            "health": p["health"], "treat_cost": cfg["economy"]["hospital_treat_cost"],
+            "until": p.get("hospital_until"),
+            "duration_game_minutes": cfg["hospital"]["duration_minutes"],
+            "discharge_health": cfg["hospital"]["discharge_health"]}
 
 
 
@@ -710,6 +718,10 @@ async def hospital_status(user: dict = Depends(current_user)):
 async def hospital_treat(user: dict = Depends(current_user)):
     p = await get_state(user)
     cfg = await get_config(db)
+    if p.get("status") == "jail":
+        raise HTTPException(status_code=409, detail="You must leave jail before visiting the hospital.")
+    if p["health"] >= 100 and p.get("status") != "hospital":
+        raise HTTPException(status_code=409, detail="Your health is already full.")
     cost = cfg["economy"]["hospital_treat_cost"]
     if p["cash"] + p["bank"] < cost:
         raise HTTPException(status_code=400, detail=f"Treatment costs ${cost}")

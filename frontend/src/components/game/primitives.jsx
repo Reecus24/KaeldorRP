@@ -8,7 +8,7 @@ export function InfoTip({ text, className, side = "top", testid }) {
         <TooltipProvider delayDuration={120}>
             <Tooltip>
                 <TooltipTrigger asChild>
-                    <button type="button" data-testid={testid} onClick={(e) => e.preventDefault()}
+                    <button type="button" aria-label="More information" data-testid={testid} onClick={(e) => e.preventDefault()}
                         className={cn("inline-flex items-center text-muted-foreground/60 hover:text-neon-cyan transition-colors align-middle", className)}>
                         <Info className="w-3 h-3" />
                     </button>
@@ -49,27 +49,34 @@ export function SectionTitle({ kicker, title, sub, right, icon: Icon }) {
     );
 }
 
-export function StatBar({ label, value, max = 100, color = "#00F3FF", invert = false, showValue = true, testid, info }) {
-    const pct = Math.max(0, Math.min(100, (value / max) * 100));
+export function StatBar({ label, value, max = 100, color = "#00F3FF", invert = false, showValue = true, testid, info, warningThreshold, showDirection = false }) {
+    const numeric = Number(value);
+    const safeValue = Number.isFinite(numeric) ? Math.max(0, Math.min(max, numeric)) : 0;
+    const pct = max > 0 ? (safeValue / max) * 100 : 0;
     // warning tint when in a bad zone
-    const bad = invert ? value > 70 : value < 25;
+    const threshold = warningThreshold ?? (invert ? 70 : 25);
+    const bad = invert ? safeValue > threshold : safeValue < threshold;
     const barColor = bad ? "#FF0055" : color;
     return (
         <div data-testid={testid}>
             {label && (
                 <div className="flex justify-between items-center mb-1.5">
-                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-1">
+                    <span className="text-xs tracking-wide text-muted-foreground font-medium flex items-center gap-1">
                         {label}{info && <InfoTip text={info} testid={testid ? `${testid}-info` : undefined} />}
                     </span>
-                    {showValue && <span className="font-mono text-[11px] text-white tnum">{Math.round(value)}</span>}
+                    {showValue && <span className="font-mono text-xs text-white tnum">{Number.isFinite(numeric) ? Math.round(safeValue) : "—"}</span>}
                 </div>
             )}
-            <div className="h-2.5 w-full bg-white/5 border border-white/10 overflow-hidden rounded-sm">
+            <div className="h-2 w-full bg-white/5 overflow-hidden rounded-sm" role="progressbar"
+                aria-label={label || "Stat"} aria-valuemin={0} aria-valuemax={max} aria-valuenow={safeValue}
+                aria-valuetext={`${Math.round(safeValue)} of ${max}; ${invert ? "lower" : "higher"} is better`}
+                title={invert ? "Lower is better" : "Higher is better"}>
                 <div
                     className="h-full transition-all duration-500 rounded-sm"
-                    style={{ width: `${pct}%`, backgroundColor: barColor, boxShadow: `0 0 10px ${barColor}88` }}
+                    style={{ width: `${pct}%`, backgroundColor: barColor }}
                 />
             </div>
+            {showDirection && <div className="text-[10px] text-muted-foreground mt-1">{invert ? "Lower is better" : "Higher is better"}</div>}
         </div>
     );
 }

@@ -76,14 +76,18 @@ async def shop_buy(body: BuyBody, user: dict = Depends(current_user)):
     shop = None
     if body.store_id:
         shop = await db.city_shops.find_one({"id": body.store_id, "active": True}, {"_id": 0})
-    if not shop:
+    else:
         shop = await db.city_shops.find_one({"category": it.get("store_type"), "active": True}, {"_id": 0})
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
+    if body.item_id not in {item["id"] for item in await shop_item_docs(shop)}:
+        raise HTTPException(status_code=400, detail="This shop does not sell that item")
     await _resolve_shop_stock(shop, cfg)
     if not employment.is_open_now(shop.get("opening_hours") or _default_opening(), g_now):
         raise HTTPException(status_code=400, detail=f"{shop['name']} is closed right now. Come back during opening hours.")
-    qty = max(1, body.qty)
+    qty = body.qty
+    if qty < 1:
+        raise HTTPException(status_code=400, detail="Quantity must be at least 1")
     remaining = int((shop.get("stock") or {}).get(body.item_id, 0))
     if remaining < qty:
         raise HTTPException(status_code=400, detail=f"Out of stock — only {remaining} left. Restocks at midnight.")
@@ -95,7 +99,11 @@ async def shop_buy(body: BuyBody, user: dict = Depends(current_user)):
     charge(p, total)
     p.setdefault("inventory", {})
     p["inventory"][body.item_id] = p["inventory"].get(body.item_id, 0) + qty
-    await db.city_shops.update_one({"id": shop["id"]}, {"$set": {f"stock.{body.item_id}": remaining - qty}})
+    stock_field = f"stock.{body.item_id}"
+    claim = await db.city_shops.update_one(
+        {"id": shop["id"], stock_field: {"$gte": qty}}, {"$inc": {stock_field: -qty}})
+    if claim.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Stock changed while buying. Refresh the shop and try again.")
     tag = f" (−{100 - pct}% sale)" if pct < 100 else (f" (+{pct - 100}% markup)" if pct > 100 else "")
     await add_event(db, p["id"], f"Bought {qty}x {it['name']} for ${total}{tag} at {shop['name']} — added to your inventory.", "shop", "info")
     await save_player(p)
@@ -212,6 +220,8 @@ async def rent_house(house_id: str, user: dict = Depends(current_user)):
     if not h:
         raise HTTPException(status_code=404, detail="Housing not found")
     cur = p.get("housing") or {}
+    if cur.get("owned"):
+        raise HTTPException(status_code=409, detail="Sell your current property before moving to a rental.")
     if cur.get("id") == house_id and not cur.get("owned"):
         raise HTTPException(status_code=400, detail="You already rent this place")
     deposit = h.get("deposit", 0)
@@ -239,14 +249,16 @@ async def buy_house(house_id: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=404, detail="Housing not found")
     if h.get("buy_price", 0) <= 0:
         raise HTTPException(status_code=400, detail="This property is not for sale")
-    if p["cash"] + p["bank"] < h["buy_price"]:
-        raise HTTPException(status_code=400, detail="Cannot afford to buy this property")
-    charge(p, h["buy_price"])
     cur = p.get("housing") or {}
-    refund = round(cur.get("deposit_paid", 0), 2) if (cur and not cur.get("owned")) else 0.0
+    if cur.get("owned"):
+        raise HTTPException(status_code=409, detail="Sell your current property before buying another home.")
+    refund = round(cur.get("deposit_paid", 0), 2)
+    if p["cash"] + p["bank"] + refund < h["buy_price"]:
+        raise HTTPException(status_code=400, detail="Cannot afford to buy this property")
     if refund > 0:
         add_money(p, refund)
         await add_event(db, p["id"], f"Deposit refunded from your old rental: +${round(refund)}.", "housing", "success")
+    charge(p, h["buy_price"])
     p["housing"] = {"id": house_id, "owned": True, "since": now_utc().isoformat()}
     p["social_status"] = clamp(p["social_status"] + h.get("social_status", 0) * 0.2)
     await add_event(db, p["id"], f"You bought {h['name']}! No more rent.", "housing", "success")

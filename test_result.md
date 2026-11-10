@@ -101,3 +101,52 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Hunger, health and hospital/healing times disagree between calculations and UI."
+backend:
+  - task: "Deterministic needs and hospital/activity timeline"
+    implemented: true
+    working: true
+    file: "backend/game_engine.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: false
+        agent: "user"
+        comment: "Hunger deductions/display and hospital/healing time are inconsistent."
+      - working: false
+        agent: "main"
+        comment: "Confirmed whole-window threshold damage, activity completion after offline decay, hospital release before stay decay, and online/offline shift differences. Preparing chronological resolution."
+frontend:
+  - task: "Confinement state, countdowns and action availability"
+    implemented: true
+    working: true
+    file: "frontend/src/context/GameContext.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: false
+        agent: "main"
+        comment: "ActivityPanel incorrectly says free/idle during hospitalization; confinement expiry and action cooldown availability need refresh."
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: true
+test_plan:
+  current_focus:
+    - "Offline versus frequent-poll needs, threshold crossings and scheduled activities"
+    - "Hospital care, discharge boundary, paid treatment and time scales"
+    - "Meals/sleep/course effects at completion; work penalties applied once"
+    - "Existing pure economy and market verification gates"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+agent_communication:
+  - agent: "main"
+    message: "Use deterministic fake clock and in-memory dependencies only. Never run integration tests against configured/live services. Root owns backend implementation, frontend_needs owns frontend, testing agent owns regression tests."
+
+  - agent: "testing"
+    message: "2026-11-10: 112 isolated backend regressions pass; 20 frontend tests pass; production build passes. Existing economy, market and logic-link gates pass. All 23 primary routes load in local mocked-Mongo browser QA with no JavaScript errors; desktop and 390px mobile inspected, navigation search/drawer and mobile chat verified. Local API smoke covered 16 endpoints, owner-edited zero/future config, custom meal completion and 12 concurrent state polls. Production/Emergent database was not accessed."

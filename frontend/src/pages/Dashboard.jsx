@@ -3,9 +3,10 @@ import { useGame } from "@/context/GameContext";
 import { Panel, SectionTitle, StatBar, StatTile, Money, Spinner, InfoTip } from "@/components/game/primitives";
 import EventLog from "@/components/game/EventLog";
 import { money, STAT_INFO, XP_INFO } from "@/lib/helpers";
+import { nextMove } from "@/lib/nextMove";
 import {
     LayoutDashboard, Home, Briefcase, GraduationCap, Skull, Store,
-    TrendingUp, Gauge, Shield, AlertTriangle, Star, Activity,
+    TrendingUp, Gauge, Shield, AlertTriangle, Star, Activity, ArrowRight,
 } from "lucide-react";
 
 const QUICK = [
@@ -24,6 +25,7 @@ export default function Dashboard() {
     const nextXp = 250 * player.level;
     const xpPct = Math.min(100, (player.xp / nextXp) * 100);
     const nwb = state?.net_worth_breakdown;
+    const move = nextMove(player, state?.activity, state?.needs_rules);
     const nwInfo = nwb ? (
         <div className="space-y-0.5" data-testid="networth-breakdown">
             <div className="font-bold mb-1">Net worth = what you'd have if you cashed out</div>
@@ -45,6 +47,19 @@ export default function Dashboard() {
                 title={player.name}
                 sub="Your life, in real time. Everything keeps running while you're away."
             />
+
+            <Panel className="p-5 sm:p-6 border-neon-cyan/25 bg-gradient-to-r from-neon-cyan/[0.07] to-transparent" data-testid="next-move">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+                    <div className="flex-1">
+                        <div className="font-mono text-xs uppercase tracking-widest text-neon-cyan mb-2">Your next move</div>
+                        <h2 className="font-display font-bold text-lg text-white">{move.title}</h2>
+                        <p className="text-sm text-muted-foreground leading-relaxed mt-2 max-w-xl">{move.detail}</p>
+                    </div>
+                    <Link to={move.to} className="shrink-0 inline-flex items-center justify-center gap-3 min-h-[44px] px-4 py-3 bg-neon-cyan text-black font-bold text-sm rounded-sm hover:bg-neon-cyan/80">
+                        {move.label}<ArrowRight className="w-4 h-4" />
+                    </Link>
+                </div>
+            </Panel>
 
             {/* Money tiles */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -77,9 +92,9 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-end gap-3">
                         <div className="font-display font-black text-3xl text-neon-cyan tnum" data-testid="effectiveness-value">
-                            {Math.round((state?.effectiveness || 1) * 100)}%
+                            {Math.round((state?.effectiveness ?? 1) * 100)}%
                         </div>
-                        <p className="text-xs text-muted-foreground pb-1">Low energy, high fatigue, hunger and stress reduce your pay and XP, and raise accident risk.</p>
+                        <p className="text-sm text-muted-foreground pb-1">Energy, fatigue, hunger, health and stress affect your pay, XP and accident risk.</p>
                     </div>
                 </Panel>
             </div>
@@ -115,7 +130,7 @@ export default function Dashboard() {
             </div>
 
             {/* Mobile log */}
-            <div className="xl:hidden">
+            <div className="2xl:hidden">
                 <EventLog max={20} />
             </div>
         </div>

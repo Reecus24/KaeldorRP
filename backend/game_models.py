@@ -119,6 +119,33 @@ DEFAULT_CONFIG = {
         "stress_relax": 1.2,  # stress drifts down per game hour when idle
         "mood_baseline": 60.0,
     },
+    "needs": {
+        "health_warning_threshold": 35.0,
+        "mood_warning_threshold": 25.0,
+        "hunger_damage_threshold": 80.0,
+        "hunger_health_loss_per_hour": 1.4,
+        "hunger_mood_loss_per_hour": 1.0,
+        "fatigue_damage_threshold": 80.0,
+        "fatigue_health_loss_per_hour": 0.6,
+        "stress_damage_threshold": 80.0,
+        "stress_health_loss_per_hour": 0.8,
+        "stress_mood_loss_per_hour": 1.0,
+        "low_energy_threshold": 15.0,
+        "low_energy_stress_per_hour": 1.0,
+        "regen_max_hunger": 80.0,
+        "regen_max_fatigue": 85.0,
+        "regen_max_stress": 85.0,
+        "health_regen_per_hour": 0.8,
+        "mood_recovery_per_hour": 0.5,
+        "mood_fade_per_hour": 0.3,
+        "mood_upper_margin": 20.0,
+        "student_welfare_enabled": True,
+    },
+    "hospital": {
+        "duration_minutes": 360.0,
+        "admission_health": 1.0,
+        "discharge_health": 60.0,
+    },
     "economy": {
         "loan_interest_daily": 0.015,   # per game day on debt
         "max_loan_multiplier": 3.0,     # loan cap vs net worth-ish

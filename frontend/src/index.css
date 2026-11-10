@@ -14,7 +14,7 @@
     --secondary: 0 0% 11%;
     --secondary-foreground: 0 0% 96%;
     --muted: 0 0% 11%;
-    --muted-foreground: 218 9% 62%;
+    --muted-foreground: 218 10% 70%;
     --accent: 184 100% 50%;
     --accent-foreground: 0 0% 4%;
     --destructive: 339 100% 50%;
@@ -22,7 +22,9 @@
     --border: 0 0% 15%;
     --input: 0 0% 15%;
     --ring: 184 100% 50%;
-    --radius: 0.125rem;
+    --radius: 0.5rem;
+    --game-surface: #0d1115;
+    --game-edge: rgba(150, 186, 197, 0.14);
 }
 
 * {
@@ -89,8 +91,8 @@ body {
 }
 
 .kael-panel {
-    background: #0d0d0d;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--game-surface);
+    border: 1px solid var(--game-edge);
 }
 .kael-panel:hover {
     border-color: rgba(255, 255, 255, 0.14);
@@ -149,5 +151,19 @@ body {
 }
 .danger-pulse {
     animation: kael-danger-pulse 1.5s ease-in-out infinite;
+}
+
+:focus-visible {
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
 }
 

@@ -76,15 +76,10 @@ async def seed_demo_players():
 
 async def migrate_hours_based_promotions():
     """Convert legacy shift-count promotion requirements + player job progress to hour-based."""
-    seed_jobs = {x["id"]: x for x in CONTENT_MAP["jobs"][1]}
     async for j in db.jobs.find({"promotion_req.shifts": {"$exists": True}}, {"_id": 0, "id": 1, "promotion_req": 1}):
-        sj = seed_jobs.get(j["id"])
-        if sj:
-            new_req = sj.get("promotion_req", {})
-        else:
-            old = j.get("promotion_req") or {}
-            new_req = {k: v for k, v in old.items() if k != "shifts"}
-            new_req["hours"] = old.get("shifts", 0) * 5
+        old = j.get("promotion_req") or {}
+        new_req = {k: v for k, v in old.items() if k != "shifts"}
+        new_req.setdefault("hours", old.get("shifts", 0) * 5)
         await db.jobs.update_one({"id": j["id"]}, {"$set": {"promotion_req": new_req}})
     async for pl in db.players.find({"job": {"$ne": None}, "job.hours_worked": {"$exists": False}}, {"_id": 0, "id": 1, "job": 1}):
         job = pl.get("job") or {}
@@ -115,58 +110,45 @@ async def migrate_player_employment_hourly():
             await db.businesses.update_one({"id": b["id"]}, {"$set": {"history": hist}})
 
 
+async def _backfill_fields(collection, query, defaults):
+    """Seed only absent fields; existing zeroes, empty lists and owner edits are authoritative."""
+    for field, value in defaults.items():
+        await collection.update_many(
+            {**query, field: {"$exists": False}}, {"$set": {field: value}})
+
+
 async def migrate_business_supply_chain():
     """Migrate business_types + existing businesses to the supply-chain model, and give NPC
     employees a schedule + hourly wage so they run through the same worker logic as players."""
     seed_types = {t["id"]: t for t in CONTENT_MAP["business_types"][1]}
     for tid, t in seed_types.items():
-        await db.business_types.update_one({"id": tid}, {"$set": {
+        await _backfill_fields(db.business_types, {"id": tid}, {
             "product": t.get("product"), "recipe": t.get("recipe"),
             "production_per_worker_hour": t.get("production_per_worker_hour"),
             "daily_demand": t.get("daily_demand"),
-            "opening_hours": t.get("opening_hours") or {"open": "08:00", "close": "20:00"}},
-            "$unset": {"rent_per_day": "", "base_revenue_per_day": "", "base_expenses_per_day": ""}})
-    # Refresh the economic definition on ALL existing businesses from seed so re-balances take effect
-    # (runtime state — cash/level/reputation/materials/products — is preserved).
-    for tid, t in seed_types.items():
-        await db.businesses.update_many({"type_id": tid}, {"$set": {
-            "product": t.get("product") or {}, "recipe": t.get("recipe") or [],
-            "production_per_worker_hour": t.get("production_per_worker_hour", 0),
-            "daily_demand": t.get("daily_demand", 0),
-            "opening_hours": t.get("opening_hours") or {"open": "08:00", "close": "20:00"}}})
-    # Lift existing businesses' starting satisfaction so a well-run shop reaches its profit target
-    await db.businesses.update_many({"satisfaction": {"$lt": 80}}, {"$set": {"satisfaction": 80.0}})
+            "opening_hours": t.get("opening_hours") or {"open": "08:00", "close": "20:00"}})
+    # Existing businesses follow their stored definition. Propagation is an explicit Owner
+    # Sandbox operation, never a side effect of restarting the server.
+    live_types = {t["id"]: t async for t in db.business_types.find({}, {"_id": 0})}
     now_iso = now_utc().isoformat()
-    async for b in db.businesses.find({"recipe": {"$exists": False}}, {"_id": 0}):
-        t = seed_types.get(b.get("type_id")) or {}
+    async for b in db.businesses.find({}, {"_id": 0}):
+        t = live_types.get(b.get("type_id")) or {}
         recipe = t.get("recipe") or []
         target = t.get("daily_demand", 0)
-        await db.businesses.update_one({"id": b["id"]}, {"$set": {
+        await _backfill_fields(db.businesses, {"id": b["id"]}, {
             "product": t.get("product") or {}, "recipe": recipe,
             "production_per_worker_hour": t.get("production_per_worker_hour", 0),
             "daily_demand": target, "restock_target": target, "auto_restock": True,
             "materials": {r["id"]: round(target * r.get("qty", 1), 3) for r in recipe},
-            "products": 0.0, "last_resolved_at": now_iso, "bankrupt": False},
-            "$unset": {"rent_per_day": "", "base_revenue_per_day": "", "base_expenses_per_day": "",
-                       "coverage": "", "backup_roles": "", "backup_wage_day": "", "last_net_day": ""}})
+            "products": 0.0, "last_resolved_at": now_iso, "bankrupt": False,
+            "opening_hours": t.get("opening_hours") or {"open": "08:00", "close": "20:00"},
+            "satisfaction": 80.0})
     async for e in db.employees.find({"status": {"$in": ["active", "sick"]}, "schedule": {"$exists": False}}, {"_id": 0, "id": 1, "daily_wage": 1}):
         await db.employees.update_one({"id": e["id"]}, {"$set": {
             "schedule": employment.make_schedule("early"), "wage_per_hour": round(e.get("daily_wage", 90) / 8.0, 2)}})
-    # One-time: re-slot existing NPC shifts into non-overlapping blocks across each business's opening hours
-    async for b in db.businesses.find({"opening_shift_migrated": {"$ne": True}}, {"_id": 0, "id": 1, "opening_hours": 1}):
-        o_h, c_h = employment.opening_bounds(b.get("opening_hours"))
-        npcs = await db.employees.find({"business_id": b["id"], "status": {"$in": ["active", "sick"]}}, {"_id": 0, "id": 1}).sort("hire_date", 1).to_list(300)
-        n = len(npcs)
-        if n:
-            block = (c_h - o_h) / n
-            for i, e in enumerate(npcs):
-                s = o_h + i * block
-                e2 = c_h if i == n - 1 else o_h + (i + 1) * block
-                await db.employees.update_one({"id": e["id"]}, {"$set": {"schedule": employment.make_shift(s, e2)}})
-        await db.businesses.update_one({"id": b["id"]}, {"$set": {"opening_shift_migrated": True}})
-    # Sync job requirements from seed (so Legal Standing / Social Status gates apply to existing DBs)
+    # Existing worker schedules and job gates may have been customized by the Owner.
     for jd in JOBS:
-        await db.jobs.update_one({"id": jd["id"]}, {"$set": {"requirements": jd.get("requirements", {})}})
+        await _backfill_fields(db.jobs, {"id": jd["id"]}, {"requirements": jd.get("requirements", {})})
     # Backfill daily-summary baseline snapshot for players missing it (before -> after comparison).
     async for pl in db.players.find({"day_start_snapshot": {"$exists": False}},
                                     {"cash": 1, "bank": 1, "debt": 1, "energy": 1, "health": 1,
@@ -177,7 +159,7 @@ async def migrate_business_supply_chain():
                 "fatigue": round(pl.get("fatigue", 0), 1), "stress": round(pl.get("stress", 0), 1),
                 "mood": round(pl.get("mood", 0), 1), "level": pl.get("level", 1)}
         await db.players.update_one({"id": pl["id"]}, {"$set": {"day_start_snapshot": snap}})
-    # One-time: hard-sync the world clock to German local time (Europe/Berlin) at 1:1 real-time pace.
+    # Initialize missing anchors without resetting a configured world pace or date.
     cfg_doc = await db.config.find_one({"id": "global"})
     if cfg_doc and not cfg_doc.get("time_synced_de"):
         try:
@@ -186,12 +168,10 @@ async def migrate_business_supply_chain():
         except Exception:
             offset = timedelta(hours=2)
         now = now_utc()
-        await db.config.update_one({"id": "global"}, {"$set": {
-            "time_scale": 1.0,
-            "world_start_real": now.isoformat(),
-            "world_start_game": (now + offset).isoformat(),
-            "time_synced_de": True,
-        }})
+        await _backfill_fields(db.config, {"id": "global"}, {
+            "time_scale": 1.0, "world_start_real": now.isoformat(),
+            "world_start_game": (now + offset).isoformat()})
+        await db.config.update_one({"id": "global"}, {"$set": {"time_synced_de": True}})
 
 
 async def migrate_city_shops():
@@ -218,7 +198,7 @@ async def migrate_job_shift_options():
     from seed_data import JOB_SHIFTS
     async for j in db.jobs.find({}, {"_id": 0, "id": 1, "shift_options": 1}):
         so = j.get("shift_options")
-        if isinstance(so, list) and so and isinstance(so[0], dict):
+        if isinstance(so, list) and (not so or isinstance(so[0], dict)):
             continue
         if j["id"] in JOB_SHIFTS:
             new_so = [{**s} for s in JOB_SHIFTS[j["id"]]]
@@ -272,17 +252,17 @@ async def startup():
     await migrate_vehicle_categories()
     await migrate_job_visibility()
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@kaeldor.com")
-    admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+    admin_password = os.environ.get("ADMIN_PASSWORD")
     existing = await db.users.find_one({"email": admin_email})
-    if not existing:
+    if not existing and admin_password:
         await db.users.insert_one({"email": admin_email, "password_hash": hash_password(admin_password),
                                    "name": "Game Master", "role": "admin", "created_at": now_utc().isoformat()})
-    elif not verify_password(admin_password, existing.get("password_hash", "")):
-        await db.users.update_one({"email": admin_email}, {"$set": {"password_hash": hash_password(admin_password)}})
+    elif not existing:
+        logger.warning("Owner account not created. Set ADMIN_EMAIL and ADMIN_PASSWORD to bootstrap a new Owner.")
     elif existing.get("role") != "admin":
-        await db.users.update_one({"email": admin_email}, {"$set": {"role": "admin"}})
+        logger.warning("Configured ADMIN_EMAIL belongs to an existing non-admin account; its role was preserved.")
     await seed_demo_players()
-    logger.info("Kaeldor RPG started. Admin: %s", admin_email)
+    logger.info("Kaeldor RPG started.")
 
 
 @app.on_event("shutdown")

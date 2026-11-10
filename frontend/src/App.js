@@ -52,9 +52,18 @@ function PublicOnly({ children }) {
 
 function ProtectedGame() {
     const { user, ready } = useAuth();
-    const { hasCharacter } = useGame();
+    const { hasCharacter, stateError, refresh } = useGame();
     if (!ready) return <FullLoader />;
     if (!user) return <Navigate to="/login" replace />;
+    if (hasCharacter === null && stateError) return (
+        <div className="min-h-screen bg-[#050505] flex items-center justify-center p-6">
+            <div role="alert" className="kael-panel p-8 max-w-md text-center">
+                <h1 className="font-display text-xl text-white mb-3">Connection interrupted</h1>
+                <p className="text-muted-foreground mb-5">{stateError}</p>
+                <button onClick={refresh} className="px-5 py-3 bg-neon-cyan text-black font-bold rounded-sm">Try again</button>
+            </div>
+        </div>
+    );
     if (hasCharacter === null) return <FullLoader />;
     if (hasCharacter === false) return <Navigate to="/create-character" replace />;
     return (
