@@ -150,3 +150,12 @@ agent_communication:
 
   - agent: "testing"
     message: "2026-11-10: 112 isolated backend regressions pass; 20 frontend tests pass; production build passes. Existing economy, market and logic-link gates pass. All 23 primary routes load in local mocked-Mongo browser QA with no JavaScript errors; desktop and 390px mobile inspected, navigation search/drawer and mobile chat verified. Local API smoke covered 16 endpoints, owner-edited zero/future config, custom meal completion and 12 concurrent state polls. Production/Emergent database was not accessed."
+
+
+## 2026-11-10 — Journeys and business comfort
+
+Implemented personal ambitions, a branching Mercer Street story, three recurring city opportunities, an Owner content workshop with validated previews, operating reserves and safe payouts, quoted material purchases with personal-funds opt-in, balanced automatic restocking, a finished-stock cap, fresh staffing forecasts and shared owner/employee business leases.
+
+Validation: 140 isolated backend tests and 25 frontend tests pass. Economy, market and logic-link checks pass. Production frontend builds successfully. Local API checks cover 8 concurrent choice claims (one success, seven conflicts), milestone replay, completed-story persistence, event offers, business reserves, material quotes, personal-funds consent and access control. Browser review covers all 24 main pages, story choices, city/ambition tabs, Owner previews and editing, business reserve controls, 390px layouts and mobile navigation, with no JavaScript exceptions or API 500 responses.
+
+All checks use isolated local test data. Existing Owner settings and character were retained when refreshing the preview. Public deployment and production MongoDB verification remain separate. City occasions open authored opportunities in this release; they do not alter all market prices or introduce player-to-player contracts. See docs/JOURNEY_AND_BUSINESS.md.

@@ -82,6 +82,16 @@ def flatten_patch(patch, prefix=""):
 def validate_config(config, defaults):
     validate_json(config)
     _validate_types(config, defaults, "")
+    journey = config.get("journey", {})
+    limit = journey.get("max_active_stories", 3)
+    if not 1 <= limit <= 20 or int(limit) != limit:
+        raise ValueError("journey.max_active_stories: use a whole number from 1 to 20")
+    comfort = config.get("business_comfort", {})
+    for key, value in comfort.items():
+        if isinstance(value, (int, float)) and not 0 <= value <= 365:
+            raise ValueError(f"business_comfort.{key}: must be between 0 and 365 game days")
+    if comfort.get("default_reserve_days", 1) > comfort.get("max_reserve_days", 30):
+        raise ValueError("Default reserve cannot exceed the maximum reserve.")
     if config.get("time_scale", 1) <= 0:
         raise ValueError("time_scale: must be greater than zero")
     for key in ("skill_per_level", "player_per_level"):

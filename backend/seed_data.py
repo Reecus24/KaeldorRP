@@ -984,7 +984,12 @@ CHARACTER_BACKGROUNDS = [
 ]
 
 
+from journey_content import JOURNEY_GOALS, STORY_ARCS, CITY_EVENTS
+
 CONTENT_MAP = {
+    "journey_goals": ("journey_goals", JOURNEY_GOALS),
+    "story_arcs": ("story_arcs", STORY_ARCS),
+    "city_events": ("city_events", CITY_EVENTS),
     "jobs": ("jobs", JOBS),
     "actions": ("actions", ACTIONS),
     "courses": ("courses", COURSES),
@@ -1015,6 +1020,16 @@ CONTENT_MAP = {
 
 async def seed_content(db):
     for ctype, (coll, data) in CONTENT_MAP.items():
+        if ctype in {"journey_goals", "story_arcs", "city_events"}:
+            # A seed receipt preserves an intentionally empty Owner collection.
+            await db[coll].create_index("id", unique=True)
+            if not await db.content_seeds.find_one({"_id": ctype}):
+                if await db[coll].count_documents({}) == 0:
+                    from copy import deepcopy
+                    for doc in data:
+                        await db[coll].update_one({"id": doc["id"]}, {"$setOnInsert": deepcopy(doc)}, upsert=True)
+                await db.content_seeds.update_one({"_id": ctype}, {"$set": {"seeded": True}}, upsert=True)
+            continue
         existing = await db[coll].count_documents({})
         if existing == 0 and data:
             await db[coll].insert_many([{**d} for d in data])

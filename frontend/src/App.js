@@ -10,6 +10,7 @@ import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import CharacterCreate from "@/pages/CharacterCreate";
 import Dashboard from "@/pages/Dashboard";
+import Journey from "@/pages/Journey";
 import HomeNeeds from "@/pages/HomeNeeds";
 import Skills from "@/pages/Skills";
 import JobCenter from "@/pages/JobCenter";
@@ -96,6 +97,7 @@ function AppRoutes() {
             <Route path="/create-character" element={<CharacterGate />} />
             <Route element={<ProtectedGame />}>
                 <Route path="/" element={<Dashboard />} />
+                <Route path="/journey" element={<Journey />} />
                 <Route path="/home" element={<HomeNeeds />} />
                 <Route path="/skills" element={<Skills />} />
                 <Route path="/jobs" element={<JobCenter />} />

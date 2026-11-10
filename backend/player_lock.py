@@ -9,7 +9,7 @@ This is serialization, not a database transaction: cancellation cannot undo a
 write already accepted by MongoDB. Hosts must have synchronized UTC clocks.
 """
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AsyncExitStack
 from datetime import datetime, timedelta, timezone
 import logging
 import math
@@ -31,6 +31,25 @@ def _now():
 
 def _unavailable(detail):
     return HTTPException(status_code=503, detail=detail, headers={"Retry-After": "1"})
+
+
+@asynccontextmanager
+async def business_operations(db, user_id):
+    """Owner and employee requests share business leases, ordered to avoid cycles.
+
+    Hold them around the whole request so a worker's poll cannot overwrite an
+    owner's payout/restock. No other player's lease is acquired.
+    """
+    player = await db.players.find_one({"user_id": str(user_id)}, {"id": 1})
+    ids = set()
+    if player:
+        ids.update(await db.businesses.distinct("id", {"player_id": player["id"]}))
+        ids.update(await db.player_employment.distinct("business_id", {
+            "employee_player_id": player["id"], "status": "active"}))
+    async with AsyncExitStack() as stack:
+        for bid in sorted(ids):
+            await stack.enter_async_context(player_operation(db, "business:" + str(bid)))
+        yield
 
 
 @asynccontextmanager

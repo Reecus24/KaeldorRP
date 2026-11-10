@@ -14,6 +14,7 @@ employed player without double-booking (no clobber-race).
 """
 import uuid
 import random
+import math
 from datetime import timedelta
 
 from game_models import clamp, now_utc
@@ -251,7 +252,7 @@ def _day_rates(b, workers, upgrade_penalty=1.0, slots=1, wage_mult=1.0, material
     eprice = effective_price(b)
     rev_day = round(sold_day * eprice * upgrade_penalty, 2)
     material_day = round(sold_day * mc, 2)
-    wages_day = round(sum(calculate_worker_daily_wage(w, opening) for w in workers) * wage_mult, 2)
+    wages_day = round(sum(calculate_worker_daily_wage(w, opening) * (1 if w.get("is_player") else wage_mult) for w in workers), 2)
     net_day = round(rev_day - material_day - wages_day, 2)
     return {
         "demand_day": round(demand_day, 1), "capacity_day": round(capacity_day, 1),
@@ -262,26 +263,38 @@ def _day_rates(b, workers, upgrade_penalty=1.0, slots=1, wage_mult=1.0, material
     }
 
 
-def _auto_restock(b, need_units, material_spend_out, cost_mult=1.0):
-    """Buy ingredients from business cash up to target buffer (and at least enough for need_units)."""
-    target = max(b.get("restock_target", b.get("daily_demand", 0)) or 0, need_units)
+def _auto_restock(b, need_units, material_spend_out, cost_mult=1.0, cash_floor=0):
+    """Buy a balanced recipe, keeping the requested wage cash available."""
+    target = max(b.get("restock_target", b.get("daily_demand", 0)), need_units)
     materials = b.get("materials") or {}
+    budget = max(0, b.get("cash", 0) - cash_floor)
+    def quote(units):
+        return sum(max(0, units * r.get("qty", 1) - materials.get(r["id"], 0)) *
+                   max(0, r.get("cost", 0)) * cost_mult for r in _recipe(b))
+    if quote(target) > budget:
+        low, high = 0.0, target
+        for _ in range(50):
+            middle = (low + high) / 2
+            if quote(middle) <= budget:
+                low = middle
+            else:
+                high = middle
+        target = low
     spent = 0.0
     for r in _recipe(b):
         rid, qty, cost = r["id"], r.get("qty", 1), r.get("cost", 0) * cost_mult
         want = target * qty
         have = materials.get(rid, 0)
-        if have >= want or cost <= 0:
+        if have >= want:
             continue
         short = want - have
-        afford = b.get("cash", 0) - spent
-        buy = short if afford >= short * cost else max(0.0, afford / cost)
+        buy = math.floor(short * 1000) / 1000
         if buy <= 0:
             continue
         materials[rid] = round(have + buy, 3)
         spent += buy * cost
     b["materials"] = materials
-    b["cash"] = round(b.get("cash", 0) - spent, 2)
+    b["cash"] = round(max(0, b.get("cash", 0) - spent), 2)
     return round(spent, 2)
 
 
@@ -394,6 +407,14 @@ async def business_metrics(db, b):
     allp = npcs + sick
     morale_avg = round(sum(e.get("morale", 60) for e in allp) / len(allp)) if allp else 0
     materials = b.get("materials") or {}
+    # Recompute projections after hiring/settings changes instead of returning stale saved rates.
+    owner = await db.players.find_one({"id": b.get("player_id")}, {"_id": 0, "social_perks": 1}) or {}
+    perks = owner.get("social_perks") or {}
+    workers = await gather_workers(db, b, cfg)
+    material_mult = 1 - min(0.20, max(0, perks.get("material_discount", 0)))
+    rates = _day_rates(b, workers, slots=max_slots, wage_mult=1 - min(0.20, max(0, perks.get("wage_discount", 0))),
+                       material_mult=material_mult, upgrade_penalty=0.5 if (b.get("activity") or {}).get("type") == "upgrade" else 1)
+    b = {**b, **rates, "wages_day": rates["wages_day"]}
     mat_view = [{"id": r["id"], "name": r["name"], "qty": r.get("qty", 1), "cost": r.get("cost", 0),
                  "stock": round(materials.get(r["id"], 0), 1)} for r in _recipe(b)]
     return {
@@ -420,7 +441,8 @@ async def business_metrics(db, b):
         "reputation": round(b.get("reputation", 50)),
         "reputation_demand_mult": reputation_mult(b), "satisfaction_production_mult": satisfaction_mult(b),
         "product": b.get("product") or {}, "recipe": _recipe(b),
-        "material_cost_per_unit": material_cost_per_unit(b), "margin_per_unit": margin_per_unit(b),
+        "material_cost_per_unit": material_cost_per_unit(b) * material_mult,
+        "margin_per_unit": effective_price(b) - material_cost_per_unit(b) * material_mult,
         "effective_price": effective_price(b), "base_price": unit_price(b),
         "marketing_level": b.get("marketing_level", 0),
         "marketing_demand_pct": round((marketing_demand_mult(b) - 1) * 100),
@@ -749,9 +771,13 @@ async def resolve_business(db, cfg, now, b):
             if w["is_player"]:
                 player_bookings.append((w["emp"], wg, whrs, w["productivity"]))
         capacity = b.get("production_per_worker_hour", 0) * covered * satisfaction_mult(b) * lvl_mult
+        # Stop purchasing and producing an unlimited pile of unsold products.
+        demand_per_day = b.get("daily_demand", 0) * marketing_demand_mult(b) * reputation_mult(b) * lvl_mult
+        finished_target = demand_per_day * cfg.get("business_comfort", {}).get("finished_stock_days", 1)
+        capacity = min(capacity, max(0, demand_per_day * gh / 24 + finished_target - b.get("products", 0)))
         # restock enough materials to cover this window's production (+buffer), auto if enabled
         if b.get("auto_restock", True) and capacity > 0:
-            material_spend += _auto_restock(b, capacity, None, cost_mult=material_mult)
+            material_spend += _auto_restock(b, capacity, None, cost_mult=material_mult, cash_floor=wages)
         produced = _producible(b, capacity)
         if produced > 0:
             _consume(b, produced)

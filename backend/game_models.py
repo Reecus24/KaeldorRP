@@ -108,6 +108,13 @@ def new_player(user_id, name, background, bg=None):
 
 DEFAULT_CONFIG = {
     "id": "global",
+    "journey": {"max_active_stories": 3, "city_events_enabled": True},
+    "business_comfort": {
+        "default_reserve_days": 1.0,
+        "max_reserve_days": 30.0,
+        "stock_warning_days": 0.5,
+        "finished_stock_days": 1.0,
+    },
     # time_scale = game minutes that pass per 1 real minute.
     # 1  => TRUE REAL-TIME (1 game hour = 1 real hour). This is the default.
     # 12 => accelerated test mode (1 game hour = 5 real minutes) for balancing.
@@ -240,6 +247,7 @@ def apply_tuning(cfg):
 
 # Daily-summary ledger: signed per-day money buckets (expenses stored negative).
 LEDGER_KEYS = [
+    "story_income", "story_costs",
     "wages_earned", "business_income", "crime_income", "social_income", "savings_interest",   # income (+)
     "rent", "bills", "vehicle_costs", "fines", "medical", "living_costs", "taxes",  # expenses (-)
     "loan_interest", "business_pnl", "employee_wages",      # info / debt

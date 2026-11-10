@@ -16,6 +16,7 @@ import { SortableContext, horizontalListSortingStrategy, useSortable, arrayMove 
 import { CSS } from "@dnd-kit/utilities";
 
 import { ContentEditor } from "./admin/shared";
+import JourneyStudio from "./admin/JourneyStudio";
 import { ConfigEditor, EconomyTuner, TuningPanel, MarketsPanel } from "./admin/EconomyPanels";
 import { PlayersTable, StatsView, CharacterOriginsPanel } from "./admin/PlayerPanels";
 import { LocationsPanel, CityShopsPanel, JobSectorsPanel, VehicleCategoriesPanel } from "./admin/CityPanels";
@@ -23,6 +24,8 @@ import { JobShiftsPanel, JobApplicationsPanel } from "./admin/JobPanels";
 import { LiveCityFeed } from "./admin/OverviewPanels";
 
 const ADMIN_GROUPS = [
+    { key: "journey", label: "Stories & Goals", icon: Sparkles,
+      children: [{ key: "journey_goals", label: "Ambitions" }, { key: "story_arcs", label: "Stories" }, { key: "city_events", label: "City Events" }] },
     { key: "overview", label: "Overview", icon: LayoutDashboard, locked: true,
       children: [{ key: "stats", label: "Dashboard" }, { key: "feed", label: "Live Feed" }] },
     { key: "economy", label: "Economy", icon: DollarSign,
@@ -93,6 +96,9 @@ const ADMIN_SUMMARY = {
 };
 function renderAdminLeaf(key, ctx = {}) {
     switch (key) {
+        case "journey_goals":
+        case "story_arcs":
+        case "city_events": return <JourneyStudio key={key} kind={key} />;
         case "stats": return <StatsView />;
         case "feed": return <LiveCityFeed onPlayerClick={ctx.onFeedPlayerClick} />;
         case "economy": return <EconomyTuner />;

@@ -4,6 +4,7 @@ import { Panel, SectionTitle, StatBar, StatTile, Money, Spinner, InfoTip } from 
 import EventLog from "@/components/game/EventLog";
 import { money, STAT_INFO, XP_INFO } from "@/lib/helpers";
 import { nextMove } from "@/lib/nextMove";
+import { JourneyTeaser } from "@/pages/Journey";
 import {
     LayoutDashboard, Home, Briefcase, GraduationCap, Skull, Store,
     TrendingUp, Gauge, Shield, AlertTriangle, Star, Activity, ArrowRight,
@@ -62,6 +63,7 @@ export default function Dashboard() {
             </Panel>
 
             {/* Money tiles */}
+            <JourneyTeaser />
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 <StatTile label="Net Worth" value={money(state?.net_worth)} accent="#00FF66" testid="tile-networth" info={nwInfo} />
                 <StatTile label="Cash" value={money(player.cash)} accent="#00F3FF" testid="tile-cash" />

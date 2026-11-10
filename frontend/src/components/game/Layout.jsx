@@ -18,6 +18,7 @@ import {
 const NAV = [
     { section: "Life" },
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+    { to: "/journey", label: "Your Journey", icon: ScrollText },
     { to: "/home", label: "Home & Needs", icon: Home },
     { to: "/skills", label: "Skills", icon: Sparkles },
     { to: "/social", label: "Social", icon: Users },
@@ -201,6 +202,9 @@ export default function Layout({ children }) {
     const { player, state, stateError, refresh } = useGame();
     const navigate = useNavigate();
     const [mobileNav, setMobileNav] = useState(false);
+    const [mobileNeeds, setMobileNeeds] = useState(false);
+    const location = useLocation();
+    const focusedPage = location.pathname === "/journey" || location.pathname.startsWith("/businesses") || location.pathname === "/admin";
 
     const isAdmin = user?.role === "admin";
     const status = player?.status || "free";
@@ -294,8 +298,15 @@ export default function Layout({ children }) {
                         </div>
                     )}
                     {/* Needs strip */}
+                    {player && focusedPage && <button type="button" className="sm:hidden w-full flex justify-between items-center gap-3 p-3 mb-4 border border-white/15 bg-[#0d1115]/90 rounded-sm text-xs"
+                        aria-label={mobileNeeds ? "Hide needs" : "Show needs"} aria-expanded={mobileNeeds} onClick={() => setMobileNeeds(!mobileNeeds)}>
+                        <span className={player.health <= needWarningThreshold("health", state?.needs_rules) ? "text-neon-red" : "text-neon-green"}>Health {Math.round(player.health)}</span>
+                        <span className={player.hunger >= needWarningThreshold("hunger", state?.needs_rules) ? "text-neon-red" : "text-white"}>Hunger {Math.round(player.hunger)}</span>
+                        <span className="text-neon-cyan">Energy {Math.round(player.energy)}</span>
+                        <ChevronDown className={cn("w-4 h-4", mobileNeeds && "rotate-180")} />
+                    </button>}
                     {player && (
-                        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-x-5 gap-y-4 mb-6 p-4 bg-[#0d1115]/90 border border-white/10 rounded-sm" data-testid="needs-strip">
+                        <div className={cn("grid-cols-2 sm:grid sm:grid-cols-3 xl:grid-cols-6 gap-x-5 gap-y-4 mb-6 p-4 bg-[#0d1115]/90 border border-white/10 rounded-sm", focusedPage && !mobileNeeds ? "hidden" : "grid")} data-testid="needs-strip">
                             {Object.entries(NEED_META).map(([key, meta]) => (
                                 <StatBar
                                     key={key}
@@ -313,7 +324,7 @@ export default function Layout({ children }) {
                     )}
 
                     {/* Mobile activity (above content) */}
-                    <div className="2xl:hidden mb-6">
+                    <div className={cn("2xl:hidden mb-6", focusedPage && status === "free" && !state?.activity && !player?.registered_shift && "hidden")}>
                         <ActivityPanel compact />
                     </div>
 

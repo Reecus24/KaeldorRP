@@ -5,6 +5,7 @@ import { ScrollText, TrendingUp, TrendingDown, AlertTriangle, Sparkles, ListTree
 import { cn } from "@/lib/utils";
 
 const INCOME = [
+    ["story_income", "Stories & Milestones"],
     ["wages_earned", "Total Wages"],
     ["business_income", "Business Dividends / Profits"],
     ["crime_income", "Crime Income"],
@@ -12,6 +13,7 @@ const INCOME = [
     ["savings_interest", "Savings Interest"],
 ];
 const EXPENSE = [
+    ["story_costs", "Story Expenses"],
     ["rent", "Housing Rent"],
     ["vehicle_costs", "Vehicle Expenses (Fuel / Ins / Maint)"],
     ["bills", "Utilities"],

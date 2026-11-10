@@ -1,4 +1,5 @@
 from core import *  # noqa: F401,F403
+from business_comfort import operations, restock_quote, material_multiplier
 
 
 
@@ -25,6 +26,7 @@ async def owned_businesses(user: dict = Depends(current_user)):
     bizs = await db.businesses.find({"player_id": p["id"]}, {"_id": 0}).sort("created_at", 1).to_list(100)
     for b in bizs:
         b["metrics"] = await employee_engine.business_metrics(db, b)
+        b["operations"] = operations(b, b["metrics"], await get_config(db))
     return bizs
 
 
@@ -132,16 +134,18 @@ async def marketing_business(biz_id: str, user: dict = Depends(current_user)):
 async def collect_business(biz_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     b = await _get_owned_business(p, biz_id)
-    amount = round(b.get("cash", 0), 2)
+    metrics = await employee_engine.business_metrics(db, b)
+    op = operations(b, metrics, await get_config(db))
+    amount = op["safe_to_collect"]
     if amount <= 0:
-        raise HTTPException(status_code=400, detail="No profit to collect")
-    b["cash"] = 0.0
-    await db.businesses.update_one({"id": biz_id}, {"$set": {"cash": 0.0}})
+        raise HTTPException(status_code=400, detail="No cash above the operating reserve yet. Review reserve settings or let the business earn more.")
+    b["cash"] = round(b.get("cash", 0) - amount, 2)
+    await db.businesses.update_one({"id": biz_id}, {"$set": {"cash": b["cash"]}})
     add_money(p, amount)
     ledger_add(p, "business_income", amount)
     await add_event(db, p["id"], f"Collected ${amount} profit from {b['name']}.", "business", "success")
     await save_player(p)
-    return {"ok": True, "amount": amount}
+    return {"ok": True, "amount": amount, "retained": b["cash"]}
 
 
 
@@ -212,7 +216,14 @@ async def restock_settings(biz_id: str, body: RestockBody, user: dict = Depends(
     if body.auto_restock is not None:
         upd["auto_restock"] = bool(body.auto_restock)
     if body.restock_target is not None:
+        if not 0 <= body.restock_target <= 1_000_000:
+            raise HTTPException(422, "Stock target must be between 0 and 1,000,000 units.")
         upd["restock_target"] = max(0.0, round(body.restock_target, 1))
+    if body.reserve_days is not None:
+        cfg = await get_config(db)
+        if not 0 <= body.reserve_days <= cfg["business_comfort"]["max_reserve_days"]:
+            raise HTTPException(422, "Reserve days are outside the Owner's allowed range.")
+        upd["reserve_days"] = body.reserve_days
     if upd:
         await db.businesses.update_one({"id": biz_id}, {"$set": upd})
     return {"ok": True, **upd}
@@ -230,22 +241,18 @@ async def buy_materials(biz_id: str, body: MaterialsBody, user: dict = Depends(c
     if not recipe:
         raise HTTPException(status_code=400, detail="This business has no supply chain")
     target = body.units if body.units is not None else b.get("restock_target", b.get("daily_demand", 0))
-    target = max(0.0, round(target, 1))
-    materials = b.get("materials") or {}
-    cost = 0.0
-    new_mats = dict(materials)
-    for r in recipe:
-        want = target * r.get("qty", 1)
-        have = materials.get(r["id"], 0)
-        if want > have:
-            cost += (want - have) * r.get("cost", 0)
-            new_mats[r["id"]] = round(want, 3)
-    cost = round(cost, 2)
+    if not 0 <= target <= 1_000_000:
+        raise HTTPException(422, "Stock target must be between 0 and 1,000,000 units.")
+    target = round(target, 1)
+    quote = restock_quote(b, target, material_multiplier(p))
+    cost, new_mats = quote["cost"], quote["materials"]
     if cost <= 0:
         return {"ok": True, "cost": 0, "detail": "Already stocked to target"}
     biz_cash = round(b.get("cash", 0), 2)
     from_biz = min(biz_cash, cost)
     from_owner = round(cost - from_biz, 2)
+    if from_owner > 0 and not body.allow_owner_funds:
+        raise HTTPException(409, "Business funds are insufficient. Review the quote and explicitly allow personal funds, or inject money first.")
     if from_owner > 0 and (p["cash"] + p["bank"]) < from_owner:
         raise HTTPException(status_code=400, detail=f"Need ${cost} to restock (business has ${biz_cash}); you can't cover the rest")
     if from_owner > 0:
@@ -254,6 +261,18 @@ async def buy_materials(biz_id: str, body: MaterialsBody, user: dict = Depends(c
     await db.businesses.update_one({"id": biz_id}, {"$set": {"materials": new_mats, "cash": round(biz_cash - from_biz, 2)}})
     await add_event(db, p["id"], f"Restocked materials at {b['name']} for ${cost}.", "business", "info", biz_id)
     return {"ok": True, "cost": cost, "from_business": from_biz, "from_owner": from_owner}
+
+
+@api.post("/businesses/{biz_id}/materials-quote")
+async def materials_quote(biz_id: str, body: MaterialsBody, user: dict = Depends(current_user)):
+    p = await get_state(user)
+    b = await _get_owned_business(p, biz_id)
+    target = body.units if body.units is not None else b.get("restock_target", b.get("daily_demand", 0))
+    if not 0 <= target <= 1_000_000:
+        raise HTTPException(422, "Stock target must be between 0 and 1,000,000 units.")
+    q = restock_quote(b, round(target, 1), material_multiplier(p))
+    q.pop("materials")
+    return q
 
 
 
@@ -284,7 +303,8 @@ async def business_detail(biz_id: str, user: dict = Depends(current_user)):
     }
     metrics = await employee_engine.business_metrics(db, b)
     insight = employee_engine.business_insight(b, metrics)
-    return {"business": b, "metrics": metrics, "costs": costs, "insight": insight}
+    return {"business": b, "metrics": metrics, "costs": costs, "insight": insight,
+            "operations": operations(b, metrics, cfg)}
 
 
 

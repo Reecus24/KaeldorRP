@@ -57,7 +57,7 @@ function BizCard({ b }) {
             )}
 
             <div className="grid grid-cols-3 gap-2 text-[11px] font-mono mb-3">
-                <div><div className="text-muted-foreground">Uncollected</div><Money value={b.cash} /></div>
+                <div><div className="text-muted-foreground">Business cash</div><Money value={b.cash} /></div>
                 <div><div className="text-muted-foreground">Debt</div><span className="text-neon-red tnum">{money(b.debt)}</span></div>
                 <div><div className="text-muted-foreground">Staff</div><span className="text-white tnum">{staff}</span></div>
             </div>
@@ -79,6 +79,7 @@ function BizCard({ b }) {
                 <div className="flex items-center gap-1 text-[11px] text-neon-red font-mono mb-2"><AlertTriangle className="w-3 h-3" /> Open Manage to inject cash, revive, or sell.</div>
             )}
 
+            {b.operations && <div className="mb-4 text-sm space-y-2"><div className="text-neon-cyan">Available payout: {money(b.operations.safe_to_collect)}</div><p className="text-xs text-muted-foreground">{b.operations.alerts[0]?.title || "Operations are on track"} · Reserve {money(b.operations.reserve)}</p></div>}
             <Link to={`/businesses/${b.id}`} className="block">
                 <KButton variant="primary" className="w-full" data-testid={`manage-${b.id}`}><Settings2 className="w-3.5 h-3.5" /> Manage Business</KButton>
             </Link>
@@ -103,7 +104,7 @@ export default function OwnedBusinesses() {
                 <EmptyState icon={Boxes} title="You don't own any business yet" sub="Visit the Business Marketplace to buy your first venture." />
             ) : (
                 <div className="grid md:grid-cols-2 gap-3">
-                    {bizs.map((b) => <BizCard key={b.id} b={b} />)}
+                    {[...bizs].sort((a, b) => (b.operations?.alerts.length || 0) - (a.operations?.alerts.length || 0)).map((b) => <BizCard key={b.id} b={b} />)}
                 </div>
             )}
             <Link to="/business-market"><KButton variant="ghost" data-testid="goto-market">Buy another business →</KButton></Link>

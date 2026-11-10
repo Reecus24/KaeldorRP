@@ -1,6 +1,7 @@
 from core import *  # noqa: F401,F403
 from fastapi import FastAPI
 import routes.player, routes.economy, routes.business, routes.social, routes.admin  # noqa: F401  (registers endpoints)
+import routes.journey  # noqa: F401
 
 app = FastAPI(title="Kaeldor RPG API")
 

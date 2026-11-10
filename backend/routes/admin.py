@@ -1,6 +1,25 @@
 from core import *  # noqa: F401,F403
 import market_engine
 from config_schema import merge_config, validate_config, validate_content, validate_json, flatten_patch
+from journey_engine import COLLECTIONS as JOURNEY_COLLECTIONS, validate_definition
+
+
+@api.get("/admin/journey/templates")
+async def journey_templates(admin: dict = Depends(admin_user)):
+    from copy import deepcopy
+    return {kind: deepcopy(CONTENT_MAP[kind][1][0]) for kind in JOURNEY_COLLECTIONS}
+
+
+@api.post("/admin/journey/{kind}/validate")
+async def validate_journey_draft(kind: str, body: dict, admin: dict = Depends(admin_user)):
+    if kind not in JOURNEY_COLLECTIONS:
+        raise HTTPException(404, "Unknown journey content type.")
+    draft = {**body, "id": body.get("id") or "draft"}
+    try:
+        validate_definition(kind, draft)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    return {"valid": True}
 
 
 
@@ -26,6 +45,8 @@ async def admin_create(ctype: str, body: dict, admin: dict = Depends(admin_user)
     body.pop("_id", None)
     try:
         validate_content(body)
+        if ctype in JOURNEY_COLLECTIONS:
+            validate_definition(ctype, body)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     if await db[coll].find_one({"id": body["id"]}, {"_id": 1}):
@@ -48,6 +69,8 @@ async def admin_update(ctype: str, item_id: str, body: dict, admin: dict = Depen
     body["id"] = item_id
     try:
         validate_content(body)
+        if ctype in JOURNEY_COLLECTIONS:
+            validate_definition(ctype, {k: v for k, v in {**existing, **body}.items() if k != "_id"})
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     # Preserve the admin's exact key order (replace_one, not $set which keeps the old DB order and

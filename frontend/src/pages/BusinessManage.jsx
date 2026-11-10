@@ -6,6 +6,7 @@ import { SectionTitle, Spinner, Panel, Pill, StatBar, Money, EmptyState, InfoTip
 import { KButton, KInput } from "@/components/game/controls";
 import { money, money2, fmtDuration, realDurationLabel, scheduleLabel, SHIFT_PRESETS } from "@/lib/helpers";
 import { toast } from "sonner";
+import { BusinessOperations, MaterialsPurchase } from "@/components/game/BusinessOperations";
 import { cn } from "@/lib/utils";
 import {
     Boxes, ArrowLeft, Users, UserPlus, GraduationCap, ScrollText, LineChart, LayoutGrid,
@@ -581,14 +582,6 @@ export default function BusinessManage() {
         if (r?.ok) { setRenaming(false); await loadAll(); }
         setBusy(null);
     };
-    const buyMaterials = async () => {
-        setBusy("materials");
-        const body = targetInput ? { units: Number(targetInput) } : {};
-        const r = await act(() => api.post(`/businesses/${id}/buy-materials`, body), null);
-        if (r?.ok) toast.success(r.res.data.cost > 0 ? `Restocked for $${Math.round(r.res.data.cost)}` : "Already fully stocked");
-        await loadAll();
-        setBusy(null);
-    };
     const toggleAutoRestock = async (val) => {
         await act(() => api.post(`/businesses/${id}/restock-settings`, { auto_restock: val }), val ? "Auto-restock ON" : "Auto-restock OFF");
         await loadAll();
@@ -635,6 +628,7 @@ export default function BusinessManage() {
             {/* OVERVIEW */}
             {tab === "overview" && (
                 <div className="space-y-4">
+                    <BusinessOperations business={b} operations={detail.operations} onReload={loadAll} onTab={setTab} />
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
                         <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#00FF66" : "#FF0055"} sub="rev − materials − wages" />
                         <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00F3FF" sub={`${Math.round(m.sold_day)} sold × ${money2(m.effective_price ?? m.product?.price ?? 0)}`} />
@@ -642,7 +636,7 @@ export default function BusinessManage() {
                         <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#FF8A00" />
                         <Tile label={capacityLabel} value={`${Math.round(m.capacity_day ?? 0)}/day`} accent="#B026FF" info="How many units your staff can make/sell per day at current staffing and satisfaction. Hire more staff or upgrade to raise it." sub={`vs ${Math.round(m.demand_day)}/day demand`} />
                         <Tile label="Products in stock" value={Math.round(m.products_in_stock)} accent="#B026FF" />
-                        <Tile label="Uncollected cash" value={money(b.cash)} accent="#00FF66" />
+                        <Tile label="Business cash" value={money(b.cash)} accent="#00FF66" />
                         <Tile label="Staff slots" value={`${m.staff_count ?? 0}/${m.max_staff_slots ?? 0}`} accent="#00F3FF" sub="upgrade for +1 slot" />
                         <Tile label="Business debt" value={money(b.debt)} accent={b.debt > 0 ? "#FF0055" : "#9CA3AF"} />
                         <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" testid="reputation" info="Reputation acts as a multiplier for market demand. Higher reputation attracts more customers." sub={`Demand ×${(m.reputation_demand_mult ?? 1).toFixed(2)}`} />
@@ -718,7 +712,7 @@ export default function BusinessManage() {
                                 <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Stock target (units)
                                     <input type="number" min="0" value={targetInput} placeholder={String(Math.round(m.restock_target || 0))} onChange={(e) => setTargetInput(e.target.value)} data-testid="restock-target-input"
                                         className="w-28 bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono" /></label>
-                                <KButton variant="primary" loading={busy === "materials"} onClick={buyMaterials} data-testid="buy-materials-button"><Boxes className="w-3.5 h-3.5" /> Buy Materials to Target</KButton>
+                                <MaterialsPurchase business={b} target={targetInput} onReload={loadAll} />
                             </div>
                         </div>
                     </Panel>
@@ -755,20 +749,20 @@ export default function BusinessManage() {
                     <Panel className="p-4" data-testid="biz-actions" id="biz-actions-anchor">
                         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
-                                <div className="font-display font-bold text-white text-sm mb-0.5">Collect Profit</div>
-                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">Move the business's uncollected cash into your wallet. Instant.</p>
-                                <KButton variant="green" disabled={b.cash <= 0} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(b.cash)}</KButton>
+                                <div className="font-display font-bold text-white text-sm mb-0.5">Take a payout</div>
+                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">Withdraw cash above your operating reserve. Wages, materials and outstanding debt stay covered by the reserve estimate.</p>
+                                <KButton variant="green" disabled={!detail.operations?.safe_to_collect || !!busy} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(detail.operations?.safe_to_collect || 0)}</KButton>
                             </div>
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
                                 <div className="font-display font-bold text-white text-sm mb-0.5 flex items-center gap-1.5">Marketing · Lvl {costs.marketing_level}
-                                    <InfoTip text="Marketing builds your brand: +25% customer demand AND a +10% price premium per level. The price premium raises revenue immediately — even when you're already selling out." testid="marketing-info" /></div>
+                                    <InfoTip text="Marketing builds your brand: +25% customer demand AND a +12% price premium per level. The price premium raises revenue immediately — even when you're already selling out." testid="marketing-info" /></div>
                                 <p className="text-[11px] text-muted-foreground mb-3 flex-1">Each level: +{costs.marketing_demand_boost_pct}% demand, +{costs.marketing_price_boost_pct}% price, +{costs.marketing_reputation_gain} reputation. Takes ~{costs.marketing_duration_days} in-game days to roll out.</p>
                                 <KButton variant="primary" disabled={costs.activity_in_progress} loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign launched", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> {costs.activity?.type === "marketing" ? "Campaign running…" : costs.activity_in_progress ? "Busy…" : `Run Marketing · ${money(costs.marketing_cost)} · ${costs.marketing_duration_days}d`}</KButton>
                             </div>
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
                                 <div className="font-display font-bold text-white text-sm mb-0.5 flex items-center gap-1.5">Upgrade — +1 Staff Slot
-                                    <InfoTip text="Each upgrade adds one staff slot so you can hire another worker, and raises production capacity & demand by ~25% plus +4 reputation. Construction takes ~7 in-game days and cuts income 50% until done." testid="upgrade-info" /></div>
-                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">{costs.can_upgrade ? `Level ${costs.upgrade_from_level} → ${costs.upgrade_to_level}: +1 staff slot, +25% capacity & demand. Takes ~${costs.upgrade_duration_days} in-game days (income −50% during build).` : "This business is already at its maximum level."}</p>
+                                    <InfoTip text="Each upgrade adds one staff slot so you can hire another worker, and raises production capacity & demand by 60% of base per level plus +4 reputation. Construction takes ~7 in-game days and cuts income 50% until done." testid="upgrade-info" /></div>
+                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">{costs.can_upgrade ? `Level ${costs.upgrade_from_level} → ${costs.upgrade_to_level}: +1 staff slot, +60% of base capacity & demand. Takes ~${costs.upgrade_duration_days} in-game days (income −50% during build).` : "This business is already at its maximum level."}</p>
                                 <KButton variant="primary" disabled={!costs.can_upgrade || costs.activity_in_progress} loading={busy === "upgrade"} onClick={() => run(() => api.post(`/businesses/${id}/upgrade`), "Upgrade started", "upgrade")} data-testid="ov-upgrade"><ArrowUpCircle className="w-3.5 h-3.5" /> {costs.activity?.type === "upgrade" ? "Upgrading…" : !costs.can_upgrade ? "Max level" : costs.activity_in_progress ? "Busy…" : `Upgrade · ${money(costs.upgrade_cost)} · ${costs.upgrade_duration_days}d`}</KButton>
                             </div>
                         </div>

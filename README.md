@@ -42,6 +42,20 @@ New features must follow [AGENTS.md](AGENTS.md): editable balance values, persis
 non-destructive migrations, explicit units, validation and regression coverage.
 See [Admin Sandbox](docs/ADMIN_SANDBOX.md) and [Player Stats](docs/PLAYER_STATS_LOGIC.md).
 
+## Stories, ambitions and business management
+
+**Your Journey** connects personal milestones, branching stories and recurring city
+opportunities to existing activities, skills, contacts and businesses. The Owner's
+**Stories & Goals** workshop edits and previews the complete content.
+
+Business management now shows operating reserves, safe payouts, supply coverage and
+prioritized next steps. Material purchases show a quote and require explicit opt-in
+before using personal funds. See [Journey and business authoring](docs/JOURNEY_AND_BUSINESS.md)
+for content formats, configuration units, persistence and economic limits.
+
+New deterministic suites: backend/tests/test_journey.py and
+backend/tests/test_business_comfort.py (run alongside the regression suites below).
+
 ## Verification
 
 Install `backend/requirements-test.txt` in addition to runtime requirements. Set `PYTHONPATH` to

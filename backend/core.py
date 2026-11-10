@@ -130,7 +130,7 @@ class PlayerOperationRoute(APIRoute):
             return handler
 
         async def serialized(request):
-            from player_lock import player_operation
+            from player_lock import player_operation, business_operations
             user = await current_user(request)
             request.state.kaeldor_user = user
             user_id = user["id"]
@@ -140,7 +140,8 @@ class PlayerOperationRoute(APIRoute):
                 if target:
                     user_id = target["user_id"]
             async with player_operation(db, user_id):
-                return await handler(request)
+                async with business_operations(db, user_id):
+                    return await handler(request)
 
         return serialized
 
@@ -689,6 +690,7 @@ class RenameBody(BaseModel):
 
 class MaterialsBody(BaseModel):
     units: Optional[FiniteFloat] = None  # product-equivalent units to top up to (defaults to restock target)
+    allow_owner_funds: bool = False
 
 
 
@@ -696,6 +698,7 @@ class MaterialsBody(BaseModel):
 class RestockBody(BaseModel):
     auto_restock: Optional[bool] = None
     restock_target: Optional[FiniteFloat] = None
+    reserve_days: Optional[FiniteFloat] = None
 
 
 
