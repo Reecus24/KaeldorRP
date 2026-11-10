@@ -107,10 +107,12 @@ def new_player(user_id, name, background, bg=None):
 
 
 from world_content import WORLD_CONFIG
+from world_map import DEFAULT_WORLD_MAP
 
 DEFAULT_CONFIG = {
     "id": "global",
     "world": WORLD_CONFIG,
+    "world_map": DEFAULT_WORLD_MAP,
     "realm": {
         "faction_rejoin_hours": 72.0,
         "base_power": 5.0, "power_per_level": 2.0, "power_per_fitness": 2.0,

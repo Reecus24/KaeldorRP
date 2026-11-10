@@ -18,6 +18,32 @@ The default world contains seven locations, six named NPCs, fourteen actions,
 seven professions, five NPC quests and four founding charters. These are examples,
 not an exhaustive list of what characters may become.
 
+## Owner map editor
+
+Open **Sandbox → Open World → Map & Routes**. The player atlas and the editor use
+the same saved geometry; there is no separate hard-coded river or forest layer.
+
+- **Places & routes:** create places, drag markers, edit coordinates (0–100%),
+  names, descriptions and icons. Arrow keys move a focused marker by 1%; Shift
+  moves by 5%. Save each location, including its outgoing routes. Routes are
+  directed: add the return route at the other location for two-way travel. An
+  arrow marks a one-way path. Times are game minutes; zero means instant travel.
+- **Landscape:** add, move, resize or remove forests, mountain ranges, lakes and
+  rivers. Each river bend is draggable. Width zero hides a feature; removing all
+  terrain is valid. These shapes are decorative, while routes control travel.
+- **Map style:** change the title, palette, compass and starting location for new
+  characters. **Save map** saves landscape and style together. Location drafts
+  are saved separately. The player map picks up saved edits on its next refresh.
+
+Changes remain drafts until saved. Discard or reload restores the saved version.
+Concurrent edits to the same location or appearance return a conflict rather than
+silently overwriting another Owner's work. Keep IDs stable; hide a location with
+the visibility toggle instead of deleting references used by NPCs and activities.
+Advanced JSON remains available for locations and map appearance. Settings live in
+`world_map`; places and route durations live in `world_regions`, and the starting
+location in `world.start_region`. Existing journeys retain their departure rules.
+Startup preserves zero values, empty terrain and Owner extensions.
+
 ## Free actions and the storyteller
 
 In Explore, describe what your character intends to do. Choose a matching local

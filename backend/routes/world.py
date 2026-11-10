@@ -172,7 +172,7 @@ async def world_view(user: dict = Depends(current_user)):
     nearby = await db.players.find({"world.region": w["region"], "id": {"$ne": p["id"]}}, {"_id": 0, "id": 1, "name": 1, "world.profession": 1, "world.region": 1}).to_list(100)
     await save_player(p)
     from npc_dialogue import availability
-    return {"world": w, "regions": regions, "npcs": npcs, "actions": actions, "professions": professions,
+    return {"world": w, "regions": regions, "map": cfg["world_map"], "npcs": npcs, "actions": actions, "professions": professions,
             "skills": await catalog("world_skills"), "charters": charters, "foundings": groups, "nearby_players": nearby,
             "blocked": world.busy_reason(p), "ai": availability(cfg), "time_scale": cfg["time_scale"], "max_foundings": cfg["world"]["max_foundings"]}
 

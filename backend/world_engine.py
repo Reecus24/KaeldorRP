@@ -75,8 +75,12 @@ def validate_definition(kind, d):
             number(d.get(key), key, 0, 100)
         if not isinstance(d.get("connections"), list):
             raise ValueError("connections: expected [{to, minutes}]")
+        targets = set()
         for c in d["connections"]:
             mapping(c, "connection"); identifier(c.get("to")); number(c.get("minutes"), "minutes", 0, 10080)
+            if c["to"] == d["id"] or c["to"] in targets:
+                raise ValueError("Routes must point to distinct other locations")
+            targets.add(c["to"])
     elif kind == "world_actions":
         ids(d.get("regions"), "regions"); identifier(d.get("skill"))
         for key, high in (("difficulty", 10000), ("duration_minutes", 10080), ("energy_cost", 100), ("money_cost", 1e9), ("cooldown_minutes", 10080)):

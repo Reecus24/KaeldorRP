@@ -20,6 +20,7 @@ import { Shield as ShieldRealm } from "lucide-react";
 import JourneyStudio from "./admin/JourneyStudio";
 import StorytellerDesk from "./admin/StorytellerDesk";
 import WorldCharacters from "./admin/WorldCharacters";
+import MapEditor from "./admin/MapEditor";
 import { ConfigEditor, EconomyTuner, TuningPanel, MarketsPanel } from "./admin/EconomyPanels";
 import { PlayersTable, StatsView, CharacterOriginsPanel } from "./admin/PlayerPanels";
 import { LocationsPanel, CityShopsPanel, JobSectorsPanel, VehicleCategoriesPanel } from "./admin/CityPanels";
@@ -101,6 +102,7 @@ const ADMIN_SUMMARY = {
 };
 function renderAdminLeaf(key, ctx = {}) {
     switch (key) {
+        case "world_regions": return <MapEditor />;
         case "world_characters": return <WorldCharacters />;
         case "world_intents": return <StorytellerDesk />;
         case "journey_goals":
