@@ -35,12 +35,16 @@ def validate_json(value, path="settings"):
 def validate_content(content):
     """Keep arbitrary effects/extension fields, but reject unusable costs and identifiers."""
     validate_json(content, "content")
+    requirements = content.get("requirements")
+    age = requirements.get("min_age_days") if isinstance(requirements, dict) else None
+    if age is not None and (isinstance(age, bool) or not isinstance(age, (int, float)) or age < 0):
+        raise ValueError("requirements.min_age_days: use a nonnegative number of real days")
     identifier = content.get("id")
     if not isinstance(identifier, str) or not identifier.strip() or "." in identifier or "$" in identifier:
         raise ValueError("content.id: use a nonempty text ID without '.' or '$'")
     for field in ("price", "buy_price", "purchase_price", "deposit", "money_cost", "cost",
                   "hourly_wage", "base_hourly_wage", "daily_demand", "production_per_worker_hour",
-                  "duration_minutes", "cooldown_minutes"):
+                  "duration_minutes", "cooldown_minutes", "combat_power", "combat_armor"):
         value = content.get(field)
         if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0):
             raise ValueError(f"content.{field}: enter a nonnegative number")
@@ -82,6 +86,8 @@ def flatten_patch(patch, prefix=""):
 def validate_config(config, defaults):
     validate_json(config)
     _validate_types(config, defaults, "")
+    from realm_engine import validate_settings
+    validate_settings(config["realm"])
     journey = config.get("journey", {})
     limit = journey.get("max_active_stories", 3)
     if not 1 <= limit <= 20 or int(limit) != limit:

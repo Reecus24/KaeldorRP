@@ -186,9 +186,9 @@ async def _flush_daily_summary(db, p, cfg, from_day, to_day, now):
     p["day_start_snapshot"] = close_snap  # this day's close becomes tomorrow's opening baseline
     sign = "+" if net >= 0 else ""
     await add_notification(db, p["id"], "daily_summary", "Daily summary ready",
-                           f"Net cash for the day: {sign}${round(net)}",
+                           f"Net coin for the day: {sign}${round(net)}",
                            "success" if net >= 0 else "warning", "/daily-summary")
-    await add_event(db, p["id"], f"A new day begins in Kaeldor. Net cash yesterday: {sign}${round(net)}.", "system", "info")
+    await add_event(db, p["id"], f"A new day begins in Kaeldor. Net coin yesterday: {sign}${round(net)}.", "system", "info")
 
 
 def effectiveness(p):
@@ -205,7 +205,7 @@ def effectiveness(p):
 
 
 def charge(p, amount):
-    """Deduct money: cash -> bank -> debt. Returns True if fully covered without debt."""
+    """Deduct money: coin -> vault -> debt. Returns True if fully covered without debt."""
     amount = round(amount, 2)
     if amount <= 0:
         return True
@@ -395,7 +395,7 @@ async def complete_activity(db, p, cfg, at=None):
         p["stats_meta"]["actions_done"] = p["stats_meta"].get("actions_done", 0) + 1
         msg = payload.get("result_text", "Action complete.")
         if reward:
-            msg += f" (+${round(reward * eff)})"
+            msg += f" (+¤ {round(reward * eff)})"
         await add_event(db, pid, f"{payload.get('name','Action')}: {msg}", "action", "success")
 
     elif kind == "job":
@@ -433,7 +433,7 @@ async def complete_activity(db, p, cfg, at=None):
         p["stats_meta"]["shifts_worked"] = p["stats_meta"].get("shifts_worked", 0) + 1
         p["stats_meta"]["total_hours_worked"] = round(p["stats_meta"].get("total_hours_worked", 0) + hours, 1)
         shift_name = payload.get("shift_name") or f"{hours}h"
-        await add_event(db, pid, f"Finished {shift_name} shift as {payload.get('title')} (+${net_pay} after ${tax} tax{f', incl. ${tip} tips' if tip > 0 else ''}).", "job", "success")
+        await add_event(db, pid, f"Finished {shift_name} shift as {payload.get('title')} (+¤ {net_pay} after ¤ {tax} tax{f', incl. ¤ {tip} tips' if tip > 0 else ''}).", "job", "success")
         # SHIFT INJURY RISK — hazardous/night shifts can hurt you (health + stress); the shift still completes.
         injury_risk = float(payload.get("injury_risk", 0.0))
         if injury_risk > 0 and random.random() < injury_risk:
@@ -469,6 +469,10 @@ async def complete_activity(db, p, cfg, at=None):
 
     elif kind == "illegal":
         await _resolve_illegal(db, p, cfg, payload, eff, at=at)
+
+    elif kind == "expedition":
+        import realm_engine
+        await realm_engine.complete(db, p, cfg, payload, at)
 
     elif kind == "social":
         import social_engine
@@ -515,7 +519,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff, at=None):
             "fine": payload.get("fine_amount", 0),
         })
         p["stats_meta"]["times_jailed"] = p["stats_meta"].get("times_jailed", 0) + 1
-        await add_event(db, pid, f"BUSTED during {name}! Fined ${payload.get('fine_amount',0)} and jailed.", "crime", "danger")
+        await add_event(db, pid, f"BUSTED during {name}! Fined ¤ {payload.get('fine_amount',0)} and jailed.", "crime", "danger")
     elif roll < catch + fail:
         p["criminal_suspicion"] = clamp(p["criminal_suspicion"] + sg * 0.5)
         p["stress"] = clamp(p["stress"] + 12)
@@ -536,7 +540,7 @@ async def _resolve_illegal(db, p, cfg, payload, eff, at=None):
             await add_event(db, pid, f"{name} succeeded. Your record looks cleaner now.", "crime", "info")
         else:
             verb = "scored" if reward >= 0 else "lost"
-            await add_event(db, pid, f"{name} succeeded. You {verb} ${abs(reward)}. Suspicion rising.", "crime", "warning")
+            await add_event(db, pid, f"{name} succeeded. You {verb} ¤ {abs(reward)}. Suspicion rising.", "crime", "warning")
 
 
 def _decay_skills(p, gh):
@@ -558,8 +562,8 @@ def _decay_skills(p, gh):
 
 
 async def accrue_recurring(db, p, cfg, gh, housing_doc):
-    """Hourly-accruing money flows: utility bills, loan/savings interest, skill & vehicle wear.
-    NOTE: fixed RENT and VEHICLE costs (fuel/insurance/maintenance) are NO LONGER charged here —
+    """Hourly-accruing money flows: utility bills, loan/savings interest, skill & mount or cart wear.
+    NOTE: fixed RENT and VEHICLE costs (fodder/stable dues/maintenance) are NO LONGER charged here —
     they are deducted once per day as a single sum at the 00:00 game-day boundary
     (see _charge_daily_fixed). This keeps continuous flows (interest/bills) hourly while making
     the big fixed costs land at midnight, matching the Daily Summary receipt."""
@@ -600,7 +604,7 @@ async def accrue_recurring(db, p, cfg, gh, housing_doc):
 
 async def _charge_daily_fixed(db, p, cfg, days, housing_doc):
     """00:00 GAME-DAY BOUNDARY: charge the day's fixed RENT and VEHICLE costs
-    (fuel + insurance + maintenance) as a single daily lump, once per day crossed.
+    (fodder + stable dues + maintenance) as a single daily lump, once per day crossed.
     Replaces the old hourly proration so these land exactly at midnight."""
     if days <= 0:
         return
@@ -629,15 +633,15 @@ async def _charge_daily_fixed(db, p, cfg, days, housing_doc):
         ledger_add(p, "vehicle_costs", -round(veh, 2))
     if not paid:
         p["credit_missed_flag"] = True
-        ledger_warn(p, "Your 00:00 rent & vehicle bill pushed you into debt.")
-        await add_event(db, p["id"], "Your daily rent & vehicle costs pushed you into debt — vehicles left unmaintained and wearing fast.", "finance", "warning")
+        ledger_warn(p, "Your 00:00 rent & mount or cart bill pushed you into debt.")
+        await add_event(db, p["id"], "Your daily rent & mount or cart costs pushed you into debt — mounts & carts left unmaintained and wearing fast.", "finance", "warning")
     else:
         parts = []
         if rent > 0:
-            parts.append(f"rent ${round(rent)}")
+            parts.append(f"rent ¤ {round(rent)}")
         if veh > 0:
-            parts.append(f"vehicle ${round(veh)}")
-        await add_event(db, p["id"], f"00:00 daily charge: {', '.join(parts)} (${round(total)} total). Vehicles maintained.", "finance", "info")
+            parts.append(f"mount or cart ¤ {round(veh)}")
+        await add_event(db, p["id"], f"00:00 daily charge: {', '.join(parts)} (¤ {round(total)} total). Mounts & Carts maintained.", "finance", "info")
 
 
 async def accrue_businesses(db, p, cfg, gh, now):
@@ -655,13 +659,13 @@ async def release_confinement(db, p, now=None, cfg=None):
         p["jail_until"] = None
         p["status"] = "free"
         p["legal_reputation"] = clamp(p["legal_reputation"] + 5)
-        await add_event(db, p["id"], "You served your time and walked out of jail.", "legal", "info")
+        await add_event(db, p["id"], "You served your time and walked out of dungeon.", "legal", "info")
     hu = parse_dt(p.get("hospital_until"))
     if hu and hu <= now and p.get("status") == "hospital":
         p["hospital_until"] = None
         p["status"] = "free"
         p["health"] = clamp(max(p["health"], hospital["discharge_health"]))
-        await add_event(db, p["id"], "You were discharged from the hospital.", "health", "info")
+        await add_event(db, p["id"], "You were discharged from the infirmary.", "health", "info")
 
 
 async def admit_if_collapsed(db, p, cfg, at=None):
@@ -673,12 +677,12 @@ async def admit_if_collapsed(db, p, cfg, at=None):
     p["current_activity"] = None
     p["hospital_until"] = (at + timedelta(seconds=real_seconds(care["duration_minutes"], cfg["time_scale"]))).isoformat()
     p["status"] = "hospital"
-    await add_event(db, p["id"], "You collapsed from poor health and were rushed to hospital.", "health", "danger")
+    await add_event(db, p["id"], "You collapsed from poor health and were rushed to infirmary.", "health", "danger")
     return True
 
 
 async def advance_player_time(db, p, cfg, last, now, mood_bonus=0.0):
-    """Resolve needs and timed state changes in chronological order, online or offline."""
+    """Resolve needs and timed state changes in chronological order, guild or offline."""
     cursor = min(last, now)
     ts = cfg["time_scale"]
     care = {**game_models.DEFAULT_CONFIG["hospital"], **cfg.get("hospital", {})}
@@ -768,7 +772,7 @@ async def maybe_autostart_shift(db, p, cfg, now):
 
 async def maybe_police_event(db, p, cfg, gh):
     """PROACTIVE POLICING (legal_standing link): a player with a criminal record (legal_standing < 40)
-    gets randomly stopped/searched by police. The lower the standing and the higher the suspicion,
+    gets randomly stopped/searched by watch. The lower the standing and the higher the suspicion,
     the more frequent and harsher the encounter. Only fires while the player is free (not confined,
     not mid-activity, not on shift). See docs/PLAYER_STATS_LOGIC.md."""
     if gh <= 0 or p.get("status") in ("jail", "hospital"):
@@ -792,18 +796,18 @@ async def maybe_police_event(db, p, cfg, gh):
         p["status"] = "jail"
         p["criminal_suspicion"] = clamp(susp + 5)
         p["legal_reputation"] = clamp(legal - 2)
-        await add_event(db, p["id"], "Police detained you for questioning — your record made you a target.", "legal", "danger")
-        await add_notification(db, p["id"], "legal", "Detained by police", "Your criminal record got you pulled in for questioning.", "danger", "/police-record")
+        await add_event(db, p["id"], "Watch detained you for questioning — your record made you a target.", "legal", "danger")
+        await add_notification(db, p["id"], "legal", "Detained by watch", "Your criminal record got you pulled in for questioning.", "danger", "/police-record")
     elif susp >= 40 and roll < 0.5:
         fine = round(50 + susp * 2)
         charge(p, fine)
         ledger_add(p, "fines", -fine)
         p["criminal_suspicion"] = clamp(susp - 8)
-        await add_event(db, p["id"], f"Police stopped and searched you — cited you ${fine}.", "legal", "warning")
-        await add_notification(db, p["id"], "legal", "Stopped and searched", f"Police searched you and issued a ${fine} citation.", "warning", "/police-record")
+        await add_event(db, p["id"], f"Watch stopped and searched you — cited you ¤ {fine}.", "legal", "warning")
+        await add_notification(db, p["id"], "legal", "Stopped and searched", f"Watch searched you and issued a ¤ {fine} citation.", "warning", "/police-record")
     else:
         p["criminal_suspicion"] = clamp(susp - 4)
-        await add_event(db, p["id"], "Police stopped you for questioning, then let you off with a warning.", "legal", "info")
+        await add_event(db, p["id"], "Watch stopped you for questioning, then let you off with a warning.", "legal", "info")
 
 
 async def resolve_player(db, p):

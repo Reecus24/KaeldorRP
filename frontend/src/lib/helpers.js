@@ -1,8 +1,11 @@
+import realmLabels from "./realmLabels.json";
+export function worldLabel(value) { const key = String(value || ""); return realmLabels[key] || key.replace(/_/g, " "); }
+
 export function money(n) {
     const v = Math.round(Number(n || 0));
     const neg = v < 0;
     const s = Math.abs(v).toLocaleString("en-US");
-    return `${neg ? "-" : ""}$${s}`;
+    return `${neg ? "-" : ""}¤ ${s}`;
 }
 
 // precise money with cents — for per-unit prices/costs/margins
@@ -10,7 +13,7 @@ export function money2(n) {
     const v = Number(n || 0);
     const neg = v < 0;
     const s = Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return `${neg ? "-" : ""}$${s}`;
+    return `${neg ? "-" : ""}¤ ${s}`;
 }
 
 export function fmtDuration(totalSeconds) {
@@ -63,12 +66,12 @@ export const RISK_COLORS = {
 
 // stat metadata: invert=true means higher value is BAD
 export const NEED_META = {
-    energy: { label: "Energy", invert: false, color: "#00F3FF", warningKey: "low_energy_threshold", warningDefault: 15 },
-    fatigue: { label: "Fatigue", invert: true, color: "#FFC300", warningKey: "fatigue_damage_threshold", warningDefault: 80 },
-    hunger: { label: "Hunger", invert: true, color: "#FF8A00", warningKey: "hunger_damage_threshold", warningDefault: 80 },
-    mood: { label: "Mood", invert: false, color: "#00FF66", warningKey: "mood_warning_threshold", warningDefault: 25 },
-    stress: { label: "Stress", invert: true, color: "#B026FF", warningKey: "stress_damage_threshold", warningDefault: 80 },
-    health: { label: "Health", invert: false, color: "#00FF66", warningKey: "health_warning_threshold", warningDefault: 35 },
+    energy: { label: "Energy", invert: false, color: "#D1B579", warningKey: "low_energy_threshold", warningDefault: 15 },
+    fatigue: { label: "Fatigue", invert: true, color: "#D9B66B", warningKey: "fatigue_damage_threshold", warningDefault: 80 },
+    hunger: { label: "Hunger", invert: true, color: "#D49D72", warningKey: "hunger_damage_threshold", warningDefault: 80 },
+    mood: { label: "Mood", invert: false, color: "#8EB89B", warningKey: "mood_warning_threshold", warningDefault: 25 },
+    stress: { label: "Stress", invert: true, color: "#B6A0CC", warningKey: "stress_damage_threshold", warningDefault: 80 },
+    health: { label: "Health", invert: false, color: "#8EB89B", warningKey: "health_warning_threshold", warningDefault: 35 },
 };
 
 export function needWarningThreshold(key, rules = {}) {
@@ -77,18 +80,18 @@ export function needWarningThreshold(key, rules = {}) {
 }
 
 export const SKILL_LABELS = {
-    sales: "Sales",
+    sales: "Barter",
     cooking: "Cooking",
     management: "Management",
-    driving: "Driving",
+    driving: "Riding",
     charisma: "Charisma",
-    fitness: "Fitness",
-    technology: "Technology",
+    fitness: "Endurance",
+    technology: "Runecraft",
     crafting: "Crafting",
     creativity: "Creativity",
-    finance: "Finance",
-    studying: "Studying",
-    street_smarts: "Street Smarts",
+    finance: "Stewardship",
+    studying: "Scholarship",
+    street_smarts: "Woodcraft",
 };
 
 export function statusLabel(status) {
@@ -98,8 +101,8 @@ export function statusLabel(status) {
         working: "Working",
         studying: "Studying",
         sleeping: "Sleeping",
-        jail: "In Jail",
-        hospital: "In Hospital",
+        jail: "In Dungeon",
+        hospital: "In Infirmary",
     };
     return map[status] || status;
 }
@@ -122,10 +125,10 @@ export const REL_STATUS = {
 };
 
 export function scoreColor(s) {
-    if (s >= 60) return "#00FF66";
-    if (s >= 20) return "#00F3FF";
-    if (s >= -20) return "#FFC300";
-    return "#FF0055";
+    if (s >= 60) return "#8EB89B";
+    if (s >= 20) return "#D1B579";
+    if (s >= -20) return "#D9B66B";
+    return "#DE8274";
 }
 
 // Compact "time since" label from seconds.
@@ -165,7 +168,7 @@ export function fmtGameClock(d, state) {
     const dayIndex = Math.floor((d.getTime() - baseDayUTC) / 86400000) + 1;
     const hh = String(d.getUTCHours()).padStart(2, "0");
     const mm = String(d.getUTCMinutes()).padStart(2, "0");
-    return { day: `Day ${dayIndex}`, time: `${hh}:${mm}`, date: `${GAME_MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}` };
+    return { day: `Day ${dayIndex}`, time: `${hh}:${mm}`, date: `Day ${dayIndex} of the Ashen March` };
 }
 
 // ---------- Scheduled working hours ----------
@@ -256,12 +259,12 @@ export const STAT_INFO = {
     hunger: "Hunger rises over time. Eating lowers it; starving harms your health and mood.",
     mood: "Mood reflects how you feel. Good housing, rest and relationships lift it; stress and neglect lower it.",
     stress: "Stress rises from work and crime. High stress damages health and mood — relax, sleep or socialize.",
-    health: "Health is your overall condition. It falls from neglect, hunger and stress. At zero you collapse and go to hospital.",
-    reputation: "Reputation is your public standing — it affects job offers, wages and your business reputation.",
+    health: "Health is your overall condition. It falls from neglect, hunger and stress. At zero you collapse and go to infirmary.",
+    reputation: "Reputation is your public standing — it affects job offers, wages and your workshop reputation.",
     legal_reputation: "Legal Standing reflects your record. Crime lowers it; a low value blocks jobs and credit.",
-    criminal_suspicion: "Criminal Suspicion is how closely the police watch you. Higher suspicion raises your chance of getting caught.",
+    criminal_suspicion: "Criminal Suspicion is how closely the watch watch you. Higher suspicion raises your chance of getting caught.",
     social_status: "Social Status is your standing in society, raised by education, wealth and relationships.",
 };
 
 export const XP_INFO = "Experience (XP) accumulates from actions, work and study. Fill the bar to reach the next Level, which unlocks better opportunities.";
-export const SKILL_INFO = "Skills grow as you work, study and act. Higher skill levels unlock jobs and businesses and improve your outcomes and pay.";
+export const SKILL_INFO = "Skills grow as you work, study and act. Higher skill levels unlock jobs and workshops and improve your outcomes and pay.";

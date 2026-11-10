@@ -1,6 +1,6 @@
 export function nextMove(player, activity, needs = {}) {
     if (player.status === "hospital") return {
-        title: "Focus on recovery", detail: "Your hospital countdown is running. Check your recovery or choose paid treatment to leave early.",
+        title: "Focus on recovery", detail: "Your infirmary countdown is running. Check your recovery or choose paid treatment to leave early.",
         to: "/hospital", label: "View recovery", tone: "red",
     };
     if (player.status === "jail") return {
@@ -31,7 +31,7 @@ export function nextMove(player, activity, needs = {}) {
         title: "Choose your next shift", detail: "Check your schedule, build your skills or prepare for your next promotion.",
         to: "/current-job", label: "Open current job", tone: "cyan",
     } : {
-        title: "Find your place in the city", detail: "Browse job openings to build a steady income, or explore Home & Needs for a side hustle.",
+        title: "Find your place in the realm", detail: "Browse job openings to build a steady income, or explore Hearth & Rest for a small task.",
         to: "/jobs", label: "Explore jobs", tone: "cyan",
     };
 }

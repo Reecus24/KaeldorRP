@@ -13,7 +13,7 @@ export function InfoTip({ text, className, side = "top", testid }) {
                         <Info className="w-3 h-3" />
                     </button>
                 </TooltipTrigger>
-                <TooltipContent side={side} className="max-w-[230px] bg-[#0C0C0C] border border-white/15 text-foreground text-[11px] leading-relaxed font-mono">
+                <TooltipContent side={side} className="max-w-[230px] bg-[#1B2520] border border-white/15 text-foreground text-[11px] leading-relaxed font-mono">
                     {text}
                 </TooltipContent>
             </Tooltip>
@@ -49,14 +49,14 @@ export function SectionTitle({ kicker, title, sub, right, icon: Icon }) {
     );
 }
 
-export function StatBar({ label, value, max = 100, color = "#00F3FF", invert = false, showValue = true, testid, info, warningThreshold, showDirection = false }) {
+export function StatBar({ label, value, max = 100, color = "#D1B579", invert = false, showValue = true, testid, info, warningThreshold, showDirection = false }) {
     const numeric = Number(value);
     const safeValue = Number.isFinite(numeric) ? Math.max(0, Math.min(max, numeric)) : 0;
     const pct = max > 0 ? (safeValue / max) * 100 : 0;
     // warning tint when in a bad zone
     const threshold = warningThreshold ?? (invert ? 70 : 25);
     const bad = invert ? safeValue > threshold : safeValue < threshold;
-    const barColor = bad ? "#FF0055" : color;
+    const barColor = bad ? "#DE8274" : color;
     return (
         <div data-testid={testid}>
             {label && (
@@ -125,7 +125,7 @@ export function Money({ value, className, testid }) {
     );
 }
 
-export function StatTile({ label, value, accent = "#00F3FF", testid, sub, info }) {
+export function StatTile({ label, value, accent = "#D1B579", testid, sub, info }) {
     return (
         <Panel className="p-4" data-testid={testid}>
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-1">

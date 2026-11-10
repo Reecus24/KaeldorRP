@@ -4,10 +4,10 @@ import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/pri
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
 import {
-    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
-    MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
-    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles, User, BadgeCheck,
-    ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
+    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, Coins as DollarSign, Gauge,
+    MapPin, Store, Clock, Hammer as Briefcase, Castle as LayoutDashboard, Castle as Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
+    Activity, TrendingUp, Wallet, Shield as Zap, BookOpen as GraduationCap, Sparkles, User, BadgeCheck,
+    ShoppingCart, Scale, Home, Compass as Car, Footprints as Bike, Package as Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -16,13 +16,16 @@ import { SortableContext, horizontalListSortingStrategy, useSortable, arrayMove 
 import { CSS } from "@dnd-kit/utilities";
 
 const CONTENT_TYPES = [
+    { key: "realm_ranks", label: "Life Ranks", name: "name" },
+    { key: "factions", label: "Factions", name: "name" },
+    { key: "expeditions", label: "Expeditions", name: "name" },
     { key: "jobs", label: "Jobs", name: "title" },
     { key: "actions", label: "Actions", name: "name" },
     { key: "courses", label: "Courses", name: "title" },
     { key: "items", label: "Items", name: "name" },
     { key: "housing", label: "Housing", name: "name" },
-    { key: "vehicles", label: "Vehicles", name: "name" },
-    { key: "business_types", label: "Businesses", name: "name" },
+    { key: "vehicles", label: "Mounts & Carts", name: "name" },
+    { key: "business_types", label: "Workshops", name: "name" },
     { key: "illegal_actions", label: "Illegal", name: "name" },
     { key: "random_events", label: "Events", name: "name" },
     { key: "employee_roles", label: "Emp Roles", name: "label" },
@@ -59,7 +62,7 @@ function JsonModal({ open, title, initial, onClose, onSave }) {
                     onChange={(e) => setText(e.target.value)}
                     spellCheck={false}
                     data-testid="json-editor"
-                    className={cn("flex-1 min-h-[340px] bg-[#050505] border rounded-sm p-3 font-mono text-xs text-neon-green/90 outline-none resize-none",
+                    className={cn("flex-1 min-h-[340px] bg-[#101A16] border rounded-sm p-3 font-mono text-xs text-neon-green/90 outline-none resize-none",
                         validity.ok ? "border-white/12 focus:border-neon-cyan/60" : "border-neon-red/50 focus:border-neon-red")}
                 />
                 <div className="flex items-center justify-between mt-2">
@@ -79,7 +82,7 @@ function JsonModal({ open, title, initial, onClose, onSave }) {
     );
 }
 function ContentEditor({ ctype }) {
-    const meta = CONTENT_TYPES.find((c) => c.key === ctype);
+    const meta = CONTENT_TYPES.find((c) => c.key === ctype) || { name: "name", label: ctype };
     const [items, setItems] = useState(null);
     const [modal, setModal] = useState({ open: false, item: null, isNew: false });
 
@@ -105,6 +108,13 @@ function ContentEditor({ ctype }) {
     if (!items) return <Spinner />;
     return (
         <div>
+            {["factions", "expeditions", "realm_ranks"].includes(ctype) && <Panel className="p-5 mb-4 text-sm text-muted-foreground space-y-2">
+                <p className="text-white font-display text-xl">The realm is yours to shape</p>
+                <p>Edit or duplicate an entry below. Keep IDs stable for existing characters. Set active to false to hide new offers; deleting a faction leaves its members free to leave.</p>
+                <p>Expedition durations and cooldowns use game minutes. Rank days and oath cooldown hours use real time. Service hours count completed expedition game hours. Life ranks also require level and completed deeds.</p>
+                <p>Supplies map item IDs to whole quantities. The preview uses your live equipment values. A departed expedition keeps its rules, costs and outcome until it ends; changes apply to the next departure.</p>
+                <p>Combat formulas, tactics, retreat XP and oath cooldown: Gameplay Tuning → Config → realm. Valid zero values are supported. Advanced JSON preserves additional fields.</p>
+            </Panel>}
             <div className="flex justify-between items-center mb-3">
                 <span className="font-mono text-[11px] text-muted-foreground">{items.length} items</span>
                 <KButton variant="green" onClick={() => setModal({ open: true, item: template, isNew: true })} data-testid="admin-new"><Plus className="w-3.5 h-3.5" /> New</KButton>

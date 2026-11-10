@@ -1,3 +1,4 @@
+import { worldLabel } from "@/lib/helpers";
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -90,24 +91,24 @@ export default function ContactDetail() {
                 <ArrowLeft className="w-3.5 h-3.5" /> All contacts
             </Link>
 
-            <SectionTitle icon={Users} kicker={`${c.archetype_label || c.relationship_type.replace(/_/g, " ")} · Age ${c.age} · Known ${relTime(Math.floor((Date.now() - new Date(c.known_since).getTime()) / 1000))}`}
+            <SectionTitle icon={Users} kicker={`${c.archetype_label || worldLabel(c.relationship_type)} · Age ${c.age} · Known ${relTime(Math.floor((Date.now() - new Date(c.known_since).getTime()) / 1000))}`}
                 title={c.name}
                 right={<Pill tone={meta.tone} className="text-sm py-1">{meta.label}</Pill>} />
 
             {/* STAT TILES */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <Tile label="Relationship" value={c.relationship_score} accent={scoreColor(c.relationship_score)} />
-                <Tile label="Trust" value={c.trust} accent="#00F3FF" />
-                <Tile label="Respect" value={c.respect} accent="#00FF66" />
+                <Tile label="Trust" value={c.trust} accent="#D1B579" />
+                <Tile label="Respect" value={c.respect} accent="#8EB89B" />
                 {c.romance_capable
-                    ? <Tile label="Attraction" value={c.attraction} accent="#B026FF" />
+                    ? <Tile label="Attraction" value={c.attraction} accent="#B6A0CC" />
                     : <Tile label="Their Mood" value={c.mood} accent="#fff" />}
             </div>
 
             {c.traits?.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 items-center">
                     <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-mono mr-1">Personality</span>
-                    {c.traits.map((t) => <Pill key={t} tone="purple">{t.replace(/_/g, " ")}</Pill>)}
+                    {c.traits.map((t) => <Pill key={t} tone="purple">{worldLabel(t)}</Pill>)}
                 </div>
             )}
 
@@ -137,7 +138,7 @@ export default function ContactDetail() {
             ) : (
                 <div>
                     <div className="font-display font-bold text-white mb-3">Interactions</div>
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {detail.actions.map((a) => {
                             const Icon = ICONS[a.icon] || Sparkles;
                             const isActivity = a.timing === "activity";
@@ -168,7 +169,7 @@ export default function ContactDetail() {
                                     )}
                                     <div className="flex items-center gap-3 text-[10px] text-muted-foreground font-mono mb-2">
                                         {isActivity && <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {realDurationLabel(a.duration_minutes, state?.time_scale || 1)}</span>}
-                                        {a.money_cost > 0 && <span className="flex items-center gap-1 text-neon-red"><Coins className="w-3 h-3" /> ${a.money_cost}</span>}
+                                        {a.money_cost > 0 && <span className="flex items-center gap-1 text-neon-red"><Coins className="w-3 h-3" /> ¤ {a.money_cost}</span>}
                                     </div>
                                     {!a.available && a.reason && (
                                         <div className="flex items-center gap-1 text-[10px] text-neon-yellow font-mono mb-2">
@@ -192,7 +193,7 @@ export default function ContactDetail() {
             {/* HISTORY */}
             <div>
                 <div className="font-display font-bold text-white mb-2">History</div>
-                <Panel className="p-0 overflow-hidden bg-[#050505]" data-testid="contact-history">
+                <Panel className="p-0 overflow-hidden bg-[#101A16]" data-testid="contact-history">
                     {(!detail.history || detail.history.length === 0) ? (
                         <div className="px-4 py-8 text-center text-muted-foreground text-sm font-mono">No history yet.</div>
                     ) : detail.history.map((h, i) => (
@@ -223,7 +224,7 @@ export default function ContactDetail() {
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center justify-between">
                                                 <span className="font-display font-bold text-white text-sm">{g.label}</span>
-                                                <span className="font-mono text-neon-red text-xs">${g.cost}</span>
+                                                <span className="font-mono text-neon-red text-xs">¤ {g.cost}</span>
                                             </div>
                                             <div className="text-[11px] text-muted-foreground">{g.desc}</div>
                                         </div>

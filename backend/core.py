@@ -169,6 +169,10 @@ class LoginBody(BaseModel):
 # ============================ HELPERS ============================
 def meets_requirements(p, req):
     req = req or {}
+    if "min_age_days" in req:
+        from realm_engine import age_days
+        if age_days(p) < req["min_age_days"]:
+            return False, f"Requires {req['min_age_days']} real days of life in the realm"
     for sk, lvl in (req.get("skills") or {}).items():
         if p["skills"].get(sk, {}).get("level", 1) < lvl:
             return False, f"Requires {sk.replace('_', ' ')} level {lvl}"
@@ -182,10 +186,10 @@ def meets_requirements(p, req):
     if req.get("min_social_status") and p.get("social_status", 0) < req["min_social_status"]:
         return False, f"Requires social standing {req['min_social_status']}+ — build status via housing, education & connections"
     if req.get("max_suspicion") is not None and p.get("criminal_suspicion", 0) > req["max_suspicion"]:
-        return False, f"Lay low — you're under too much police attention (Suspicion must be ≤ {req['max_suspicion']})"
+        return False, f"Lay low — you're under too much watch attention (Suspicion must be ≤ {req['max_suspicion']})"
     if req.get("vehicle"):
         if not p.get("vehicles"):
-            return False, "Requires a vehicle"
+            return False, "Requires a mount or cart"
     return True, ""
 
 
@@ -215,6 +219,12 @@ async def evaluate_promotion(p, jd):
     rel = round((p.get("job") or {}).get("reliability", 50))
     reasons = []
     eligible = True
+    target = await db.jobs.find_one({"id": (jd or {}).get("promotion_to")}, {"_id": 0})
+    if target:
+        target_ok, target_reason = meets_requirements(p, target.get("requirements"))
+        if not target_ok:
+            eligible = False
+            reasons.append(target_reason)
     if have_h < need_h:
         eligible = False
         reasons.append(f"Work {round(need_h - have_h)} more hours ({round(have_h)}/{need_h}h)")
@@ -270,9 +280,9 @@ def decorate_employment_live(e, cfg, g_now):
 
 def activity_block_reason(p):
     if p.get("status") == "jail":
-        return "You are in jail. Wait it out or post bail."
+        return "You are in dungeon. Wait it out or post bail."
     if p.get("status") == "hospital":
-        return "You are in hospital recovering."
+        return "You are in infirmary recovering."
     os_shift = p.get("on_shift")
     if os_shift:
         return f"You're on shift at {os_shift.get('business_name', 'work')}. Clock out early first to do something else."
@@ -405,7 +415,7 @@ async def credit_profile(p, cfg=None):
     """Compute a player's TOTAL credit limit, used credit (debt) and AVAILABLE new credit.
 
     The limit is derived from net worth, income, finance skill, job stability, reputation and
-    record. Because net worth already subtracts debt, taking a loan (bank +amt, debt +amt)
+    record. Because net worth already subtracts debt, taking a loan (vault +amt, debt +amt)
     leaves net worth unchanged -> the limit does NOT grow when borrowing, so loans cannot be
     stacked to exceed the cap.
     """
@@ -602,10 +612,12 @@ class BuyBody(BaseModel):
 
 
 EQUIP_SLOTS = {
+    "weapon": {"label": "Weapon"},
+    "armor": {"label": "Armor"},
     "outfit": {"label": "Outfit"},
     "accessory": {"label": "Accessory"},
-    "phone": {"label": "Phone"},
-    "computer": {"label": "Computer"},
+    "phone": {"label": "Courier Seal"},
+    "computer": {"label": "Scribe's Kit"},
     "work_gear": {"label": "Work / Fitness Gear"},
 }
 
@@ -768,13 +780,13 @@ async def _do_trade(p, asset_id, qty, side):
     if side == "buy":
         cost = round(price * qty, 2)
         if p["cash"] < cost:
-            raise HTTPException(status_code=400, detail=f"Not enough cash (need ${cost:,.2f})")
+            raise HTTPException(status_code=400, detail=f"Not enough coin (need ¤ {cost:,.2f})")
         new_qty = h["qty"] + qty
         h["avg_cost"] = round((h["qty"] * h.get("avg_cost", price) + qty * price) / new_qty, 6)
         h["qty"] = new_qty
         charge(p, cost)
         port[asset_id] = h
-        await add_event(db, p["id"], f"Bought {qty:g} {asset['symbol']} @ ${price:,.2f} (${cost:,.2f}).", "bank", "info")
+        await add_event(db, p["id"], f"Bought {qty:g} {asset['symbol']} @ ¤ {price:,.2f} (¤ {cost:,.2f}).", "bank", "info")
     else:
         if h["qty"] < qty - 1e-9:
             raise HTTPException(status_code=400, detail=f"You only hold {h['qty']:g} {asset['symbol']}")
@@ -785,7 +797,7 @@ async def _do_trade(p, asset_id, qty, side):
             port.pop(asset_id, None)
         else:
             port[asset_id] = h
-        await add_event(db, p["id"], f"Sold {qty:g} {asset['symbol']} @ ${price:,.2f} (+${proceeds:,.2f}).", "bank", "success")
+        await add_event(db, p["id"], f"Sold {qty:g} {asset['symbol']} @ ¤ {price:,.2f} (+¤ {proceeds:,.2f}).", "bank", "success")
     p["net_worth"] = await compute_net_worth(p)
     await save_player(p)
     return {"ok": True, "price": price}

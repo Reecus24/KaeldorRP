@@ -1,10 +1,11 @@
+import { worldLabel } from "@/lib/helpers";
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, InfoTip, StatBar, EmptyState } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { Backpack, Package, Check, Shield, Shirt, Watch, Smartphone, Laptop, Dumbbell, X, Car } from "lucide-react";
+import { Backpack, Package, Check, Shield, Shirt, Watch, ScrollText as Smartphone, BookOpen as Laptop, Dumbbell, X, Compass as Car } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const SLOT_ICON = { outfit: Shirt, accessory: Watch, phone: Smartphone, computer: Laptop, work_gear: Dumbbell };
@@ -38,7 +39,7 @@ function EffectPills({ effects }) {
         <div className="flex flex-wrap gap-1">
             {Object.entries(effects || {}).map(([k, v]) => (
                 <span key={k} className={cn("font-mono text-[10px] px-1.5 py-0.5 rounded-sm border", v > 0 ? "text-neon-green border-neon-green/30" : "text-neon-red border-neon-red/30")}>
-                    {v > 0 ? "+" : ""}{v} {k.replace("_", " ")}
+                    {v > 0 ? "+" : ""}{v} {worldLabel(k)}
                 </span>
             ))}
         </div>
@@ -66,7 +67,7 @@ export default function Inventory() {
     const sellVehicle = async (v) => {
         setBusyId("veh" + v.instance_id);
         const r = await act(() => api.post(`/vehicles/${v.instance_id}/sell`), null);
-        if (r?.ok) toast.success(`Sold ${v.name} for $${(r.res.data.value ?? 0).toLocaleString()}`);
+        if (r?.ok) toast.success(`Sold ${v.name} for ¤ ${(r.res.data.value ?? 0).toLocaleString()}`);
         await loadVehicles();
         setBusyId(null);
     };
@@ -76,7 +77,7 @@ export default function Inventory() {
     return (
         <div className="space-y-6">
             <SectionTitle icon={Backpack} kicker="Your assets" title="Inventory"
-                sub="Everything you own in one place — consumables, equippable gear, and your vehicles. Buy more from the Shop and Vehicle Dealer." />
+                sub="Everything you own in one place — consumables, equippable gear, and your mounts and carts. Buy more from the Shop and Stables & Carts." />
 
             {/* EQUIPMENT */}
             <Panel className="p-5" data-testid="equipment-panel">
@@ -126,7 +127,7 @@ export default function Inventory() {
                 {inventory.length === 0 ? (
                     <div className="text-sm text-muted-foreground">No items yet. Buy something from the Shop.</div>
                 ) : (
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {inventory.map((it) => (
                             <div key={it.id} className="border border-white/10 rounded-sm p-3 flex flex-col" data-testid={`inv-item-${it.id}`}>
                                 <div className="flex items-center justify-between mb-1">
@@ -160,24 +161,24 @@ export default function Inventory() {
                 <div className="flex items-center gap-1.5 mb-3">
                     <Car className="w-4 h-4 text-neon-green" />
                     <span className="font-display font-bold text-white">Your Garage</span>
-                    <InfoTip text="Vehicles you own. They unlock delivery work but cost fuel, insurance and maintenance daily. Buy more at the Vehicle Dealer." testid="garage-info" />
+                    <InfoTip text="Mounts & Carts you own. They unlock delivery work but cost fodder, stable dues and maintenance daily. Buy more at the Stables & Carts." testid="garage-info" />
                 </div>
                 {vehicles.length === 0 ? (
-                    <EmptyState icon={Car} title="No vehicles yet" sub="Buy one at the Vehicle Dealer to unlock delivery work." />
+                    <EmptyState icon={Car} title="No mounts and carts yet" sub="Buy one at the Stables & Carts to unlock delivery work." />
                 ) : (
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {vehicles.map((v) => (
                             <div key={v.instance_id} className="border border-white/10 rounded-sm p-4" data-testid={`owned-vehicle-${v.instance_id}`}>
                                 <div className="flex items-center justify-between mb-2">
                                     <span className="font-display font-bold text-white text-sm">{v.name}</span>
                                     <Pill tone="green">Owned</Pill>
                                 </div>
-                                <StatBar label="Condition" value={v.condition} color="#00FF66" />
+                                <StatBar label="Condition" value={v.condition} color="#8EB89B" />
                                 <div className="text-[11px] text-muted-foreground mt-2 flex items-center justify-between">
                                     <span>Resale value</span>
-                                    <span className="font-mono text-neon-green tnum" data-testid={`resale-${v.instance_id}`}>~${sellEstimate(v).toLocaleString()}</span>
+                                    <span className="font-mono text-neon-green tnum" data-testid={`resale-${v.instance_id}`}>~¤ {sellEstimate(v).toLocaleString()}</span>
                                 </div>
-                                <KButton variant="ghost" className="w-full mt-3" loading={busyId === "veh" + v.instance_id} onClick={() => sellVehicle(v)} data-testid={`sell-vehicle-${v.instance_id}`}>Sell · ~${sellEstimate(v).toLocaleString()}</KButton>
+                                <KButton variant="ghost" className="w-full mt-3" loading={busyId === "veh" + v.instance_id} onClick={() => sellVehicle(v)} data-testid={`sell-vehicle-${v.instance_id}`}>Sell · ~¤ {sellEstimate(v).toLocaleString()}</KButton>
                             </div>
                         ))}
                     </div>

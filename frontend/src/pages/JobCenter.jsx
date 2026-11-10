@@ -1,3 +1,4 @@
+import { worldLabel } from "@/lib/helpers";
 import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -7,8 +8,8 @@ import { SectionTitle, Spinner, Panel, Pill } from "@/components/game/primitives
 import { KButton } from "@/components/game/controls";
 import { SKILL_LABELS, fmtDuration, fmtWindow } from "@/lib/helpers";
 import {
-    Briefcase, Lock, CheckCircle2, Flame, Brain, Clock, FileText, Hourglass, ChevronRight, ArrowLeft,
-    ShoppingBag, UtensilsCrossed, Truck, Building2, Wrench, Shield, Landmark, X, Trash2,
+    Hammer as Briefcase, Lock, CheckCircle2, Flame, Brain, Clock, FileText, Hourglass, ChevronRight, ArrowLeft,
+    ShoppingBag, UtensilsCrossed, Package as Truck, Castle as Building2, Wrench, Shield, Landmark, X, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +45,7 @@ function ApplicationsPanel({ apps, onAccept, onRemove, onClearAll, busy }) {
                             {a.status === "pending" && <div className="text-[11px] text-muted-foreground flex items-center gap-1"><Hourglass className="w-3 h-3" /> Decision in ~{fmtDuration(a.resolves_in || 0)}</div>}
                             {a.status === "accepted" && (
                                 <div className="text-[11px] text-neon-green" data-testid={`application-outcome-${a.id}`}>
-                                    {a.outcome_message || `Offer: $${a.wage_offer}/h — accept to start!`}
+                                    {a.outcome_message || `Offer: ¤ ${a.wage_offer}/h — accept to start!`}
                                 </div>
                             )}
                             {a.status === "rejected" && (
@@ -79,11 +80,11 @@ function JobCard({ j, isCurrent, pending, busy, onApply, onGoto }) {
                     <h3 className="font-display font-bold text-white text-lg leading-tight">{j.title}</h3>
                     <div className="flex items-center gap-2 mt-1">
                         <Pill tone="cyan">Tier {j.tier}</Pill>
-                        <Pill>{j.category}</Pill>
+                        <Pill>{worldLabel(j.category)}</Pill>
                     </div>
                 </div>
                 <div className="text-right">
-                    <div className="font-mono text-neon-green text-lg tnum">${j.hourly_wage}/h</div>
+                    <div className="font-mono text-neon-green text-lg tnum">¤ {j.hourly_wage}/h</div>
                     {isCurrent && <Pill tone="green" className="mt-1">Current</Pill>}
                 </div>
             </div>
@@ -122,13 +123,13 @@ function JobCard({ j, isCurrent, pending, busy, onApply, onGoto }) {
                         <Pill key={s} tone="cyan">{(SKILL_LABELS[s] || s)} {lvl}</Pill>
                     ))}
                     {(j.requirements.education || []).map((e) => (
-                        <Pill key={e} tone="purple">{e.replace(/_/g, " ")}</Pill>
+                        <Pill key={e} tone="purple">{worldLabel(e)}</Pill>
                     ))}
                     {j.requirements.min_reputation && <Pill>Reputation {j.requirements.min_reputation}+</Pill>}
                     {j.requirements.min_legal_reputation && <Pill tone="yellow">Legal Standing {j.requirements.min_legal_reputation}+</Pill>}
                     {j.requirements.min_social_status && <Pill tone="yellow">Social {j.requirements.min_social_status}+</Pill>}
                     {j.requirements.max_suspicion != null && <Pill tone="red">Suspicion ≤ {j.requirements.max_suspicion}</Pill>}
-                    {j.requirements.vehicle && <Pill>Vehicle</Pill>}
+                    {j.requirements.vehicle && <Pill>Mount or Cart</Pill>}
                 </div>
             )}
 
@@ -170,6 +171,7 @@ export default function JobCenter() {
     const currentJobId = player?.job?.job_id;
 
     const enter = async (s) => {
+        if (s.realm_destination === "/realm") { navigate("/realm"); return; }
         setLoadingJobs(true);
         try {
             const { data } = await api.get(`/jobs/sectors/${s.id}`);
@@ -245,7 +247,7 @@ export default function JobCenter() {
                 {loadingJobs ? <Spinner /> : entered.jobs.length === 0 ? (
                     <Panel className="p-6 text-center text-sm text-muted-foreground">No open listings in this sector right now.</Panel>
                 ) : (
-                    <div className="grid md:grid-cols-2 gap-3" data-testid="sector-jobs">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3" data-testid="sector-jobs">
                         {entered.jobs.map((j) => (
                             <JobCard key={j.id} j={j} isCurrent={j.id === currentJobId} pending={appliedJobIds.has(j.id)}
                                 busy={busyId} onApply={apply} onGoto={() => navigate("/current-job")} />
@@ -259,12 +261,12 @@ export default function JobCenter() {
     // ---- Sector browser ----
     return (
         <div className="space-y-6">
-            <SectionTitle icon={Briefcase} kicker="Earn a living" title="Job Center"
+            <SectionTitle icon={Briefcase} kicker="Earn a living" title="Guild Noticeboard"
                 sub="Kaeldor's employment agencies, organised by sector. Pick a sector to see its open listings, then apply — employers decide in real time." />
 
             <ApplicationsPanel apps={apps} onAccept={acceptOffer} onRemove={removeApp} onClearAll={clearAll} busy={busyId} />
 
-            <div className="grid sm:grid-cols-2 gap-3" data-testid="sector-browser">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="sector-browser">
                 {sectors.map((s) => {
                     const Icon = SECTOR_ICONS[s.icon] || Briefcase;
                     return (

@@ -13,11 +13,11 @@ export default function Leaderboard() {
 
     return (
         <div className="space-y-6">
-            <SectionTitle icon={Trophy} kicker="Who runs Kaeldor" title="Leaderboard"
-                sub="The richest citizens in the city, ranked by net worth." />
+            <SectionTitle icon={Trophy} kicker="Who runs Kaeldor" title="Hall of Renown"
+                sub="The richest citizens in the realm, ranked by net worth." />
 
             <Panel className="p-0 overflow-hidden">
-                <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/8 bg-[#050505] font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/8 bg-[#101A16] font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
                     <div className="col-span-1">#</div>
                     <div className="col-span-5">Citizen</div>
                     <div className="col-span-2 text-center">Lvl</div>

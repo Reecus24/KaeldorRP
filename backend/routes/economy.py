@@ -105,7 +105,7 @@ async def shop_buy(body: BuyBody, user: dict = Depends(current_user)):
     if claim.modified_count != 1:
         raise HTTPException(status_code=409, detail="Stock changed while buying. Refresh the shop and try again.")
     tag = f" (−{100 - pct}% sale)" if pct < 100 else (f" (+{pct - 100}% markup)" if pct > 100 else "")
-    await add_event(db, p["id"], f"Bought {qty}x {it['name']} for ${total}{tag} at {shop['name']} — added to your inventory.", "shop", "info")
+    await add_event(db, p["id"], f"Bought {qty}x {it['name']} for ¤ {total}{tag} at {shop['name']} — added to your inventory.", "shop", "info")
     await save_player(p)
     return {"ok": True}
 
@@ -163,14 +163,14 @@ async def take_loan(body: AmountBody, user: dict = Depends(current_user)):
         raise HTTPException(status_code=403, detail=f"Credit denied: {', '.join(prof['reasons']) or 'you are not eligible right now'}.")
     if amt > prof["credit_available"]:
         raise HTTPException(status_code=400,
-                            detail=f"You can borrow up to ${round(prof['credit_available'])} more "
-                                   f"(total limit ${prof['credit_limit']}, already used ${round(prof['debt'])}).")
+                            detail=f"You can borrow up to ¤ {round(prof['credit_available'])} more "
+                                   f"(total limit ¤ {prof['credit_limit']}, already used ¤ {round(prof['debt'])}).")
     p["bank"] = round(p["bank"] + amt, 2)
     p["debt"] = round(p["debt"] + amt, 2)
     rate_pct = round(prof["interest_daily"] * 100, 2)
-    await add_event(db, p["id"], f"Took a ${round(amt)} loan. Total debt now ${round(p['debt'])} at {rate_pct}%/day interest.", "finance", "warning")
+    await add_event(db, p["id"], f"Took a ¤ {round(amt)} loan. Total debt now ¤ {round(p['debt'])} at {rate_pct}%/day interest.", "finance", "warning")
     await add_notification(db, p["id"], "finance", "Loan approved",
-                           f"${round(amt)} added to your bank. Total debt ${round(p['debt'])} ({rate_pct}%/day).", "info", "/bank")
+                           f"${round(amt)} added to your vault. Total debt ¤ {round(p['debt'])} ({rate_pct}%/day).", "info", "/bank")
     await save_player(p)
     new_prof = await credit_profile(p, cfg)
     return {"ok": True, "debt": p["debt"], "credit_limit": new_prof["credit_limit"],
@@ -195,8 +195,8 @@ async def repay(body: AmountBody, user: dict = Depends(current_user)):
     if p["debt"] <= 0:
         p["debt"] = 0.0
         p["credit_missed"] = 0  # cleared the slate — restore creditworthiness
-    await add_event(db, p["id"], f"Repaid ${round(amt)} of debt. Remaining debt ${round(p['debt'])}.", "finance", "success")
-    await add_notification(db, p["id"], "finance", "Debt repaid", f"Repaid ${round(amt)}. Remaining debt ${round(p['debt'])}.", "success", "/bank")
+    await add_event(db, p["id"], f"Repaid ¤ {round(amt)} of debt. Remaining debt ¤ {round(p['debt'])}.", "finance", "success")
+    await add_notification(db, p["id"], "finance", "Debt repaid", f"Repaid ¤ {round(amt)}. Remaining debt ¤ {round(p['debt'])}.", "success", "/bank")
     await save_player(p)
     return {"ok": True, "debt": p["debt"]}
 
@@ -230,10 +230,10 @@ async def rent_house(house_id: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail="Cannot afford the deposit")
     if refund > 0:
         add_money(p, refund)
-        await add_event(db, p["id"], f"Deposit refunded from your old place: +${round(refund)}.", "housing", "success")
+        await add_event(db, p["id"], f"Deposit refunded from your old place: +¤ {round(refund)}.", "housing", "success")
     charge(p, deposit)
     p["housing"] = {"id": house_id, "owned": False, "since": now_utc().isoformat(), "deposit_paid": deposit}
-    await add_event(db, p["id"], f"You moved into {h['name']} (renting). Deposit ${round(deposit)} paid.", "housing", "success")
+    await add_event(db, p["id"], f"You moved into {h['name']} (renting). Deposit ¤ {round(deposit)} paid.", "housing", "success")
     await save_player(p)
     await social_engine.ensure_landlord(db, p, h)
     return {"ok": True, "refunded": refund}
@@ -257,7 +257,7 @@ async def buy_house(house_id: str, user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail="Cannot afford to buy this property")
     if refund > 0:
         add_money(p, refund)
-        await add_event(db, p["id"], f"Deposit refunded from your old rental: +${round(refund)}.", "housing", "success")
+        await add_event(db, p["id"], f"Deposit refunded from your old rental: +¤ {round(refund)}.", "housing", "success")
     charge(p, h["buy_price"])
     p["housing"] = {"id": house_id, "owned": True, "since": now_utc().isoformat()}
     p["social_status"] = clamp(p["social_status"] + h.get("social_status", 0) * 0.2)
@@ -279,7 +279,7 @@ async def move_out(user: dict = Depends(current_user)):
     refund = round(cur.get("deposit_paid", 0), 2)
     if refund > 0:
         add_money(p, refund)
-        await add_event(db, p["id"], f"You moved out. Deposit refunded: +${round(refund)}.", "housing", "success")
+        await add_event(db, p["id"], f"You moved out. Deposit refunded: +¤ {round(refund)}.", "housing", "success")
     else:
         await add_event(db, p["id"], "You moved out and are between homes.", "housing", "info")
     p["housing"] = {}
@@ -301,7 +301,7 @@ async def sell_property(user: dict = Depends(current_user)):
     value = round(h.get("buy_price", 0) * 0.6)
     add_money(p, value)
     p["housing"] = {}
-    await add_event(db, p["id"], f"You sold {h['name']} for ${value} (60% of purchase price).", "housing", "success")
+    await add_event(db, p["id"], f"You sold {h['name']} for ¤ {value} (60% of purchase price).", "housing", "success")
     await save_player(p)
     return {"ok": True, "value": value}
 
@@ -329,8 +329,8 @@ async def list_vehicle_categories(user: dict = Depends(current_user)):
     out = [{**c, "vehicle_count": counts.get(c["id"], 0)} for c in cats]
     uncat = sum(1 for v in vehicles if v.get("category_id") not in active_ids)
     if uncat > 0:
-        out.append({"id": "other", "name": "Other Vehicles", "icon": "Car", "order": 999, "active": True,
-                    "virtual": True, "desc": "Vehicles not yet sorted into a category.", "vehicle_count": uncat})
+        out.append({"id": "other", "name": "Other Mounts & Carts", "icon": "Car", "order": 999, "active": True,
+                    "virtual": True, "desc": "Mounts & Carts not yet sorted into a category.", "vehicle_count": uncat})
     return {"categories": out, "owned": p.get("vehicles", [])}
 
 
@@ -340,8 +340,8 @@ async def vehicle_category_detail(category_id: str, user: dict = Depends(current
     vehicles = await db.vehicles.find({}, {"_id": 0}).to_list(300)
     if category_id == "other":
         active_ids = {c["id"] for c in await db.vehicle_categories.find({"active": True}, {"_id": 0, "id": 1}).to_list(100)}
-        cat = {"id": "other", "name": "Other Vehicles", "icon": "Car", "virtual": True,
-               "desc": "Vehicles not yet sorted into a category."}
+        cat = {"id": "other", "name": "Other Mounts & Carts", "icon": "Car", "virtual": True,
+               "desc": "Mounts & Carts not yet sorted into a category."}
         listings = [v for v in vehicles if v.get("category_id") not in active_ids]
     else:
         cat = await db.vehicle_categories.find_one({"id": category_id, "active": True}, {"_id": 0})
@@ -359,9 +359,9 @@ async def buy_vehicle(vehicle_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     v = await db.vehicles.find_one({"id": vehicle_id}, {"_id": 0})
     if not v:
-        raise HTTPException(status_code=404, detail="Vehicle not found")
+        raise HTTPException(status_code=404, detail="Mount or Cart not found")
     if p["cash"] + p["bank"] < v["price"]:
-        raise HTTPException(status_code=400, detail="Cannot afford this vehicle")
+        raise HTTPException(status_code=400, detail="Cannot afford this mount or cart")
     charge(p, v["price"])
     p.setdefault("vehicles", []).append({
         "instance_id": uuid.uuid4().hex, "type_id": vehicle_id, "name": v["name"],
@@ -379,12 +379,12 @@ async def sell_vehicle(instance_id: str, user: dict = Depends(current_user)):
     p = await get_state(user)
     veh = next((x for x in p.get("vehicles", []) if x["instance_id"] == instance_id), None)
     if not veh:
-        raise HTTPException(status_code=404, detail="You don't own that vehicle")
+        raise HTTPException(status_code=404, detail="You don't own that mount or cart")
     spec = veh.get("spec", {})
     value = round(spec.get("price", 0) * spec.get("resale", 0.5) * (veh.get("condition", 100) / 100.0))
     p["vehicles"] = [x for x in p["vehicles"] if x["instance_id"] != instance_id]
     add_money(p, value)
-    await add_event(db, p["id"], f"Sold your {veh['name']} for ${value}.", "vehicle", "info")
+    await add_event(db, p["id"], f"Sold your {veh['name']} for ¤ {value}.", "vehicle", "info")
     await save_player(p)
     return {"ok": True, "value": value}
 

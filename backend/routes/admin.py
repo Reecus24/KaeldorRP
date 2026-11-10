@@ -2,6 +2,7 @@ from core import *  # noqa: F401,F403
 import market_engine
 from config_schema import merge_config, validate_config, validate_content, validate_json, flatten_patch
 from journey_engine import COLLECTIONS as JOURNEY_COLLECTIONS, validate_definition
+from realm_engine import COLLECTIONS as REALM_COLLECTIONS, validate_definition as validate_realm
 
 
 @api.get("/admin/journey/templates")
@@ -45,6 +46,8 @@ async def admin_create(ctype: str, body: dict, admin: dict = Depends(admin_user)
     body.pop("_id", None)
     try:
         validate_content(body)
+        if ctype in REALM_COLLECTIONS:
+            validate_realm(ctype, body)
         if ctype in JOURNEY_COLLECTIONS:
             validate_definition(ctype, body)
     except ValueError as exc:
@@ -69,6 +72,8 @@ async def admin_update(ctype: str, item_id: str, body: dict, admin: dict = Depen
     body["id"] = item_id
     try:
         validate_content(body)
+        if ctype in REALM_COLLECTIONS:
+            validate_realm(ctype, {k: v for k, v in {**existing, **body}.items() if k != "_id"})
         if ctype in JOURNEY_COLLECTIONS:
             validate_definition(ctype, {k: v for k, v in {**existing, **body}.items() if k != "_id"})
     except ValueError as exc:
@@ -150,10 +155,10 @@ async def admin_stats(admin: dict = Depends(admin_user)):
 
 @api.get("/admin/overview")
 async def admin_overview(admin: dict = Depends(admin_user)):
-    """City-wide metrics for the Admin Dashboard summary strips."""
+    """Realm-wide metrics for the Admin Dashboard summary strips."""
     agg = await db.players.aggregate([{"$group": {"_id": None,
-        "nw": {"$sum": "$net_worth"}, "cash": {"$sum": "$cash"},
-        "bank": {"$sum": "$bank"}, "debt": {"$sum": "$debt"},
+        "nw": {"$sum": "$net_worth"}, "cash": {"$sum": "$coin"},
+        "bank": {"$sum": "$vault"}, "debt": {"$sum": "$debt"},
         "susp": {"$avg": "$criminal_suspicion"}}}]).to_list(1)
     a = agg[0] if agg else {}
     players_total = await db.players.count_documents({})
@@ -208,7 +213,7 @@ async def put_admin_layout(body: AdminLayoutBody, admin: dict = Depends(admin_us
 
 @api.get("/admin/feed")
 async def admin_feed(limit: int = 40, types: Optional[str] = None, admin: dict = Depends(admin_user)):
-    """Live city feed — most recent events across all players (purchases, hirings, crimes, market moves...)."""
+    """Live realm feed — most recent events across all players (purchases, hirings, crimes, market moves...)."""
     q = {}
     if types:
         wanted = [t.strip() for t in types.split(",") if t.strip()]
@@ -592,14 +597,14 @@ async def admin_update_market_asset(asset_id: str, body: dict, admin: dict = Dep
 
 @api.post("/admin/market")
 async def admin_create_market_asset(body: dict, admin: dict = Depends(admin_user)):
-    """Create a new Stock or Crypto asset. The price engine picks it up automatically."""
+    """Create a new Stock or Relic asset. The price engine picks it up automatically."""
     symbol = str(body.get("symbol") or "").strip().upper()
     name = str(body.get("name") or "").strip()
     kind = str(body.get("kind") or "stock").strip().lower()
     if not symbol or not name:
         raise HTTPException(status_code=400, detail="Symbol and name are required")
     if kind not in ("stock", "crypto"):
-        raise HTTPException(status_code=400, detail="Kind must be 'stock' or 'crypto'")
+        raise HTTPException(status_code=400, detail="Kind must be 'stock' or 'relic'")
     try:
         price = round(max(0.01, float(body.get("base_price", body.get("price", 1)))), 6)
     except (TypeError, ValueError):
@@ -702,8 +707,8 @@ async def admin_delete_background(bg_id: str, admin: dict = Depends(admin_user))
 
 
 async def _assign_vehicles_to_category(category_id, vehicle_ids):
-    """Set category_id on the listed vehicles and clear it from any vehicle that was in this
-    category but is no longer listed (keeps the one-category-per-vehicle invariant)."""
+    """Set category_id on the listed mounts & carts and clear it from any mount or cart that was in this
+    category but is no longer listed (keeps the one-category-per-mount or cart invariant)."""
     ids = list(vehicle_ids or [])
     await db.vehicles.update_many({"category_id": category_id, "id": {"$nin": ids}}, {"$set": {"category_id": None}})
     if ids:
@@ -814,7 +819,7 @@ async def admin_job_applications(admin: dict = Depends(admin_user)):
     for j in jobs:
         j.setdefault("acceptance_base_chance", 0.5)
         j.setdefault("skill_weight", 1.0)
-        j.setdefault("success_response", "Your application for {title} was accepted — the offer is ${wage}/h. Accept it to start working.")
+        j.setdefault("success_response", "Your application for {title} was accepted — the offer is ¤ {wage}/h. Accept it to start working.")
         j.setdefault("failure_response", "Your application for {title} was rejected: {reason}.")
         # Merge stored overrides over the defaults so the editor always shows every reason key.
         rs = j.get("reason_strings") or {}

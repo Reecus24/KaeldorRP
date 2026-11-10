@@ -232,7 +232,7 @@ def choice_view(p, choice, current, baseline):
     if p.get("status") in {"hospital", "jail"}:
         reasons.append("Continue after you are released. Your story will wait.")
     if current["funds"] < choice.get("cost", 0):
-        reasons.append("Need $" + f"{choice['cost']:g} available.")
+        reasons.append("Need ¤ " + f"{choice['cost']:g} available.")
     for item, qty in choice.get("consume_items", {}).items():
         if p.get("inventory", {}).get(item, 0) < qty:
             reasons.append(f"Need {qty} × {item.replace('_', ' ')}.")

@@ -1,3 +1,4 @@
+import { worldLabel } from "@/lib/helpers";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
@@ -6,7 +7,7 @@ import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel, Pill, StatBar } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
 import { SKILL_LABELS, scheduleLabel, computeGameTime, fmtShiftClock, nextShiftStart } from "@/lib/helpers";
-import { BadgeCheck, TrendingUp, Briefcase, Clock, Building2, LogOut, AlertTriangle, CalendarClock, X } from "lucide-react";
+import { BadgeCheck, TrendingUp, Hammer as Briefcase, Clock, Castle as Building2, LogOut, AlertTriangle, CalendarClock, X } from "lucide-react";
 
 export default function CurrentJob() {
     const { state, player, act, refresh } = useGame();
@@ -57,10 +58,10 @@ export default function CurrentJob() {
     if (!npc && playerJobs.length === 0) {
         return (
             <div className="space-y-6">
-                <SectionTitle icon={BadgeCheck} title="Current Job" sub="You don't have a job yet." />
+                <SectionTitle icon={BadgeCheck} title="My Trade" sub="You don't have a job yet." />
                 <Panel className="p-10 text-center">
                     <Briefcase className="w-10 h-10 mx-auto text-muted-foreground/40 mb-3" />
-                    <p className="text-muted-foreground mb-4">Get hired at the Job Center, or work for a real player in the Job Market.</p>
+                    <p className="text-muted-foreground mb-4">Get hired at the Guild Noticeboard, or work for a real player in the Job Market.</p>
                     <div className="flex gap-2 justify-center">
                         <Link to="/jobs"><KButton>Browse Jobs</KButton></Link>
                         <Link to="/job-market"><KButton variant="ghost">Player Job Market</KButton></Link>
@@ -79,28 +80,28 @@ export default function CurrentJob() {
     return (
         <div className="space-y-6">
             <SectionTitle icon={BadgeCheck} kicker="Where you work" title={npc ? job.title : "Your Employment"}
-                sub={npc && playerJobs.length > 0 ? "You hold both an NPC job and player-business work — shifts can't overlap." : undefined} />
+                sub={npc && playerJobs.length > 0 ? "You hold both an NPC job and player-workshop work — shifts can't overlap." : undefined} />
 
             {playerJobs.length > 0 && (
                 <Panel className="p-5" data-testid="current-player-jobs">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <Building2 className="w-4 h-4 text-neon-purple" />
-                        <span className="font-display font-bold text-white">Player-Business Employment</span>
+                        <span className="font-display font-bold text-white">Player-Workshop Employment</span>
                         <Pill tone="cyan">Auto-work on schedule</Pill>
                     </div>
                     <p className="text-[11px] text-muted-foreground mb-3">
-                        You work automatically during your scheduled hours — wages and business output accrue in real time, even while offline.
+                        You work automatically during your scheduled hours — wages and workshop output accrue in real time, even while offline.
                         You can't start other physical activities (sleep, travel, courses, other shifts) while on shift. Clock out early to free up,
                         but you forfeit the rest of today's pay and take a reliability hit.
                     </p>
-                    <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {playerJobs.map((e) => (
                             <div key={e.id} className="p-3 border border-white/10 rounded-sm" data-testid={`cur-emp-${e.id}`}>
                                 <div className="flex items-center justify-between mb-1">
                                     <span className="font-display font-bold text-white text-sm">{e.business_name}</span>
-                                    <Pill tone="green">${e.wage_per_hour}/h</Pill>
+                                    <Pill tone="green">¤ {e.wage_per_hour}/h</Pill>
                                 </div>
-                                <div className="text-[11px] text-muted-foreground capitalize mb-1">{(e.role || "").replace(/_/g, " ")} · {Math.round(e.total_hours_worked || 0)}h worked · perf {Math.round(e.performance)}</div>
+                                <div className="text-[11px] text-muted-foreground capitalize mb-1">{worldLabel(e.role || "")} · {Math.round(e.total_hours_worked || 0)}h worked · perf {Math.round(e.performance)}</div>
                                 <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                                     <Pill tone="purple"><Clock className="w-3 h-3 mr-0.5" />{scheduleLabel(e.schedule)}</Pill>
                                     {e.on_shift
@@ -109,7 +110,7 @@ export default function CurrentJob() {
                                 </div>
                                 {e.today && e.today.hours > 0 && (
                                     <div className="text-[10px] text-muted-foreground mb-2 border-l-2 border-neon-purple/40 pl-2" data-testid={`cur-emp-today-${e.id}`}>
-                                        Today: {e.today.hours}h · earned <span className="text-neon-green">${Math.round(e.today.wage)}</span>
+                                        Today: {e.today.hours}h · earned <span className="text-neon-green">¤ {Math.round(e.today.wage)}</span>
                                     </div>
                                 )}
                                 {e.on_shift ? (
@@ -117,7 +118,7 @@ export default function CurrentJob() {
                                         <LogOut className="w-3.5 h-3.5" /> Clock Out Early
                                     </KButton>
                                 ) : (
-                                    <Link to="/job-market"><KButton variant="ghost" className="w-full" data-testid={`cur-emp-manage-${e.id}`}>Manage in Player Jobs</KButton></Link>
+                                    <Link to="/job-market"><KButton variant="ghost" className="w-full" data-testid={`cur-emp-manage-${e.id}`}>Manage in Guild Contracts</KButton></Link>
                                 )}
                             </div>
                         ))}
@@ -127,17 +128,17 @@ export default function CurrentJob() {
 
             {npc && (
             <>
-            <div className="grid md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Panel className="p-5">
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
                             <span className="font-display font-bold text-white">Your Position</span>
                             <Pill tone="purple">Tier {j.tier || 1}</Pill>
                         </div>
-                        <span className="font-mono text-neon-green text-lg tnum">${j.hourly_wage}/h</span>
+                        <span className="font-mono text-neon-green text-lg tnum">¤ {j.hourly_wage}/h</span>
                     </div>
                     <div className="space-y-3">
-                        <StatBar label="Reliability" value={job.reliability || 50} color="#00F3FF" />
+                        <StatBar label="Reliability" value={job.reliability || 50} color="#D1B579" />
                         <div className="flex items-center justify-between text-sm">
                             <span className="text-muted-foreground">Hours worked</span>
                             <span className="font-mono text-white tnum" data-testid="hours-worked">{Math.round(job.hours_worked || 0)}h</span>
@@ -191,7 +192,7 @@ export default function CurrentJob() {
                                         <div key={s.id} className="border border-white/12 rounded-sm p-3" data-testid={`shift-option-${s.id}`}>
                                             <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
                                                 <span className="font-display font-bold text-white text-sm">{s.name}</span>
-                                                <span className="font-mono text-neon-green tnum">~${est}</span>
+                                                <span className="font-mono text-neon-green tnum">~¤ {est}</span>
                                             </div>
                                             <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
                                                 <Pill tone="cyan">{s.duration_hours}h</Pill>
@@ -220,7 +221,7 @@ export default function CurrentJob() {
                         <TrendingUp className="w-4 h-4 text-neon-purple" />
                         <span className="font-display font-bold text-white">Promotion: {promo.target.title}</span>
                         <Pill tone="cyan">Tier {promo.target.tier}</Pill>
-                        <span className="font-mono text-neon-green ml-auto">${promo.target.hourly_wage}/h</span>
+                        <span className="font-mono text-neon-green ml-auto">¤ {promo.target.hourly_wage}/h</span>
                     </div>
 
                     <div className="mb-3">
@@ -230,14 +231,14 @@ export default function CurrentJob() {
                         </div>
                         <div className="h-2.5 w-full bg-white/5 border border-white/10 overflow-hidden rounded-sm">
                             <div className="h-full transition-all duration-500 rounded-sm"
-                                style={{ width: `${Math.min(100, (promo.have_hours / (promo.need_hours || 1)) * 100)}%`, backgroundColor: "#B026FF", boxShadow: "0 0 10px #B026FF88" }} />
+                                style={{ width: `${Math.min(100, (promo.have_hours / (promo.need_hours || 1)) * 100)}%`, backgroundColor: "#B6A0CC", boxShadow: "0 0 10px #B6A0CC88" }} />
                         </div>
                     </div>
 
                     <div className="flex flex-wrap gap-1.5 mb-3">
                         <Pill tone={promo.hours_met ? "green" : "yellow"}>{promo.need_hours}h worked</Pill>
                         {Object.entries(promo.requirements?.skills || {}).map(([s, l]) => <Pill key={s} tone="cyan">{SKILL_LABELS[s] || s} Lv {l}</Pill>)}
-                        {(promo.requirements?.education || []).map((e) => <Pill key={e}>{e.replace(/_/g, " ")}</Pill>)}
+                        {(promo.requirements?.education || []).map((e) => <Pill key={e}>{worldLabel(e)}</Pill>)}
                         {promo.requirements?.reputation && <Pill>Rep {promo.requirements.reputation}</Pill>}
                         <Pill tone={promo.reliability >= (promo.requirements?.min_reliability || 55) ? "green" : "yellow"}>Reliability {promo.reliability}</Pill>
                     </div>

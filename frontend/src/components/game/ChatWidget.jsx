@@ -77,7 +77,7 @@ export default function ChatWidget() {
                 className="fixed bottom-4 right-4 z-50 flex items-center justify-center gap-2 w-12 h-12 sm:w-auto sm:h-auto sm:px-4 sm:py-2.5 bg-neon-cyan text-black font-display font-bold text-sm rounded-full shadow-[0_0_20px_rgba(0,243,255,0.3)] hover:bg-neon-cyan/85 transition-colors">
                 {unread > 0 && (
                     <span data-testid="chat-unread-badge"
-                        className="absolute -top-1 -right-1 sm:static min-w-[20px] h-[20px] px-1 rounded-full bg-[#EF4444] text-[11px] font-bold text-white flex items-center justify-center ring-2 ring-[#0A0A0A] shrink-0">
+                        className="absolute -top-1 -right-1 sm:static min-w-[20px] h-[20px] px-1 rounded-full bg-[#EF4444] text-[11px] font-bold text-white flex items-center justify-center ring-2 ring-[#142019] shrink-0">
                         {unread > 9 ? "9+" : unread}
                     </span>
                 )}
@@ -88,8 +88,8 @@ export default function ChatWidget() {
     }
 
     return (
-        <section aria-label="World chat" className="fixed bottom-4 right-4 z-50 w-[calc(100vw-2rem)] max-w-[360px] h-[460px] max-h-[calc(100dvh-2rem)] flex flex-col bg-[#0A0A0A] border border-neon-cyan/30 rounded-md shadow-2xl overflow-hidden" data-testid="chat-widget">
-            <div className="flex items-center justify-between px-3 h-11 border-b border-white/10 bg-[#0C0C0C] shrink-0">
+        <section aria-label="World chat" className="fixed bottom-4 right-4 z-50 w-[calc(100vw-2rem)] max-w-[360px] h-[460px] max-h-[calc(100dvh-2rem)] flex flex-col bg-[#142019] border border-neon-cyan/30 rounded-md shadow-2xl overflow-hidden" data-testid="chat-widget">
+            <div className="flex items-center justify-between px-3 h-11 border-b border-white/10 bg-[#1B2520] shrink-0">
                 <div className="flex items-center gap-2">
                     <MessageSquare className="w-4 h-4 text-neon-cyan" />
                     <span className="font-display font-bold text-white text-sm">World Chat</span>
@@ -98,7 +98,7 @@ export default function ChatWidget() {
                 <button type="button" aria-label="Minimize world chat" onClick={() => setOpen(false)} data-testid="chat-widget-close" className="p-2 text-muted-foreground hover:text-white"><Minus className="w-4 h-4" /></button>
             </div>
 
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 bg-[#050505]" data-testid="chat-messages">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 bg-[#101A16]" data-testid="chat-messages">
                 {data.messages.length === 0 ? (
                     <div className="text-center text-muted-foreground text-xs font-mono py-8">No messages yet. Say hi to Kaeldor.</div>
                 ) : data.messages.map((m) => (
@@ -113,9 +113,9 @@ export default function ChatWidget() {
                 ))}
             </div>
 
-            <div className="flex items-center gap-2 p-2 border-t border-white/10 bg-[#0C0C0C] shrink-0">
+            <div className="flex items-center gap-2 p-2 border-t border-white/10 bg-[#1B2520] shrink-0">
                 <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
-                    maxLength={280} placeholder="Message the city…" aria-label="World chat message" data-testid="chat-input"
+                    maxLength={280} placeholder="Message the realm…" aria-label="World chat message" data-testid="chat-input"
                     className="min-w-0 flex-1 bg-white/5 border border-white/12 rounded-sm px-3 py-2 text-sm text-white placeholder:text-muted-foreground/50 focus:outline-none focus:border-neon-cyan/50" />
                 <button type="button" aria-label="Send world chat message" onClick={send} disabled={sending || !text.trim()} data-testid="chat-send"
                     className="p-2 bg-neon-cyan text-black rounded-sm disabled:opacity-40 hover:bg-neon-cyan/80 transition-colors"><Send className="w-4 h-4" /></button>

@@ -2,6 +2,7 @@ from core import *  # noqa: F401,F403
 from fastapi import FastAPI
 import routes.player, routes.economy, routes.business, routes.social, routes.admin  # noqa: F401  (registers endpoints)
 import routes.journey  # noqa: F401
+import routes.realm  # noqa: F401
 
 app = FastAPI(title="Kaeldor RPG API")
 
@@ -188,6 +189,8 @@ async def migrate_city_shops():
 
 async def migrate_job_sectors():
     """Insert any seed job sector whose id is missing (covers DBs seeded before new sectors were added)."""
+    if await db.content_seeds.find_one({"_id": "job_sectors"}):
+        return  # The content seeder owns this catalogue; preserve subsequent Owner deletions.
     for s in seed_data.JOB_SECTORS:
         existing = await db.job_sectors.find_one({"id": s["id"]}, {"_id": 0, "id": 1})
         if not existing:
@@ -212,9 +215,10 @@ async def migrate_job_shift_options():
 
 
 async def migrate_vehicle_categories():
-    """Seed vehicle categories if missing and backfill each vehicle's category_id (one-time)."""
+    """Seed mount or cart categories if missing and backfill each mount or cart's category_id (one-time)."""
     from seed_data import VEHICLE_CATEGORIES, VEHICLE_CATEGORY_MAP
-    for c in VEHICLE_CATEGORIES:
+    categories = [] if await db.content_seeds.find_one({"_id": "vehicle_categories"}) else VEHICLE_CATEGORIES
+    for c in categories:
         if not await db.vehicle_categories.find_one({"id": c["id"]}, {"_id": 0, "id": 1}):
             await db.vehicle_categories.insert_one({**c})
     async for v in db.vehicles.find({}, {"_id": 0, "id": 1, "category_id": 1}):
@@ -262,7 +266,8 @@ async def startup():
         logger.warning("Owner account not created. Set ADMIN_EMAIL and ADMIN_PASSWORD to bootstrap a new Owner.")
     elif existing.get("role") != "admin":
         logger.warning("Configured ADMIN_EMAIL belongs to an existing non-admin account; its role was preserved.")
-    await seed_demo_players()
+    if os.environ.get("SEED_DEMO_PLAYERS") == "1":
+        await seed_demo_players()
     logger.info("Kaeldor RPG started.")
 
 

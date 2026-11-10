@@ -1,7 +1,7 @@
 """Kaeldor RPG - multiplayer communication helpers (world chat + player messaging).
 
 Polling-based (no websockets). Stores world_chat and messages collections.
-Device gates: SMS needs a smartphone in inventory, email needs a laptop.
+Device gates: SMS needs a courier seal in inventory, email needs a scribe's kit.
 """
 import re
 from datetime import timedelta

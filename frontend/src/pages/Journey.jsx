@@ -41,8 +41,8 @@ export function JourneyTeaser() {
         <div className="flex items-start gap-4"><Compass className="w-6 h-6 text-neon-purple shrink-0" />
             <div className="flex-1 min-w-0"><div className="font-mono text-xs uppercase tracking-widest text-neon-purple">Your story in Kaeldor</div>
                 <h2 className="font-display text-xl text-white font-bold mt-2">{goal?.name || "What kind of life will you build?"}</h2>
-                <p className="text-sm text-muted-foreground mt-2">{next ? "Next milestone: " + next.name : goal ? "Ambition completed. Choose your next direction." : "Choose an ambition, meet Maya and find a place in your neighbourhood."}</p>
-                {(story || event) && <p className="text-xs text-neon-cyan mt-3">{story ? "Continue: " + story.name : "In the city: " + event.name}</p>}
+                <p className="text-sm text-muted-foreground mt-2">{next ? "Next milestone: " + next.name : goal ? "Ambition completed. Choose your next direction." : "Choose an ambition, meet Mira and find a place in your neighbourhood."}</p>
+                {(story || event) && <p className="text-xs text-neon-cyan mt-3">{story ? "Continue: " + story.name : "In the realm: " + event.name}</p>}
                 <Link to="/journey" className="inline-flex gap-2 items-center text-white font-bold mt-4 min-h-[44px]">Open your journal <ArrowRight className="w-4 h-4" /></Link>
             </div>
         </div>
@@ -58,7 +58,7 @@ function StoryCard({ story, busy, act }) {
         {node && <div className="mt-5">
             <h3 className="text-lg text-white font-bold">{node.title}</h3>
             <p className="text-muted-foreground text-sm leading-relaxed mt-2 max-w-3xl">{node.text}</p>
-            <div className="grid md:grid-cols-2 gap-3 mt-5">{node.choices.map((c) => <div key={c.id} className="p-4 bg-black/20 border border-white/10 rounded-sm flex flex-col gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">{node.choices.map((c) => <div key={c.id} className="p-4 bg-black/20 border border-white/10 rounded-sm flex flex-col gap-3">
                 <h4 className="font-bold text-white">{c.label}</h4>{c.detail && <p className="text-sm text-muted-foreground">{c.detail}</p>}
                 {c.cost > 0 && <p className="text-xs text-neon-yellow font-mono">Cost: {money(c.cost)} from cash / bank</p>}
                 {Object.entries(c.consume_items || {}).map(([item, qty]) => <p key={item} className="text-xs text-neon-yellow">Uses {qty} × {item.replaceAll("_", " ")}</p>)}
@@ -85,16 +85,16 @@ export default function Journey() {
     };
     if (!data && !error) return <Spinner />;
     return <div className="space-y-6">
-        <SectionTitle icon={Compass} kicker="A life with direction" title="Your Journey" sub="Ambitions to work towards. People to remember. Decisions that become your story." />
+        <SectionTitle icon={Compass} kicker="A life with direction" title="Chronicle" sub="Ambitions to work towards. People to remember. Decisions that become your story." />
         {error && <Panel className="p-4 text-neon-yellow" role="alert">{error}<KButton onClick={load} variant="ghost">Try again</KButton></Panel>}
         {data && <>
-            <nav className="flex gap-2 flex-wrap" aria-label="Journal sections">{[["stories", "Stories", BookOpen], ["goals", "Ambitions", Flag], ["city", "In the city", Radio]].map(([key, label, Icon]) => <KButton key={key} variant={tab === key ? "primary" : "ghost"} onClick={() => setTab(key)} aria-pressed={tab === key}><Icon className="w-4 h-4" />{label}</KButton>)}</nav>
+            <nav className="flex gap-2 flex-wrap" aria-label="Journal sections">{[["stories", "Stories", BookOpen], ["goals", "Ambitions", Flag], ["city", "In the realm", Radio]].map(([key, label, Icon]) => <KButton key={key} variant={tab === key ? "primary" : "ghost"} onClick={() => setTab(key)} aria-pressed={tab === key}><Icon className="w-4 h-4" />{label}</KButton>)}</nav>
             {tab === "stories" && <div className="space-y-5">
                 <p className="text-sm text-muted-foreground">Accepted stories have no deadline. You can plan your next choice while working; physical progress still uses normal activities.</p>
                 {data.stories.filter((s) => !s.completed).map((s) => <StoryCard key={s.id} story={s} busy={busy} act={act} />)}
                 <div><h2 className="font-display font-bold text-lg text-white mb-3">New opportunities</h2>
                     {data.offers.length === 0 && <p className="text-muted-foreground text-sm">No new offers right now. Your ambitions and accepted stories are still available.</p>}
-                    <div className="grid md:grid-cols-2 gap-4">{data.offers.map((o) => <Panel key={o.run_id} className="p-5 flex flex-col gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{data.offers.map((o) => <Panel key={o.run_id} className="p-5 flex flex-col gap-3">
                         <div className="text-xs font-mono text-neon-cyan">{o.event_name || o.contact || "A local story"}</div><h3 className="text-white font-display font-bold text-lg">{o.name}</h3><p className="text-sm text-muted-foreground leading-relaxed">{o.description}</p>
                         <Requirements rows={o.progress} />{!o.available && <p className="text-xs text-neon-yellow">{o.reasons.join(" · ")}</p>}
                         <KButton className="mt-auto" disabled={busy || !o.available} onClick={() => act("/journey/stories/" + o.id + "/start", { event_id: o.event_id })}>Accept story</KButton>
@@ -113,8 +113,8 @@ export default function Journey() {
                     <details className="mt-4"><summary className="text-sm text-muted-foreground cursor-pointer">See the whole path</summary><ol className="mt-3 space-y-2">{g.milestones.map((m) => <li key={m.id} className={m.claimed ? "text-neon-green text-sm" : "text-muted-foreground text-sm"}>{m.claimed ? "✓ " : "○ "}{m.name}</li>)}</ol></details>
                 </Panel>;
             })}</div>}
-            {tab === "city" && <div className="space-y-4"><p className="text-sm text-muted-foreground">City occasions repeat. Accept an opportunity while it is open, then finish at your own pace. Times below use your local clock.</p>
-                {data.city_events.length === 0 && <Panel className="p-5 text-muted-foreground">The city noticeboard is quiet. Check back for new occasions.</Panel>}
+            {tab === "city" && <div className="space-y-4"><p className="text-sm text-muted-foreground">Realm occasions repeat. Accept an opportunity while it is open, then finish at your own pace. Times below use your local clock.</p>
+                {data.city_events.length === 0 && <Panel className="p-5 text-muted-foreground">The realm noticeboard is quiet. Check back for new occasions.</Panel>}
                 {data.city_events.map((e) => <Panel key={e.id} className={"p-5 sm:p-6 " + (e.is_live ? "border-neon-cyan/30" : "")}>
                     <Pill tone={e.is_live ? "green" : "purple"}>{e.is_live ? "Happening now" : "Coming up"}</Pill><h2 className="font-display text-xl text-white font-bold mt-3">{e.name}</h2><p className="text-muted-foreground text-sm my-3">{e.description}</p>
                     <p className="text-xs font-mono text-muted-foreground">{e.is_live ? "Offers close: " : "Starts: "}{new Date(e.is_live ? e.ends_at : e.starts_at).toLocaleString()}</p>

@@ -9,7 +9,7 @@ import { Home } from "lucide-react";
 const GROUPS = [
     { key: "rest", label: "Rest & Recovery" },
     { key: "food", label: "Food" },
-    { key: "health", label: "Health & Fitness" },
+    { key: "health", label: "Health & Endurance" },
     { key: "leisure", label: "Leisure & Mind" },
     { key: "hustle", label: "Side Hustles" },
     { key: "errand", label: "Errands" },
@@ -43,7 +43,7 @@ export default function HomeNeeds() {
 
     return (
         <div className="space-y-6">
-            <SectionTitle icon={Home} kicker="Take care of yourself" title="Home & Needs"
+            <SectionTitle icon={Home} kicker="Take care of yourself" title="Hearth & Rest"
                 sub="Manage your body and mind. Neglect food, sleep or rest and your performance — and health — will suffer." />
             <p className="text-xs text-muted-foreground" data-testid="needs-timing-note">
                 Activity rewards apply when the timer finishes. Hunger can still rise while you wait.
@@ -57,8 +57,8 @@ export default function HomeNeeds() {
             {blocked && (
                 <Panel className="p-4 border-neon-yellow/30">
                     <p className="text-sm text-neon-yellow font-mono">
-                        {player?.status === "jail" ? "You're in jail — wait it out or post bail." :
-                         player?.status === "hospital" ? "You're recovering in hospital." :
+                        {player?.status === "jail" ? "You're in dungeon — wait it out or post bail." :
+                         player?.status === "hospital" ? "You're recovering in infirmary." :
                          player?.on_shift ? "You're on shift — finish work or clock out before starting an activity." :
                          "You're busy with another activity. Finish or cancel it first."}
                     </p>
@@ -71,7 +71,7 @@ export default function HomeNeeds() {
                 return (
                     <section key={g.key} id={g.key} className="scroll-mt-20">
                         <h2 className="font-display font-bold text-base text-white mb-4">{g.label} <span className="font-mono text-xs font-normal text-muted-foreground ml-2">{items.length} options</span></h2>
-                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             {items.map((a) => (
                                 <ActionCard key={a.id} action={a} onStart={start} blocked={blocked} loading={loadingId === a.id} />
                             ))}

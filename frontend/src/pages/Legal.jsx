@@ -10,7 +10,7 @@ export default function Legal() {
 
     return (
         <div className="space-y-6">
-            <SectionTitle icon={Lock} kicker="Your rap sheet" title="Police Record"
+            <SectionTitle icon={Lock} kicker="Your rap sheet" title="The Town Watch"
                 sub="Crime pays — until it doesn't. Track your suspicion, convictions and standing with the law." />
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -21,20 +21,20 @@ export default function Legal() {
             </div>
 
             <Panel className="p-5">
-                <div className="mb-4"><StatBar label="Criminal Suspicion" value={player.criminal_suspicion} color="#FF0055" invert /></div>
+                <div className="mb-4"><StatBar label="Criminal Suspicion" value={player.criminal_suspicion} color="#DE8274" invert /></div>
                 <div className="font-mono text-[11px] uppercase tracking-[0.25em] text-muted-foreground mb-3">Convictions & Incidents</div>
                 {record.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Clean record. For now.</p>
                 ) : (
                     <div className="space-y-2">
                         {record.slice().reverse().map((r, i) => (
-                            <div key={i} className="flex items-center gap-3 p-3 bg-[#050505] border border-white/8 rounded-sm" data-testid={`record-${i}`}>
+                            <div key={i} className="flex items-center gap-3 p-3 bg-[#101A16] border border-white/8 rounded-sm" data-testid={`record-${i}`}>
                                 <FileWarning className="w-4 h-4 text-neon-red shrink-0" />
                                 <div className="flex-1">
                                     <div className="text-sm text-white">{r.type}</div>
                                     <div className="text-[11px] text-muted-foreground font-mono">{new Date(r.date).toLocaleString()}</div>
                                 </div>
-                                <Pill tone="red">Fined ${r.fine || 0}</Pill>
+                                <Pill tone="red">Fined ¤ {r.fine || 0}</Pill>
                             </div>
                         ))}
                     </div>

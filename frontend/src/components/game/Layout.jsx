@@ -9,41 +9,43 @@ import ChatWidget from "@/components/game/ChatWidget";
 import { NEED_META, needWarningThreshold, statusLabel, statusColor, timeMode, computeGameTime, fmtGameClock, STAT_INFO } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import {
-    LayoutDashboard, Home, Briefcase, BadgeCheck, GraduationCap, ShoppingCart,
-    Landmark, Building2, Car, Store, Boxes, Sparkles, Skull, Stethoscope,
-    Lock, Trophy, Settings, LogOut, Menu, X, Activity, Zap, Clock3, Users,
-    Bell, ScrollText, CalendarClock, MessageSquare, Backpack, Search, ChevronDown,
+    Castle as LayoutDashboard, Home, Hammer as Briefcase, BadgeCheck, BookOpen as GraduationCap, ShoppingCart,
+    Landmark, Castle as Building2, Compass as Car, Store, Boxes, Sparkles, Skull, HeartPulse as Stethoscope,
+    Lock, Trophy, Settings, LogOut, Menu, X, Activity, Shield as Zap, Clock3, Users,
+    Bell, ScrollText, CalendarClock, MessageSquare, Backpack, Search, ChevronDown, Swords, Shield,
 } from "lucide-react";
 
 const NAV = [
+    { section: "The March" },
+    { to: "/realm", label: "Oaths & Expeditions", icon: Swords },
     { section: "Life" },
-    { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
-    { to: "/journey", label: "Your Journey", icon: ScrollText },
-    { to: "/home", label: "Home & Needs", icon: Home },
+    { to: "/", label: "Village", icon: LayoutDashboard, end: true },
+    { to: "/journey", label: "Chronicle", icon: ScrollText },
+    { to: "/home", label: "Hearth & Rest", icon: Home },
     { to: "/skills", label: "Skills", icon: Sparkles },
     { to: "/social", label: "Social", icon: Users },
     { to: "/messages", label: "Messages", icon: MessageSquare },
-    { to: "/daily-summary", label: "Daily Summary", icon: ScrollText },
+    { to: "/daily-summary", label: "Daily Chronicle", icon: ScrollText },
     { section: "Work" },
-    { to: "/jobs", label: "Job Center", icon: Briefcase },
-    { to: "/current-job", label: "Current Job", icon: BadgeCheck },
-    { to: "/job-market", label: "Player Jobs", icon: Store },
-    { to: "/education", label: "Education", icon: GraduationCap },
+    { to: "/jobs", label: "Guild Noticeboard", icon: Briefcase },
+    { to: "/current-job", label: "My Trade", icon: BadgeCheck },
+    { to: "/job-market", label: "Guild Contracts", icon: Store },
+    { to: "/education", label: "Apprenticeships", icon: GraduationCap },
     { section: "Economy" },
     { to: "/shop", label: "Shop", icon: ShoppingCart },
     { to: "/inventory", label: "Inventory", icon: Backpack },
-    { to: "/bank", label: "Bank & Loans", icon: Landmark },
-    { to: "/real-estate", label: "Real Estate", icon: Building2 },
-    { to: "/vehicles", label: "Vehicle Dealer", icon: Car },
-    { section: "Business" },
-    { to: "/business-market", label: "Buy a Business", icon: Store },
-    { to: "/businesses", label: "My Businesses", icon: Boxes },
+    { to: "/bank", label: "Guild Vault", icon: Landmark },
+    { to: "/real-estate", label: "Homes & Holdings", icon: Building2 },
+    { to: "/vehicles", label: "Stables & Carts", icon: Car },
+    { section: "Workshop" },
+    { to: "/business-market", label: "Found a Workshop", icon: Store },
+    { to: "/businesses", label: "My Workshops", icon: Boxes },
     { section: "Risk & Status" },
     { to: "/underworld", label: "Underworld", icon: Skull },
-    { to: "/legal", label: "Police Record", icon: Lock },
-    { to: "/hospital", label: "Hospital", icon: Stethoscope },
-    { to: "/jail", label: "Jail", icon: Lock },
-    { to: "/leaderboard", label: "Leaderboard", icon: Trophy },
+    { to: "/legal", label: "The Town Watch", icon: Lock },
+    { to: "/hospital", label: "Infirmary", icon: Stethoscope },
+    { to: "/jail", label: "Dungeon", icon: Lock },
+    { to: "/leaderboard", label: "Hall of Renown", icon: Trophy },
 ];
 
 function NavItems({ onNavigate, isAdmin }) {
@@ -68,7 +70,7 @@ function NavItems({ onNavigate, isAdmin }) {
             </label>
             {visibleGroups.map((group) => {
                 const currentGroup = group.items.some((item) => item.to === "/" ? pathname === "/" : pathname.startsWith(item.to));
-                const expanded = query.trim() || !(collapsed[group.name] ?? (!currentGroup && !["Life", "Work"].includes(group.name)));
+                const expanded = query.trim() || !(collapsed[group.name] ?? (!currentGroup && !["The March", "Life", "Work"].includes(group.name)));
                 return (
                 <div key={group.name}>
                     <button type="button" onClick={() => setCollapsed((old) => ({ ...old, [group.name]: !!expanded }))}
@@ -148,7 +150,7 @@ function NotificationBell() {
                 className="relative text-muted-foreground hover:text-neon-cyan transition-colors" title="Notifications">
                 <Bell className="w-4 h-4" />
                 {unreadCount > 0 && (
-                    <span data-testid="notif-unread-count" className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-[#EF4444] text-[9px] font-bold text-white flex items-center justify-center ring-2 ring-[#0A0A0A]">
+                    <span data-testid="notif-unread-count" className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-[#EF4444] text-[9px] font-bold text-white flex items-center justify-center ring-2 ring-[#142019]">
                         {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                 )}
@@ -156,8 +158,8 @@ function NotificationBell() {
             {open && (
                 <>
                     <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-                    <div className="absolute right-0 mt-2 w-80 max-h-[70vh] overflow-y-auto z-50 bg-[#0C0C0C] border border-white/12 rounded-sm shadow-2xl" data-testid="notifications-dropdown">
-                        <div className="flex items-center justify-between px-3 py-2 border-b border-white/8 sticky top-0 bg-[#0C0C0C]">
+                    <div className="absolute right-0 mt-2 w-80 max-h-[70vh] overflow-y-auto z-50 bg-[#1B2520] border border-white/12 rounded-sm shadow-2xl" data-testid="notifications-dropdown">
+                        <div className="flex items-center justify-between px-3 py-2 border-b border-white/8 sticky top-0 bg-[#1B2520]">
                             <span className="font-display font-bold text-white text-sm">Notifications</span>
                             {unreadCount > 0 && (
                                 <button onClick={() => markNotificationsRead()} className="text-[11px] text-neon-cyan hover:underline" data-testid="notif-mark-all-read">Mark all read</button>
@@ -204,7 +206,7 @@ export default function Layout({ children }) {
     const [mobileNav, setMobileNav] = useState(false);
     const [mobileNeeds, setMobileNeeds] = useState(false);
     const location = useLocation();
-    const focusedPage = location.pathname === "/journey" || location.pathname.startsWith("/businesses") || location.pathname === "/admin";
+    const focusedPage = location.pathname === "/" || location.pathname === "/realm" || location.pathname === "/journey" || location.pathname.startsWith("/businesses") || location.pathname === "/admin";
 
     const isAdmin = user?.role === "admin";
     const status = player?.status || "free";
@@ -216,15 +218,15 @@ export default function Layout({ children }) {
     };
 
     return (
-        <div className="min-h-screen bg-[#050505] kael-grid text-foreground">
+        <div className="realm-shell min-h-screen bg-[#101A16] kael-grid text-foreground">
             {/* TOP BAR */}
-            <header className="sticky top-0 z-40 bg-[#0A0A0A]/90 backdrop-blur-md border-b border-white/8">
+            <header className="sticky top-0 z-40 bg-[#142019]/90 backdrop-blur-md border-b border-white/8">
                 <div className="flex items-center gap-3 px-4 h-14">
                     <button className="lg:hidden text-white p-2 -ml-2" aria-label="Open navigation" onClick={() => setMobileNav(true)} data-testid="mobile-menu-button">
                         <Menu className="w-5 h-5" />
                     </button>
                     <div className="flex items-center gap-2 mr-2">
-                        <Zap className="w-5 h-5 text-neon-cyan" />
+                        <Shield className="w-5 h-5 text-neon-cyan" />
                         <span className="font-display font-extrabold tracking-tighter text-lg hidden sm:block">
                             KAELDOR<span className="text-neon-cyan">.</span>
                         </span>
@@ -234,10 +236,10 @@ export default function Layout({ children }) {
                     {player && (
                         <div className="flex items-center gap-3 sm:gap-5 ml-auto">
                             <div className="hidden md:flex items-center gap-4 font-mono text-xs">
-                                <span className="text-muted-foreground">CASH <Money value={player.cash} testid="topbar-cash" /></span>
-                                <span className="text-muted-foreground">BANK <Money value={player.bank} testid="topbar-bank" /></span>
-                                <span className="text-muted-foreground">DEBT <span className="text-neon-red tnum">${Math.round(player.debt).toLocaleString()}</span></span>
-                                <span className="text-muted-foreground inline-flex items-center gap-1">NET <Money value={state?.net_worth} testid="topbar-networth" /><InfoTip text="NET = Cash + Bank - Debt + 50% Asset Resell Value." testid="networth-info" /></span>
+                                <span className="text-muted-foreground">COIN <Money value={player.cash} testid="topbar-cash" /></span>
+                                <span className="text-muted-foreground">VAULT <Money value={player.bank} testid="topbar-bank" /></span>
+                                <span className="text-muted-foreground">DEBT <span className="text-neon-red tnum">¤ {Math.round(player.debt).toLocaleString()}</span></span>
+                                <span className="text-muted-foreground inline-flex items-center gap-1">NET <Money value={state?.net_worth} testid="topbar-networth" /><InfoTip text="NET = Coin + Vault - Debt + 50% Asset Resell Value." testid="networth-info" /></span>
                             </div>
                             <Pill tone={mode.tone} className="hidden sm:inline-flex" >
                                 <Clock3 className="w-3 h-3 mr-1" /> {mode.label}
@@ -262,8 +264,8 @@ export default function Layout({ children }) {
                 {/* Mobile money strip */}
                 {player && (
                     <div className="md:hidden flex items-center gap-4 px-4 py-1.5 border-t border-white/5 font-mono text-[11px] overflow-x-auto">
-                        <span className="text-muted-foreground">CASH <Money value={player.cash} /></span>
-                        <span className="text-muted-foreground">BANK <Money value={player.bank} /></span>
+                        <span className="text-muted-foreground">COIN <Money value={player.cash} /></span>
+                        <span className="text-muted-foreground">VAULT <Money value={player.bank} /></span>
                         <span className="text-muted-foreground">NET <Money value={state?.net_worth} /></span>
                     </div>
                 )}
@@ -271,7 +273,7 @@ export default function Layout({ children }) {
 
             <div className="flex">
                 {/* SIDEBAR (desktop) */}
-                <aside className="hidden lg:block w-64 shrink-0 border-r border-white/8 bg-[#080808] h-[calc(100vh-3.5rem)] sticky top-14 overflow-y-auto">
+                <aside className="hidden lg:block w-64 shrink-0 border-r border-white/8 bg-[#142019] h-[calc(100vh-3.5rem)] sticky top-14 overflow-y-auto">
                     <NavItems isAdmin={isAdmin} />
                 </aside>
 
@@ -279,7 +281,7 @@ export default function Layout({ children }) {
                 {mobileNav && (
                     <div className="fixed inset-0 z-50 lg:hidden" data-testid="mobile-nav-drawer">
                         <div className="absolute inset-0 bg-black/70" onClick={() => setMobileNav(false)} />
-                        <div className="absolute left-0 top-0 h-full w-72 bg-[#080808] border-r border-white/10 overflow-y-auto animate-fade">
+                        <div className="absolute left-0 top-0 h-full w-72 bg-[#142019] border-r border-white/10 overflow-y-auto animate-fade">
                             <div className="flex items-center justify-between px-4 h-14 border-b border-white/8">
                                 <span className="font-display font-extrabold tracking-tighter">KAELDOR<span className="text-neon-cyan">.</span></span>
                                 <button aria-label="Close navigation" className="p-2" onClick={() => setMobileNav(false)}><X className="w-5 h-5 text-muted-foreground" /></button>
@@ -298,7 +300,7 @@ export default function Layout({ children }) {
                         </div>
                     )}
                     {/* Needs strip */}
-                    {player && focusedPage && <button type="button" className="sm:hidden w-full flex justify-between items-center gap-3 p-3 mb-4 border border-white/15 bg-[#0d1115]/90 rounded-sm text-xs"
+                    {player && focusedPage && <button type="button" className="sm:hidden w-full flex justify-between items-center gap-3 p-3 mb-4 border border-white/15 bg-[#19251e]/90 rounded-sm text-xs"
                         aria-label={mobileNeeds ? "Hide needs" : "Show needs"} aria-expanded={mobileNeeds} onClick={() => setMobileNeeds(!mobileNeeds)}>
                         <span className={player.health <= needWarningThreshold("health", state?.needs_rules) ? "text-neon-red" : "text-neon-green"}>Health {Math.round(player.health)}</span>
                         <span className={player.hunger >= needWarningThreshold("hunger", state?.needs_rules) ? "text-neon-red" : "text-white"}>Hunger {Math.round(player.hunger)}</span>
@@ -306,7 +308,7 @@ export default function Layout({ children }) {
                         <ChevronDown className={cn("w-4 h-4", mobileNeeds && "rotate-180")} />
                     </button>}
                     {player && (
-                        <div className={cn("grid-cols-2 sm:grid sm:grid-cols-3 xl:grid-cols-6 gap-x-5 gap-y-4 mb-6 p-4 bg-[#0d1115]/90 border border-white/10 rounded-sm", focusedPage && !mobileNeeds ? "hidden" : "grid")} data-testid="needs-strip">
+                        <div className={cn("grid-cols-2 sm:grid sm:grid-cols-3 xl:grid-cols-6 gap-x-5 gap-y-4 mb-6 p-4 bg-[#19251e]/90 border border-white/10 rounded-sm", focusedPage && !mobileNeeds ? "hidden" : "grid")} data-testid="needs-strip">
                             {Object.entries(NEED_META).map(([key, meta]) => (
                                 <StatBar
                                     key={key}
@@ -332,7 +334,7 @@ export default function Layout({ children }) {
                 </main>
 
                 {/* RIGHT RAIL */}
-                <aside className="hidden 2xl:block w-80 shrink-0 border-l border-white/8 bg-[#080808] h-[calc(100vh-3.5rem)] sticky top-14 overflow-y-auto p-4 space-y-4">
+                <aside className="hidden 2xl:block w-80 shrink-0 border-l border-white/8 bg-[#142019] h-[calc(100vh-3.5rem)] sticky top-14 overflow-y-auto p-4 space-y-4">
                     <ActivityPanel />
                     <EventLog max={30} />
                 </aside>

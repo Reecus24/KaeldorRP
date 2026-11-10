@@ -7,11 +7,11 @@ import { SectionTitle, Spinner, Panel, Pill, EmptyState } from "@/components/gam
 import { KButton } from "@/components/game/controls";
 import { relTime } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
-import { Inbox, MessageSquare, Mail, Send, Plus, X, Ban, ShieldAlert, Smartphone, Laptop, ArrowLeft } from "lucide-react";
+import { Inbox, MessageSquare, Mail, Send, Plus, X, Ban, ShieldAlert, ScrollText as Smartphone, BookOpen as Laptop, ArrowLeft } from "lucide-react";
 
 const CHANNELS = {
-    sms: { label: "SMS", icon: MessageSquare, device: "smartphone", deviceLabel: "Smartphone" },
-    email: { label: "Email", icon: Mail, device: "laptop", deviceLabel: "Laptop" },
+    sms: { label: "Courier Note", icon: MessageSquare, device: "smartphone", deviceLabel: "Courier Seal" },
+    email: { label: "Sealed Letter", icon: Mail, device: "laptop", deviceLabel: "Scribe's Kit" },
 };
 
 function Compose({ channel, directory, onClose, onSent }) {
@@ -105,7 +105,7 @@ function ThreadView({ thread, onBack, onChanged }) {
                 </div>
                 <button onClick={block} title="Block / unblock" data-testid="block-button" className="text-muted-foreground hover:text-neon-red"><Ban className="w-4 h-4" /></button>
             </div>
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3 bg-[#050505]" data-testid="thread-messages">
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3 bg-[#101A16]" data-testid="thread-messages">
                 {!msgs ? <Spinner /> : msgs.map((m) => (
                     <div key={m.id} className={cn(m.from_player_id === meId && "text-right")}>
                         {m.subject && <div className="text-[10px] text-neon-cyan font-mono mb-0.5">{m.subject}</div>}
@@ -150,7 +150,7 @@ export default function Messages() {
     return (
         <div className="space-y-6">
             <SectionTitle icon={Inbox} kicker="Communication" title="Messages"
-                sub="Reach other players directly. SMS is quick and casual (needs a phone); email is for longer, formal notes like job applications and offers (needs a laptop)." />
+                sub="Reach other players directly. Courier Note is quick and casual (needs a courier seal); sealed letters are for longer, formal notes like job applications and offers (needs a scribe's kit)." />
 
             <div className="flex flex-wrap items-center gap-2">
                 {Object.entries(CHANNELS).map(([k, c]) => (
@@ -173,7 +173,7 @@ export default function Messages() {
                 </Panel>
             )}
 
-            <div className="grid lg:grid-cols-[320px_1fr] gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
                 <div className={cn("space-y-2", selected && "hidden lg:block")}>
                     {!threads ? <Spinner /> : threads.length === 0 ? (
                         <EmptyState icon={meta.icon} title={`No ${meta.label} yet`} sub={hasDevice ? "Start a conversation with the New button." : `Buy a ${meta.deviceLabel} to get started.`} />

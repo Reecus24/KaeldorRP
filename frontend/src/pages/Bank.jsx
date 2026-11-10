@@ -40,17 +40,17 @@ export default function Bank() {
 
     return (
         <div className="space-y-6">
-            <SectionTitle icon={Landmark} kicker="Money management" title="Bank & Loans"
+            <SectionTitle icon={Landmark} kicker="Money management" title="Guild Vault"
                 sub="Move money, take loans for big plays, and pay down debt before interest buries you." />
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <StatTile label="Cash" value={money(player.cash)} accent="#00F3FF" />
-                <StatTile label="Bank" value={money(player.bank)} accent="#00F3FF" />
-                <StatTile label="Debt" value={money(player.debt)} accent={player.debt > 0 ? "#FF0055" : "#9CA3AF"} sub={`${(rate * 100).toFixed(1)}% daily interest`} />
-                <StatTile label="Available Credit" value={money(available)} accent="#FFC300" />
+                <StatTile label="Coin" value={money(player.cash)} accent="#D1B579" />
+                <StatTile label="Vault" value={money(player.bank)} accent="#D1B579" />
+                <StatTile label="Debt" value={money(player.debt)} accent={player.debt > 0 ? "#DE8274" : "#9CA3AF"} sub={`${(rate * 100).toFixed(1)}% daily interest`} />
+                <StatTile label="Available Credit" value={money(available)} accent="#D9B66B" />
             </div>
 
-            <div className="grid md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <Panel className="p-5 space-y-3">
                     <div className="font-display font-bold text-white">Deposit / Withdraw</div>
                     <KInput type="number" label="Deposit to bank" value={dep} onChange={(e) => setDep(e.target.value)} placeholder="0" testid="deposit-input" />
@@ -107,10 +107,10 @@ export default function Bank() {
             <div>
                 <div className="flex items-center gap-1.5 mb-3 mt-2">
                     <LineChart className="w-4 h-4 text-neon-cyan" />
-                    <span className="font-display font-bold text-white">Stock Market</span>
+                    <span className="font-display font-bold text-white">Commodity Exchange</span>
                     <span className="text-[11px] text-muted-foreground">— buy low, sell high. Prices move in real time.</span>
                 </div>
-                <MarketPanel endpoint="/market/stocks" kind="stock" accent="#00F3FF" />
+                <MarketPanel endpoint="/market/stocks" kind="stock" accent="#D1B579" />
             </div>
         </div>
     );

@@ -5,10 +5,10 @@ import { KButton, KInput } from "@/components/game/controls";
 import { money, timeMode } from "@/lib/helpers";
 import { editableConfigFields, configValue, setConfigValue, normalizeConfigPatch } from "@/lib/configFields";
 import {
-    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
-    MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
-    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles, User, BadgeCheck,
-    ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
+    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, Coins as DollarSign, Gauge,
+    MapPin, Store, Clock, Hammer as Briefcase, Castle as LayoutDashboard, Castle as Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
+    Activity, TrendingUp, Wallet, Shield as Zap, BookOpen as GraduationCap, Sparkles, User, BadgeCheck,
+    ShoppingCart, Scale, Home, Compass as Car, Footprints as Bike, Package as Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -46,7 +46,7 @@ function ConfigEditor() {
                     </div>
                     <div className="text-[11px] text-muted-foreground">
                         {isRealtime
-                            ? "1 game hour = 1 real hour. Jobs, study, businesses, rent and sentences run over real-life time."
+                            ? "1 game hour = 1 real hour. Jobs, study, workshops, rent and sentences run over real-life time."
                             : `1 game hour = ${realMinPerGameHour} real minutes. Set time scale to 1 for true real-time.`}
                     </div>
                 </div>
@@ -72,7 +72,7 @@ function ConfigJson({ cfg, onSave }) {
     return (
         <div>
             <textarea value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} data-testid="config-json"
-                className="w-full min-h-[300px] bg-[#050505] border border-white/12 rounded-sm p-3 font-mono text-xs text-neon-green/90 outline-none focus:border-neon-cyan/60 resize-none" />
+                className="w-full min-h-[300px] bg-[#101A16] border border-white/12 rounded-sm p-3 font-mono text-xs text-neon-green/90 outline-none focus:border-neon-cyan/60 resize-none" />
             <KButton variant="green" className="mt-3" onClick={() => { try { onSave(JSON.parse(text)); } catch { toast.error("Invalid JSON"); } }} data-testid="save-config">Save Config</KButton>
         </div>
     );
@@ -100,17 +100,17 @@ function EconomyTuner() {
     return (
         <div className="space-y-3">
             <Panel className="p-4 flex items-center justify-between flex-wrap gap-2">
-                <div className="text-[11px] text-muted-foreground">Edit price, material cost, demand, PPH, base wage and opening hours per business type. Changes hit the live simulation on the next tick.</div>
+                <div className="text-[11px] text-muted-foreground">Edit price, material cost, demand, PPH, base wage and opening hours per workshop type. Changes hit the live simulation on the next tick.</div>
                 <label className="flex items-center gap-2 text-xs text-white cursor-pointer">
                     <input type="checkbox" checked={applyExisting} onChange={(e) => setApplyExisting(e.target.checked)} data-testid="apply-existing-toggle" />
-                    Apply to existing businesses (not just new)
+                    Apply to existing workshops (not just new)
                 </label>
             </Panel>
             <Panel className="p-0 overflow-x-auto">
                 <div className="min-w-[900px]">
-                    <div className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-white/8 bg-[#050505] font-mono text-[10px] uppercase text-muted-foreground">
-                        <div className="col-span-2">Business</div><div className="col-span-1">Price</div><div className="col-span-2">Material $</div>
-                        <div className="col-span-1">Demand</div><div className="col-span-1">PPH</div><div className="col-span-2">Base $/hr</div>
+                    <div className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-white/8 bg-[#101A16] font-mono text-[10px] uppercase text-muted-foreground">
+                        <div className="col-span-2">Workshop</div><div className="col-span-1">Price</div><div className="col-span-2">Material ¤ </div>
+                        <div className="col-span-1">Demand</div><div className="col-span-1">PPH</div><div className="col-span-2">Base ¤ /hr</div>
                         <div className="col-span-2">Open–Close</div><div className="col-span-1"></div>
                     </div>
                     {rows.map((r) => (
@@ -130,16 +130,16 @@ function EconomyTuner() {
                     ))}
                 </div>
             </Panel>
-            <style>{`.econ-inp{background:#050505;border:1px solid rgba(255,255,255,.12);border-radius:3px;padding:4px 6px;font-family:monospace;font-size:12px;color:#7CFFCB;outline:none}.econ-inp:focus{border-color:rgba(0,243,255,.6)}`}</style>
+            <style>{`.econ-inp{background:#101A16;border:1px solid rgba(255,255,255,.12);border-radius:3px;padding:4px 6px;font-family:monospace;font-size:12px;color:#7CFFCB;outline:none}.econ-inp:focus{border-color:rgba(0,243,255,.6)}`}</style>
         </div>
     );
 }
 const TUNE_FIELDS = [
-    { section: "Timers (in-game days)", keys: [["upgrade_days", "Upgrade duration"], ["marketing_days", "Marketing duration"], ["raise_cooldown_days", "Wage-raise cooldown"]] },
+    { section: "Timers (in-game days)", keys: [["upgrade_days", "Upgrade duration"], ["marketing_days", "Heralds duration"], ["raise_cooldown_days", "Wage-raise cooldown"]] },
     { section: "Multiplier ranges", keys: [["satisfaction_mult_min", "Satisfaction→Production min"], ["satisfaction_mult_max", "Satisfaction→Production max"], ["reputation_mult_min", "Reputation→Demand min"], ["reputation_mult_max", "Reputation→Demand max"], ["worker_cond_min", "Worker condition min"], ["worker_cond_max", "Worker condition max"]] },
     { section: "Effectiveness → Accidents", keys: [["accident_eff_threshold", "Injury effectiveness threshold"], ["accident_chance", "Injury chance below threshold"]] },
-    { section: "Stock Market (per real hour)", keys: [["stock_drift", "Base return / hr (e.g. 0.0015)"], ["stock_volatility", "Volatility / hr (e.g. 0.03)"]] },
-    { section: "Crypto Market (per real hour)", keys: [["crypto_drift", "Base return / hr (e.g. 0.004)"], ["crypto_volatility", "Volatility / hr (e.g. 0.09)"]] },
+    { section: "Commodity Exchange (per real hour)", keys: [["stock_drift", "Base return / hr (e.g. 0.0015)"], ["stock_volatility", "Volatility / hr (e.g. 0.03)"]] },
+    { section: "Relic Exchange (per real hour)", keys: [["crypto_drift", "Base return / hr (e.g. 0.004)"], ["crypto_volatility", "Volatility / hr (e.g. 0.09)"]] },
     { section: "Player Progression", keys: [["skill_decay_per_hour", "Skill Decay Rate (XP/hr idle, 0 = off)"]] },
     { section: "Criminal Suspicion", keys: [["suspicion_decay_per_hour", "Suspicion Decay Rate (/hr clean, 0 = never)"], ["suspicion_gain_mult", "Suspicion Gain Multiplier (x illegal acts)"]] },
 ];
@@ -189,27 +189,27 @@ function TuningPanel() {
         <div className="space-y-4">
             <Panel className="p-5 border-neon-cyan/25">
                 <h3 className="font-display font-bold text-white">Owner gameplay controls</h3>
-                <p className="text-sm text-muted-foreground mt-2">Needs, hospital care, economy and progression share this configuration. New numeric settings and switches appear here automatically. Advanced structures remain available in Config.</p>
-                <p className="text-xs text-muted-foreground mt-2">Rates marked per hour use game time. Hospital duration is in game minutes; Time Scale converts these to real waiting time.</p>
+                <p className="text-sm text-muted-foreground mt-2">Needs, infirmary care, economy and progression share this configuration. New numeric settings and switches appear here automatically. Advanced structures remain available in Config.</p>
+                <p className="text-xs text-muted-foreground mt-2">Rates marked per hour use game time. Infirmary duration is in game minutes; Time Scale converts these to real waiting time.</p>
                 <p className="text-xs text-muted-foreground mt-2">Duration changes apply to newly scheduled timers. Rates and thresholds apply on the next character update.</p>
             </Panel>
             {otherGroups.map(({ key, fields }) => (
                 <Panel key={key} className="p-5" data-testid={`config-group-${key}`}>
                     <h3 className="font-display font-bold text-white mb-4">{humanLabel(key)}</h3>
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{fields.map((field) => renderField(field))}</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{fields.map((field) => renderField(field))}</div>
                 </Panel>
             ))}
             {TUNE_FIELDS.map((grp) => (
                 <Panel key={grp.section} className="p-5">
                     <div className="font-display font-bold text-white mb-3">{grp.section}</div>
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {grp.keys.filter(([key]) => typeof cfg.tuning?.[key] === "number").map(([key, label]) => renderField({ path: ["tuning", key], value: cfg.tuning[key] }, label))}
                     </div>
                 </Panel>
             ))}
             {newTuning.length > 0 && <Panel className="p-5" data-testid="additional-tuning-fields">
                 <h3 className="font-display font-bold text-white mb-4">Additional gameplay settings</h3>
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">{newTuning.map((field) => renderField(field))}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{newTuning.map((field) => renderField(field))}</div>
             </Panel>}
             <Panel className="p-5">
                 <div className="font-display font-bold text-white mb-1">Income Tax Brackets</div>
@@ -217,7 +217,7 @@ function TuningPanel() {
                 <div className="space-y-2">
                     {(currentValue(["tuning", "tax_brackets"]) || []).map((b, i) => (
                         <div key={i} className="flex items-center gap-2 text-xs" data-testid={`tax-bracket-${i}`}>
-                            <span className="text-muted-foreground w-14">Up to $</span>
+                            <span className="text-muted-foreground w-14">Up to ¤ </span>
                             <KInput type="number" value={b[0] ?? ""} placeholder="∞ (top)" onChange={(e) => setBracket(i, 0, e.target.value)} testid={`tax-upto-${i}`} />
                             <span className="text-muted-foreground">rate</span>
                             <KInput type="number" step="0.01" value={b[1]} onChange={(e) => setBracket(i, 1, e.target.value)} testid={`tax-rate-${i}`} />
@@ -226,7 +226,7 @@ function TuningPanel() {
                     ))}
                 </div>
             </Panel>
-            <div className="sticky bottom-4 p-3 bg-[#0d1115]/95 backdrop-blur border border-neon-cyan/25 rounded-sm flex items-center justify-between gap-3">
+            <div className="sticky bottom-4 p-3 bg-[#19251e]/95 backdrop-blur border border-neon-cyan/25 rounded-sm flex items-center justify-between gap-3">
                 <span className="text-sm text-muted-foreground">{Object.keys(patch).length ? "Unsaved changes" : "All changes saved"}</span>
                 <KButton variant="green" onClick={save} loading={busy} disabled={!Object.keys(patch).length} data-testid="save-tuning">Save Tuning</KButton>
             </div>
@@ -276,7 +276,7 @@ function MarketsPanel() {
 
     if (!data) return <Spinner />;
     const t = data.tuning || {};
-    const groups = [["stock", "Stocks"], ["crypto", "Crypto"]];
+    const groups = [["stock", "Stocks"], ["crypto", "Relic"]];
     const inCls = "bg-black/40 border border-white/15 rounded-sm px-2 py-1.5 text-xs text-white";
 
     return (
@@ -295,7 +295,7 @@ function MarketsPanel() {
                         <input className={cn(inCls, "w-48")} value={nw.name} onChange={(e) => setNw((s) => ({ ...s, name: e.target.value }))} data-testid="market-new-name" /></label>
                     <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Kind
                         <select className={inCls} value={nw.kind} onChange={(e) => setNw((s) => ({ ...s, kind: e.target.value }))} data-testid="market-new-kind">
-                            <option value="stock">Stock</option><option value="crypto">Crypto</option>
+                            <option value="stock">Commodity</option><option value="crypto">Relic</option>
                         </select></label>
                     <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Start Price
                         <input type="number" className={cn(inCls, "w-28")} value={nw.base_price} onChange={(e) => setNw((s) => ({ ...s, base_price: e.target.value }))} data-testid="market-new-price" /></label>
@@ -304,10 +304,10 @@ function MarketsPanel() {
             </Panel>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono">
-                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Stock drift/hr</span><div className="text-neon-cyan">{t.stock_drift}</div></div>
-                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Stock vol/hr</span><div className="text-neon-cyan">{t.stock_volatility}</div></div>
-                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Crypto drift/hr</span><div className="text-neon-purple">{t.crypto_drift}</div></div>
-                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Crypto vol/hr</span><div className="text-neon-purple">{t.crypto_volatility}</div></div>
+                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Commodity drift/hr</span><div className="text-neon-cyan">{t.stock_drift}</div></div>
+                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Commodity vol/hr</span><div className="text-neon-cyan">{t.stock_volatility}</div></div>
+                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Relic drift/hr</span><div className="text-neon-purple">{t.crypto_drift}</div></div>
+                <div className="p-2 border border-white/10 rounded-sm"><span className="text-muted-foreground">Relic vol/hr</span><div className="text-neon-purple">{t.crypto_volatility}</div></div>
             </div>
 
             {groups.map(([kind, label]) => (

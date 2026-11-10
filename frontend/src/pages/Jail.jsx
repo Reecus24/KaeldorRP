@@ -28,7 +28,7 @@ export default function Jail() {
 
     return (
         <div className="space-y-6">
-            <SectionTitle icon={Lock} kicker="Behind bars" title="Jail"
+            <SectionTitle icon={Lock} kicker="Behind bars" title="Dungeon"
                 sub="Get caught breaking the law and you'll do time here. You can wait it out, or post bail to walk free early." />
 
             {!inJail ? (

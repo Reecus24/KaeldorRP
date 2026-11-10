@@ -21,10 +21,10 @@ NEED_STATS = ["energy", "fatigue", "hunger", "mood", "stress", "health"]
 # Character creation backgrounds
 BACKGROUNDS = {
     "drifter": {
-        "label": "Drifter",
-        "desc": "You've lived on the edge. Street-smart but broke.",
-        "cash": 120, "bank": 40,
-        "skills": {"street_smarts": 4, "fitness": 2},
+        "label": "Unemployed Peasant",
+        "desc": "No title, no trade. Your future is yours to earn.",
+        "cash": 80, "bank": 0,
+        "skills": {}, "inventory": {"protein_bar": 3},
     },
     "graduate": {
         "label": "Fresh Graduate",
@@ -108,6 +108,18 @@ def new_player(user_id, name, background, bg=None):
 
 DEFAULT_CONFIG = {
     "id": "global",
+    "realm": {
+        "faction_rejoin_hours": 72.0,
+        "base_power": 5.0, "power_per_level": 2.0, "power_per_fitness": 2.0,
+        "power_per_street_skill": 1.0, "chance_per_power": 0.008,
+        "base_win_chance": 0.65, "min_win_chance": 0.1, "max_win_chance": 0.95,
+        "defeat_xp_fraction": 0.25,
+        "tactics": {
+            "guarded": {"name": "Shield First", "chance_bonus": -0.08, "damage_multiplier": 0.55, "reward_multiplier": 0.8},
+            "balanced": {"name": "Hold the Line", "chance_bonus": 0.0, "damage_multiplier": 1.0, "reward_multiplier": 1.0},
+            "bold": {"name": "Press the Attack", "chance_bonus": 0.08, "damage_multiplier": 1.45, "reward_multiplier": 1.1},
+        },
+    },
     "journey": {"max_active_stories": 3, "city_events_enabled": True},
     "business_comfort": {
         "default_reserve_days": 1.0,
@@ -247,6 +259,7 @@ def apply_tuning(cfg):
 
 # Daily-summary ledger: signed per-day money buckets (expenses stored negative).
 LEDGER_KEYS = [
+    "expedition_income", "expedition_costs",
     "story_income", "story_costs",
     "wages_earned", "business_income", "crime_income", "social_income", "savings_interest",   # income (+)
     "rent", "bills", "vehicle_costs", "fines", "medical", "living_costs", "taxes",  # expenses (-)

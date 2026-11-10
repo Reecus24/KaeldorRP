@@ -3,9 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { KButton, KInput } from "@/components/game/controls";
 import { errMessage } from "@/lib/api";
-import { Zap } from "lucide-react";
+import { Shield as Zap } from "lucide-react";
 
-const HERO = "https://images.unsplash.com/photo-1642019341061-f81d61659c62?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwzfHxkYXJrJTIwbmVvJTIwbm9pciUyMGNpdHklMjBzdHJlZXQlMjBuaWdodHxlbnwwfHx8fDE3ODI3ODg1Njh8MA&ixlib=rb-4.1.0&q=85";
+import HERO from "@/assets/ashen-march.svg";
 
 export default function Register() {
     const { register } = useAuth();
@@ -33,26 +33,26 @@ export default function Register() {
     return (
         <div className="min-h-screen flex">
             <div className="hidden lg:block w-1/2 relative">
-                <img src={HERO} alt="Kaeldor city" className="absolute inset-0 w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-r from-[#050505] via-[#050505]/70 to-transparent" />
+                <img src={HERO} alt="Kaeldor realm" className="absolute inset-0 w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-r from-[#101A16] via-[#101A16]/70 to-transparent" />
                 <div className="absolute bottom-12 left-12 right-12">
                     <h2 className="font-display font-black tracking-tighter text-5xl text-white leading-none neon-text">
-                        YOUR STORY<br />STARTS BROKE.
+                        EVERY LEGEND<br />BEGINS SMALL.
                     </h2>
                     <p className="text-muted-foreground mt-4 max-w-md">
-                        A cheap studio, empty pockets, and a whole city of opportunity and danger. How far will you climb?
+                        A village hayloft, a few coins and a realm of ancient roads. What will you make of your name?
                     </p>
                 </div>
             </div>
 
-            <div className="flex-1 flex items-center justify-center p-6 kael-grid bg-[#050505]">
+            <div className="flex-1 flex items-center justify-center p-6 kael-grid bg-[#101A16]">
                 <div className="w-full max-w-sm">
                     <div className="flex items-center gap-2 mb-8">
                         <Zap className="w-7 h-7 text-neon-cyan" />
                         <span className="font-display font-black tracking-tighter text-2xl">KAELDOR<span className="text-neon-cyan">.</span></span>
                     </div>
                     <h1 className="font-display font-bold text-2xl mb-1">Create account</h1>
-                    <p className="text-sm text-muted-foreground mb-6">Sign up and step into the city.</p>
+                    <p className="text-sm text-muted-foreground mb-6">Sign up and step into the realm.</p>
 
                     <form onSubmit={submit} className="space-y-4">
                         <KInput label="Display Name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" testid="register-name" />

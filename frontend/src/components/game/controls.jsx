@@ -36,7 +36,7 @@ export function KInput({ className, label, testid, ...props }) {
             <input
                 data-testid={testid}
                 className={cn(
-                    "w-full bg-[#050505] border border-white/12 rounded-sm px-3 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-neon-cyan/60 font-mono",
+                    "w-full bg-[#101A16] border border-white/12 rounded-sm px-3 py-2.5 text-sm text-white outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-neon-cyan/60 font-mono",
                     className,
                 )}
                 {...props}

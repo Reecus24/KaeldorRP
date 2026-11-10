@@ -15,17 +15,17 @@ function Sparkline({ data, up }) {
     const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / span) * h}`).join(" ");
     return (
         <svg width={w} height={h} className="shrink-0">
-            <polyline points={pts} fill="none" stroke={up ? "#00FF9C" : "#FF0055"} strokeWidth="1.5" />
+            <polyline points={pts} fill="none" stroke={up ? "#00FF9C" : "#DE8274"} strokeWidth="1.5" />
         </svg>
     );
 }
 
 function fmtPrice(v) {
     if (v == null) return "—";
-    return v < 5 ? `$${v.toFixed(4)}` : `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return v < 5 ? `¤ ${v.toFixed(4)}` : `¤ ${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function MarketPanel({ endpoint, kind, accent = "#00F3FF" }) {
+export function MarketPanel({ endpoint, kind, accent = "#D1B579" }) {
     const { act } = useGame();
     const [assets, setAssets] = useState(null);
     const [portfolio, setPortfolio] = useState(null);
@@ -71,7 +71,7 @@ export function MarketPanel({ endpoint, kind, accent = "#00F3FF" }) {
             <Panel className="p-4 flex items-center justify-between" data-testid={`${kind}-portfolio-summary`}>
                 <div className="flex items-center gap-2">
                     <Wallet className="w-4 h-4" style={{ color: accent }} />
-                    <span className="font-display font-bold text-white text-sm">Your {kind === "crypto" ? "Crypto" : "Stock"} Holdings</span>
+                    <span className="font-display font-bold text-white text-sm">Your {kind === "crypto" ? "Relic" : "Commodity"} Holdings</span>
                 </div>
                 <div className="text-right">
                     <div className="font-mono text-white tnum" data-testid={`${kind}-holdings-value`}>{money(myValue)}</div>

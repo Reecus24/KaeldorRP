@@ -3,7 +3,7 @@ import { api } from "@/lib/api";
 import { useGame } from "@/context/GameContext";
 import { SectionTitle, Spinner, Panel } from "@/components/game/primitives";
 import { KButton } from "@/components/game/controls";
-import { Car, Bike, Truck, Gem, Fuel, ShieldCheck, Wrench, ChevronRight, ArrowLeft } from "lucide-react";
+import { Compass as Car, Footprints as Bike, Package as Truck, Gem, Wheat as Fuel, ShieldCheck, Wrench, ChevronRight, ArrowLeft } from "lucide-react";
 
 const CAT_ICONS = { Car, Bike, Truck, Gem };
 
@@ -13,13 +13,13 @@ function VehicleCard({ v, player, busyId, onBuy }) {
         <Panel className="p-5 flex flex-col" data-testid={`vehicle-${v.id}`}>
             <div className="flex items-start justify-between gap-2 mb-1">
                 <h3 className="font-display font-bold text-white leading-tight">{v.name}</h3>
-                <span className="font-mono text-neon-green tnum">${v.price.toLocaleString()}</span>
+                <span className="font-mono text-neon-green tnum">¤ {v.price.toLocaleString()}</span>
             </div>
             <p className="text-[11px] text-muted-foreground mb-3 flex-1">{v.desc}</p>
             <div className="grid grid-cols-3 gap-2 text-[10px] font-mono text-muted-foreground mb-3">
-                <span className="flex items-center gap-1"><Fuel className="w-3 h-3 text-neon-yellow" /> ${v.fuel_per_day}/d</span>
-                <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3 text-neon-cyan" /> ${v.insurance_per_day}/d</span>
-                <span className="flex items-center gap-1"><Wrench className="w-3 h-3" /> ${v.maintenance_per_day}/d</span>
+                <span className="flex items-center gap-1"><Fuel className="w-3 h-3 text-neon-yellow" /> ¤ {v.fuel_per_day}/d</span>
+                <span className="flex items-center gap-1"><ShieldCheck className="w-3 h-3 text-neon-cyan" /> ¤ {v.insurance_per_day}/d</span>
+                <span className="flex items-center gap-1"><Wrench className="w-3 h-3" /> ¤ {v.maintenance_per_day}/d</span>
             </div>
             <KButton variant="green" className="w-full" disabled={!afford} loading={busyId === v.id} onClick={() => onBuy(v)} data-testid={`buy-vehicle-${v.id}`}>
                 {afford ? "Buy" : "Can't afford"}
@@ -67,11 +67,11 @@ export default function VehicleDealer() {
                     <ArrowLeft className="w-4 h-4" /> Back to Categories
                 </button>
                 <SectionTitle icon={Icon} kicker={c.desc} title={c.name}
-                    sub="Vehicles unlock delivery jobs and street activities — but they cost fuel, insurance and maintenance every day (charged at 00:00). Your owned vehicles live in the Inventory tab." />
+                    sub="Mounts & Carts unlock delivery jobs and street activities — but they cost fodder, stable dues and maintenance every day (charged at 00:00). Your owned mounts and carts live in the Inventory tab." />
                 {loadingList ? <Spinner /> : entered.listings.length === 0 ? (
                     <Panel className="p-6 text-center text-sm text-muted-foreground">No models in this category right now.</Panel>
                 ) : (
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="category-vehicles">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" data-testid="category-vehicles">
                         {entered.listings.map((v) => <VehicleCard key={v.id} v={v} player={player} busyId={busyId} onBuy={buy} />)}
                     </div>
                 )}
@@ -82,9 +82,9 @@ export default function VehicleDealer() {
     // ---- Category browser ----
     return (
         <div className="space-y-6">
-            <SectionTitle icon={Car} kicker="Get moving" title="Vehicle Dealer"
-                sub="Kaeldor's showroom, organised by category. Pick a category to browse its models, then buy — vehicles unlock delivery work but cost fuel, insurance and maintenance each day." />
-            <div className="grid sm:grid-cols-2 gap-3" data-testid="vehicle-category-browser">
+            <SectionTitle icon={Car} kicker="Get moving" title="Stables & Carts"
+                sub="Kaeldor's showroom, organised by category. Pick a category to browse its models, then buy — mounts and carts unlock delivery work but cost fodder, stable dues and maintenance each day." />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" data-testid="vehicle-category-browser">
                 {cats.map((c) => {
                     const Icon = CAT_ICONS[c.icon] || Car;
                     return (

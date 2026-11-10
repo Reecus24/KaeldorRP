@@ -20,7 +20,7 @@ test("story requirements expose progress and the place to make progress", () => 
 
 test("costs and changes to reputation are distinct from positive rewards", () => {
     const html = renderToStaticMarkup(<Rewards values={{ cash: 25, reputation: -2, skills: { management: 20 }, items: { sandwich: 1 } }} />);
-    expect(html).toContain("$25");
+    expect(html).toContain("¤ 25");
     expect(html).toContain("-2 reputation");
     expect(html).toContain("+20 management XP");
     expect(html).toContain("1 × sandwich");
@@ -50,8 +50,8 @@ test("unavailable choices explain why and cannot be selected", () => {
 test("business overview distinguishes payout from operating funds and forecasts", () => {
     const html = renderToStaticMarkup(<BusinessOperations business={{ id: "b" }} operations={{ safe_to_collect: 120, reserve: 80, daily_cost: 40, reserve_days: 2, stock_days: 0.5, max_reserve_days: 30, status: "Needs attention", alerts: [{ title: "Review supplies", detail: "Keep stock", tab: "overview" }] }} />);
     expect(html).toContain("Available payout");
-    expect(html).toContain("$120");
-    expect(html).toContain("$80");
+    expect(html).toContain("¤ 120");
+    expect(html).toContain("¤ 80");
     expect(html).toContain("0.5 game days");
     expect(html).toContain("not guaranteed earnings");
 });

@@ -4,10 +4,10 @@ import { SectionTitle, Spinner, Panel, Pill, Money } from "@/components/game/pri
 import { KButton, KInput } from "@/components/game/controls";
 import { money } from "@/lib/helpers";
 import {
-    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, DollarSign, Gauge,
-    MapPin, Store, Clock, Briefcase, LayoutDashboard, Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
-    Activity, TrendingUp, Wallet, Zap, GraduationCap, Sparkles, User, BadgeCheck,
-    ShoppingCart, Scale, Home, Car, Bike, Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
+    Settings, Settings2, Plus, Pencil, Trash2, X, Database, Users, SlidersHorizontal, Coins as DollarSign, Gauge,
+    MapPin, Store, Clock, Hammer as Briefcase, Castle as LayoutDashboard, Castle as Building2, Skull, GripVertical, RotateCcw, Eye, EyeOff,
+    Activity, TrendingUp, Wallet, Shield as Zap, BookOpen as GraduationCap, Sparkles, User, BadgeCheck,
+    ShoppingCart, Scale, Home, Compass as Car, Footprints as Bike, Package as Truck, Gem, HeartPulse, Radio, AlertTriangle, Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -55,15 +55,15 @@ function PlayersTable({ focus, onFocusHandled }) {
     const shown = q ? players.filter((p) => (p.name || "").toLowerCase().includes(q)) : players;
     return (
         <Panel className="p-0 overflow-hidden">
-            <div className="p-3 border-b border-white/8 bg-[#050505] flex items-center gap-2">
+            <div className="p-3 border-b border-white/8 bg-[#101A16] flex items-center gap-2">
                 <Search className="w-4 h-4 text-muted-foreground shrink-0" />
                 <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search players by name…"
                     className="bg-transparent flex-1 text-sm text-white placeholder:text-muted-foreground/50 outline-none" data-testid="player-search" />
                 {search && <button onClick={() => { setSearch(""); setHighlightId(null); }} className="text-muted-foreground hover:text-white" data-testid="player-search-clear"><X className="w-4 h-4" /></button>}
                 <span className="font-mono text-[10px] text-muted-foreground shrink-0">{shown.length}/{players.length}</span>
             </div>
-            <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/8 bg-[#050505] font-mono text-[10px] uppercase text-muted-foreground">
-                <div className="col-span-3">Name</div><div className="col-span-1">Lvl</div><div className="col-span-2 text-right">Cash</div>
+            <div className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-white/8 bg-[#101A16] font-mono text-[10px] uppercase text-muted-foreground">
+                <div className="col-span-3">Name</div><div className="col-span-1">Lvl</div><div className="col-span-2 text-right">Coin</div>
                 <div className="col-span-2 text-right">Net Worth</div><div className="col-span-1 text-right">Rep</div><div className="col-span-1 text-right">Legal</div>
                 <div className="col-span-1 text-right">Susp</div><div className="col-span-1"></div>
             </div>
@@ -88,7 +88,7 @@ function PlayersTable({ focus, onFocusHandled }) {
                     <Panel className="p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto" role="dialog" aria-modal="true" aria-label={`Edit ${edit.name}`} onClick={(e) => e.stopPropagation()} data-testid="player-edit-modal">
                         <div className="flex items-center justify-between mb-3"><div className="font-display font-bold text-white">Edit {edit.name}</div><button aria-label="Close player editor" className="p-2" onClick={() => setEdit(null)}><X className="w-4 h-4 text-muted-foreground" /></button></div>
                         <div className="grid grid-cols-2 gap-3">
-                            {[["cash", "Cash"], ["bank", "Bank"], ["debt", "Debt"], ["reputation", "Reputation"], ["legal_reputation", "Legal Standing"], ["criminal_suspicion", "Criminal Suspicion"], ["social_status", "Social Status"], ["health", "Health"], ["energy", "Energy"], ["hunger", "Hunger (lower is better)"], ["fatigue", "Fatigue (lower is better)"], ["mood", "Mood"], ["stress", "Stress (lower is better)"]].map(([k, label]) => (
+                            {[["cash", "Coin"], ["bank", "Vault"], ["debt", "Debt"], ["reputation", "Reputation"], ["legal_reputation", "Legal Standing"], ["criminal_suspicion", "Criminal Suspicion"], ["social_status", "Social Status"], ["health", "Health"], ["energy", "Energy"], ["hunger", "Hunger (lower is better)"], ["fatigue", "Fatigue (lower is better)"], ["mood", "Mood"], ["stress", "Stress (lower is better)"]].map(([k, label]) => (
                                 <KInput key={k} label={label} type="number" step="any" value={edit[k] ?? 0} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} testid={`edit-${k}`} />
                             ))}
                         </div>
@@ -149,7 +149,7 @@ function CharacterOriginsPanel() {
             {draft ? (
                 <Panel className="p-5 space-y-4 border-neon-cyan/30" data-testid="origin-editor">
                     <div className="flex items-center gap-2"><User className="w-4 h-4 text-neon-cyan" /><span className="font-display font-bold text-white">{draft.id ? `Edit ${draft.label}` : "New Origin"}</span></div>
-                    <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Name<input className={inCls} value={draft.label} onChange={(e) => setDraft((d) => ({ ...d, label: e.target.value }))} data-testid="origin-label" /></label>
                         <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Order<input type="number" className={inCls} value={draft.order} onChange={(e) => setDraft((d) => ({ ...d, order: Number(e.target.value) }))} data-testid="origin-order" /></label>
                     </div>
@@ -207,7 +207,7 @@ function CharacterOriginsPanel() {
             ) : (
                 <>
                     <KButton variant="primary" onClick={() => setDraft(blank())} data-testid="origin-new"><Plus className="w-4 h-4" /> New Origin</KButton>
-                    <div className="grid md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {(data.backgrounds || []).map((b) => (
                             <Panel key={b.id} className="p-4" data-testid={`origin-card-${b.id}`}>
                                 <div className="flex items-start justify-between mb-1.5">
@@ -222,8 +222,8 @@ function CharacterOriginsPanel() {
                                 </div>
                                 <p className="text-[11px] text-muted-foreground mb-2 line-clamp-2">{b.desc}</p>
                                 <div className="flex flex-wrap gap-1.5">
-                                    <Pill tone="green">${b.cash} cash</Pill><Pill tone="cyan">${b.bank} bank</Pill>
-                                    {b.debt > 0 && <Pill tone="red">${b.debt} debt</Pill>}
+                                    <Pill tone="green">¤ {b.cash} cash</Pill><Pill tone="cyan">¤ {b.bank} bank</Pill>
+                                    {b.debt > 0 && <Pill tone="red">¤ {b.debt} debt</Pill>}
                                     {Object.entries(b.skills || {}).map(([s, v]) => <Pill key={s} tone="purple">{skillLabel(s)} +{v}</Pill>)}
                                     {Object.keys(b.inventory || {}).length > 0 && <Pill>{Object.keys(b.inventory).length} item(s)</Pill>}
                                 </div>

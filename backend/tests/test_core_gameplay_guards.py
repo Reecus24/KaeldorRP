@@ -26,8 +26,8 @@ def core(monkeypatch):
 
 
 @pytest.mark.parametrize("change,expected", [
-    ({"status": "hospital"}, "hospital"),
-    ({"status": "jail"}, "jail"),
+    ({"status": "hospital"}, "infirmary"),
+    ({"status": "jail"}, "dungeon"),
     ({"on_shift": {"business_name": "Store"}}, "shift"),
     ({"current_activity": {"kind": "action"}}, "busy"),
     ({"cash": 2, "bank": 2}, "money"),

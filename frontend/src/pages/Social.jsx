@@ -1,3 +1,4 @@
+import { worldLabel } from "@/lib/helpers";
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -8,7 +9,7 @@ import { KButton } from "@/components/game/controls";
 import { realDurationLabel, REL_STATUS, scoreColor, relTime, fmtDuration } from "@/lib/helpers";
 import { cn } from "@/lib/utils";
 import {
-    Users, Heart, Briefcase, Building2, Home, Skull, UsersRound, ScrollText, UserPlus,
+    Users, Heart, Hammer as Briefcase, Castle as Building2, Home, Skull, UsersRound, ScrollText, UserPlus,
     MessageCircle, Phone, ChevronRight, Sparkles, HeartHandshake, Clock,
 } from "lucide-react";
 
@@ -19,7 +20,7 @@ const TABS = [
     { key: "friend", label: "Friends", icon: HeartHandshake, cats: ["friend"] },
     { key: "work", label: "Work", icon: Briefcase, cats: ["work"] },
     { key: "romance", label: "Romance", icon: Heart, cats: ["romance"] },
-    { key: "business", label: "Business", icon: Building2, cats: ["business"] },
+    { key: "business", label: "Workshop", icon: Building2, cats: ["business"] },
     { key: "housing", label: "Housing", icon: Home, cats: ["housing"] },
     { key: "underworld", label: "Underworld", icon: Skull, cats: ["underworld"] },
     { key: "family", label: "Family", icon: UsersRound, cats: ["family"] },
@@ -44,7 +45,7 @@ function ContactCard({ c, onQuick, busyKey }) {
             <div className="flex items-start justify-between gap-2 mb-2">
                 <div className="min-w-0">
                     <h3 className="font-display font-bold text-white text-base leading-tight truncate">{c.name}</h3>
-                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{c.archetype_label || c.relationship_type.replace(/_/g, " ")} · Age {c.age}</div>
+                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{c.archetype_label || worldLabel(c.relationship_type)} · Age {c.age}</div>
                 </div>
                 <Pill tone={meta.tone} className="shrink-0">{meta.label}</Pill>
             </div>
@@ -76,7 +77,7 @@ function ContactCard({ c, onQuick, busyKey }) {
 
             {c.traits?.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
-                    {c.traits.map((t) => <Pill key={t} tone="purple" className="!text-[9px]">{t.replace(/_/g, " ")}</Pill>)}
+                    {c.traits.map((t) => <Pill key={t} tone="purple" className="!text-[9px]">{worldLabel(t)}</Pill>)}
                 </div>
             )}
 
@@ -137,8 +138,8 @@ function MeetPeople() {
     if (!locs) return <Spinner />;
     return (
         <div className="space-y-3">
-            <p className="text-sm text-muted-foreground">Head out to a place to meet new people. Each visit takes real time and shows who you might run into. Meet a Manager or Wholesaler, then network (Talk Business) to unlock permanent business perks.</p>
-            <div className="grid sm:grid-cols-2 gap-3">
+            <p className="text-sm text-muted-foreground">Head out to a place to meet new people. Each visit takes real time and shows who you might run into. Meet a Manager or Wholesaler, then network (Talk Workshop) to unlock permanent workshop perks.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {locs.map((l) => {
                     const cdRemaining = l._cdEnd ? Math.max(0, Math.round((l._cdEnd - nowTs) / 1000)) : 0;
                     const onCooldown = !l.available && cdRemaining > 0;
@@ -146,7 +147,7 @@ function MeetPeople() {
                     <Panel key={l.id} className="p-4 flex flex-col" data-testid={`location-${l.id}`}>
                         <div className="flex items-center justify-between mb-1">
                             <span className="font-display font-bold text-white">{l.name}</span>
-                            <span className="font-mono text-[11px] text-muted-foreground">{realDurationLabel(l.duration_minutes, state?.time_scale || 1)}{l.money_cost ? ` · $${l.money_cost}` : ""}</span>
+                            <span className="font-mono text-[11px] text-muted-foreground">{realDurationLabel(l.duration_minutes, state?.time_scale || 1)}{l.money_cost ? ` · ¤ ${l.money_cost}` : ""}</span>
                         </div>
                         <p className="text-[11px] text-muted-foreground mb-2 flex-1">{l.desc}</p>
                         <div className="flex flex-wrap gap-1 mb-3" data-testid={`encounters-${l.id}`}>
@@ -201,7 +202,7 @@ export default function Social() {
     return (
         <div className="space-y-6">
             <SectionTitle icon={Users} kicker="Your people" title="Social Circle"
-                sub="You start with no one. Meet people at the Bar, the Gym or through Work, then build professional ties — a Manager can unlock a permanent staff wage discount, a Wholesaler a material cost discount."
+                sub="You start with no one. Meet people at the Bar, the Training Yard or through Work, then build professional ties — a Manager can unlock a permanent staff wage discount, a Wholesaler a material cost discount."
                 right={
                     <div className="hidden sm:flex gap-2">
                         <Pill tone="cyan">{s.total || 0} contacts</Pill>
@@ -218,7 +219,7 @@ export default function Social() {
             {tab === "meet" ? (
                 <MeetPeople />
             ) : tab === "events" ? (
-                <Panel className="p-0 overflow-hidden bg-[#050505]" data-testid="social-event-log">
+                <Panel className="p-0 overflow-hidden bg-[#101A16]" data-testid="social-event-log">
                     {socialEvents.length === 0 ? (
                         <div className="px-4 py-8 text-center text-muted-foreground text-sm font-mono">No social events yet. Interact with people and check back.</div>
                     ) : socialEvents.map((e, i) => (
@@ -229,9 +230,9 @@ export default function Social() {
                     ))}
                 </Panel>
             ) : visible.length === 0 ? (
-                <EmptyState icon={Users} title="Nobody here yet" sub="Use the Meet People tab to go to the Bar, the Gym or Network at Work and grow your circle." />
+                <EmptyState icon={Users} title="Nobody here yet" sub="Use the Meet People tab to go to the Bar, the Training Yard or Network at Work and grow your circle." />
             ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {visible.map((c) => <ContactCard key={c.id} c={c} onQuick={onQuick} busyKey={busyKey} />)}
                 </div>
             )}

@@ -23,11 +23,11 @@ export default function EventLog({ max = 40, className = "" }) {
 
     return (
         <Panel className={`p-0 overflow-hidden ${className}`} data-testid="event-log">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/8 bg-[#050505]">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/8 bg-[#101A16]">
                 <Terminal className="w-4 h-4 text-neon-green" />
                 <span className="font-mono text-[11px] uppercase tracking-[0.25em] text-neon-green">Event Log</span>
             </div>
-            <div className="max-h-[420px] overflow-y-auto bg-[#050505] divide-y divide-white/5">
+            <div className="max-h-[420px] overflow-y-auto bg-[#101A16] divide-y divide-white/5">
                 {list.length === 0 && (
                     <div className="px-4 py-6 text-center text-muted-foreground text-sm font-mono">No events yet…</div>
                 )}

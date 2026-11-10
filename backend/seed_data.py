@@ -1018,21 +1018,35 @@ CONTENT_MAP = {
 }
 
 
+from realm_content import convert_defaults, REALM_RANKS, FACTIONS, EXPEDITIONS, COMBAT_ITEMS
+LEGACY_DEFAULTS = convert_defaults(CONTENT_MAP)
+ITEMS.extend(COMBAT_ITEMS)
+CITY_SHOPS[-1]["items_config"].update({item["id"]: {"capacity": 20, "price_pct": 100} for item in COMBAT_ITEMS})
+CONTENT_MAP.update({"realm_ranks": ("realm_ranks", REALM_RANKS), "factions": ("factions", FACTIONS),
+                    "expeditions": ("expeditions", EXPEDITIONS)})
+
+
 async def seed_content(db):
+    established = await db.config.find_one({"id": "global"}) is not None
+    new_collections = {"journey_goals", "story_arcs", "city_events", "realm_ranks", "factions", "expeditions"}
     for ctype, (coll, data) in CONTENT_MAP.items():
-        if ctype in {"journey_goals", "story_arcs", "city_events"}:
-            # A seed receipt preserves an intentionally empty Owner collection.
-            await db[coll].create_index("id", unique=True)
-            if not await db.content_seeds.find_one({"_id": ctype}):
-                if await db[coll].count_documents({}) == 0:
-                    from copy import deepcopy
-                    for doc in data:
-                        await db[coll].update_one({"id": doc["id"]}, {"$setOnInsert": deepcopy(doc)}, upsert=True)
-                await db.content_seeds.update_one({"_id": ctype}, {"$set": {"seeded": True}}, upsert=True)
-            continue
-        existing = await db[coll].count_documents({})
-        if existing == 0 and data:
-            await db[coll].insert_many([{**d} for d in data])
+        # A seed receipt preserves an intentionally empty Owner collection.
+        await db[coll].create_index("id", unique=True)
+        if not await db.content_seeds.find_one({"_id": ctype}):
+            if await db[coll].count_documents({}) == 0 and (not established or ctype in new_collections):
+                from copy import deepcopy
+                for doc in data:
+                    await db[coll].update_one({"id": doc["id"]}, {"$setOnInsert": deepcopy(doc)}, upsert=True)
+            await db.content_seeds.update_one({"_id": ctype}, {"$set": {"seeded": True}}, upsert=True)
+        continue
+    from realm_migration import migrate_realm
+    await migrate_realm(db, LEGACY_DEFAULTS, CONTENT_MAP)
+    # New equipment is introduced once, independently of the legacy items collection.
+    if not await db.content_seeds.find_one({"_id": "realm_equipment_v1"}):
+        from copy import deepcopy
+        for item in COMBAT_ITEMS:
+            await db.items.update_one({"id": item["id"]}, {"$setOnInsert": deepcopy(item)}, upsert=True)
+        await db.content_seeds.update_one({"_id": "realm_equipment_v1"}, {"$set": {"seeded": True}}, upsert=True)
     cfg = await db.config.find_one({"id": "global"})
     from game_models import DEFAULT_CONFIG
     from datetime import datetime, timezone

@@ -1,3 +1,4 @@
+import { worldLabel } from "@/lib/helpers";
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api, errMessage } from "@/lib/api";
@@ -9,7 +10,7 @@ import { toast } from "sonner";
 import { BusinessOperations, MaterialsPurchase } from "@/components/game/BusinessOperations";
 import { cn } from "@/lib/utils";
 import {
-    Boxes, ArrowLeft, Users, UserPlus, GraduationCap, ScrollText, LineChart, LayoutGrid,
+    Boxes, ArrowLeft, Users, UserPlus, BookOpen as GraduationCap, ScrollText, LineChart, LayoutGrid,
     TrendingUp, TrendingDown, AlertTriangle, Megaphone, ArrowUpCircle, Smile, Gauge,
     Heart, BadgeDollarSign, Sparkles, X, Clock, ShieldCheck, Hammer, Handshake, Lightbulb,
 } from "lucide-react";
@@ -27,7 +28,7 @@ function ActivePerks({ perks }) {
             <div className="flex items-center gap-1.5 mb-2">
                 <Handshake className="w-4 h-4 text-neon-green" />
                 <span className="font-display font-bold text-white">Active Perks</span>
-                <InfoTip text="Permanent discounts unlocked by networking with a Manager (staff wages) or Wholesaler (materials) in Social ▸ Talk Business. They apply to ALL your businesses and are already reflected in the numbers above." testid="perks-info" />
+                <InfoTip text="Permanent discounts unlocked by networking with a Manager (staff wages) or Wholesaler (materials) in Social ▸ Talk Workshop. They apply to ALL your workshops and are already reflected in the numbers above." testid="perks-info" />
             </div>
             {any ? (
                 <div className="flex flex-wrap gap-2" data-testid="active-perks-list">
@@ -44,7 +45,7 @@ function ActivePerks({ perks }) {
                 </div>
             ) : (
                 <div className="text-[11px] text-muted-foreground" data-testid="active-perks-empty">
-                    No active perks yet. Meet a Manager or Wholesaler (Social ▸ Meet People), then use Talk Business to unlock permanent wage / material discounts.
+                    No active perks yet. Meet a Manager or Wholesaler (Social ▸ Meet People), then use Talk Workshop to unlock permanent wage / material discounts.
                 </div>
             )}
         </Panel>
@@ -64,7 +65,7 @@ function BusinessInsight({ insight, onAction }) {
                         <span className="text-[10px] uppercase tracking-wider text-neon-cyan/70 font-mono">Best next move</span>
                         {positive && (
                             <span className="font-mono text-[11px] px-1.5 py-0.5 rounded-sm border text-neon-green border-neon-green/40" data-testid="insight-gain">
-                                ~+${insight.gain}/day
+                                ~+¤ {insight.gain}/day
                             </span>
                         )}
                     </div>
@@ -104,7 +105,7 @@ function Tile({ label, value, accent = "#fff", sub, info, testid }) {
 
 function TraitPills({ traits }) {
     if (!traits || !traits.length) return <span className="text-[10px] text-muted-foreground/50 font-mono">no traits</span>;
-    return <div className="flex flex-wrap gap-1">{traits.map((t) => <Pill key={t} tone="purple" className="!text-[9px]">{t.replace(/_/g, " ")}</Pill>)}</div>;
+    return <div className="flex flex-wrap gap-1">{traits.map((t) => <Pill key={t} tone="purple" className="!text-[9px]">{worldLabel(t)}</Pill>)}</div>;
 }
 
 function WageInput({ value, onChange, testid }) {
@@ -131,13 +132,13 @@ function ProjLine({ proj, label = "Projected output", testid }) {
     return (
         <div className="text-[11px] mt-1" data-testid={testid}>
             <span className="text-muted-foreground">{label}:</span>{" "}
-            <span className="text-neon-green">≈ +${Math.round(rev)}/h</span>
+            <span className="text-neon-green">≈ +¤ {Math.round(rev)}/h</span>
             <span className="text-muted-foreground"> − </span>
-            <span className="text-neon-red">${Math.round(wage)}/h</span>
+            <span className="text-neon-red">¤ {Math.round(wage)}/h</span>
             <span className="text-muted-foreground"> = net </span>
-            <span className={net >= 0 ? "text-neon-green font-bold" : "text-neon-red font-bold"}>{net >= 0 ? "+$" : "-$"}{Math.abs(Math.round(net))}/h</span>
+            <span className={net >= 0 ? "text-neon-green font-bold" : "text-neon-red font-bold"}>{net >= 0 ? "+¤ " : "-¤ "}{Math.abs(Math.round(net))}/h</span>
             {uph != null && margin != null && (
-                <span className="text-muted-foreground/60"> · makes ≈{(uph * (prod || 1)).toFixed(1)} units/h × ${margin} margin</span>
+                <span className="text-muted-foreground/60"> · makes ≈{(uph * (prod || 1)).toFixed(1)} units/h × ¤ {margin} margin</span>
             )}
         </div>
     );
@@ -163,7 +164,7 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
     useEffect(() => { load(); }, [load]);
     useEffect(() => { api.get("/training-options").then(({ data }) => setTrainOpts(data)).catch(() => {}); }, []);
 
-    const roleLabel = (r) => (r || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+    const roleLabel = (r) => worldLabel(r || "").replace(/\b\w/g, (c) => c.toUpperCase());
     const setW = (k, v) => setWages((w) => ({ ...w, [k]: v }));
     const toggle = async () => {
         setBusy("toggle");
@@ -218,12 +219,12 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
                 <Pill tone="green">Rep {a.stats?.reputation}</Pill>
                 {a.stats?.role_fit && <Pill tone={a.stats.role_fit >= 1.05 ? "green" : a.stats.role_fit >= 0.85 ? "cyan" : "yellow"}>{a.stats.fit_label || "fit"}</Pill>}
                 {a.stats?.criminal_warning && <Pill tone="red">⚠ Record</Pill>}
-                {a.status === "offered" && <Pill tone="yellow">Offered ${a.wage_offer}/h</Pill>}
+                {a.status === "offered" && <Pill tone="yellow">Offered ¤ {a.wage_offer}/h</Pill>}
             </div>
             <div className="text-[11px] text-muted-foreground mt-1">Applied for: <span className="capitalize text-white">{roleLabel(a.role)}</span> · {a.stats?.education_count} course(s) · {(a.stats?.top_skills || []).map((s) => `${s.skill} ${s.level}`).join(", ")}</div>
             {a.stats?.role_matches_staffing === false && <div className="text-[11px] text-neon-yellow mt-1">⚠ This role isn't part of your staffing plan — counts less toward coverage.</div>}
             {a.message && <div className="text-[11px] text-foreground/80 mt-1 italic">"{a.message}"</div>}
-            <div className="text-[11px] text-neon-green mt-1">Recommended: ${a.recommended_wage}/h</div>
+            <div className="text-[11px] text-neon-green mt-1">Recommended: ¤ {a.recommended_wage}/h</div>
             <ProjLine proj={calcProj(a.projection, roleSel[a.id] ?? a.role, parseFloat(wages[a.id] ?? a.recommended_wage))} testid={`app-proj-${a.id}`} />
             <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <select value={roleSel[a.id] ?? a.role} onChange={(e) => setRoleSel((s) => ({ ...s, [a.id]: e.target.value }))} data-testid={`offer-role-${a.id}`}
@@ -234,7 +235,7 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
                     className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white focus:outline-none focus:border-neon-cyan/50">
                     {Object.entries(SHIFT_PRESETS).map(([k, v]) => <option key={k} value={k} className="bg-[#0d0d12]">{v.label} {pad2(v.start)}:00–{pad2(v.end)}:00</option>)}
                 </select>
-                <span className="text-[11px] text-muted-foreground">$/h</span>
+                <span className="text-[11px] text-muted-foreground">¤ /h</span>
                 <WageInput value={wages[a.id] ?? a.recommended_wage} onChange={(v) => setW(a.id, v)} testid={`offer-wage-${a.id}`} />
                 <KButton variant="green" loading={busy === a.id} onClick={() => offer(a)} data-testid={`offer-send-${a.id}`}>{a.status === "offered" ? "Update Offer" : "Send Offer"}</KButton>
                 <KButton variant="ghost" loading={busy === a.id + "r"} onClick={() => reject(a)} data-testid={`offer-reject-${a.id}`}>Reject</KButton>
@@ -281,22 +282,22 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
                                 <div className="flex items-center justify-between flex-wrap gap-2">
                                     <div className="min-w-0">
                                         <span className="font-display font-bold text-white text-sm">{e.employee_name}</span>
-                                        <span className="text-[11px] text-muted-foreground ml-2 capitalize">{roleLabel(e.role)} · ${e.wage_per_hour}/h</span>
+                                        <span className="text-[11px] text-muted-foreground ml-2 capitalize">{roleLabel(e.role)} · ¤ {e.wage_per_hour}/h</span>
                                         {e.on_shift
                                             ? <Pill tone="green" className="ml-2" data-testid={`emp-onshift-${e.id}`}>Working now</Pill>
                                             : <Pill tone="yellow" className="ml-2" data-testid={`emp-offshift-${e.id}`}>Off shift</Pill>}
                                         {e.raise_due && <Pill tone="yellow" className="ml-2" data-testid={`emp-raise-due-${e.id}`}>Raise due</Pill>}
                                         <div className="text-[11px] text-neon-purple flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {scheduleLabel(e.schedule)}</div>
-                                        <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)} · {Math.round(e.total_hours_worked || 0)}h worked · earned ${Math.round(e.total_wages_earned)} · value added ${Math.round(e.total_value_added || 0)}</div>
+                                        <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)} · {Math.round(e.total_hours_worked || 0)}h worked · earned ¤ {Math.round(e.total_wages_earned)} · value added ¤ {Math.round(e.total_value_added || 0)}</div>
                                         {e.today && e.today.hours > 0 && (
                                             <div className="text-[11px] mt-0.5" data-testid={`emp-net-${e.id}`}>
-                                                Today ({e.today.hours}h): <span className="text-neon-green">+${Math.round(e.today.revenue)} revenue</span> − <span className="text-neon-red">${Math.round(e.today.wage)} wages</span> = net <span className={e.today.net >= 0 ? "text-neon-green" : "text-neon-red"}>{e.today.net >= 0 ? "+$" : "-$"}{Math.abs(Math.round(e.today.net))}</span>
+                                                Today ({e.today.hours}h): <span className="text-neon-green">+¤ {Math.round(e.today.revenue)} revenue</span> − <span className="text-neon-red">¤ {Math.round(e.today.wage)} wages</span> = net <span className={e.today.net >= 0 ? "text-neon-green" : "text-neon-red"}>{e.today.net >= 0 ? "+¤ " : "-¤ "}{Math.abs(Math.round(e.today.net))}</span>
                                             </div>
                                         )}
                                         <ProjLine proj={e.projection} label="Est. if working now" testid={`emp-proj-${e.id}`} />
                                     </div>
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[11px] text-muted-foreground">$/h</span>
+                                        <span className="text-[11px] text-muted-foreground">¤ /h</span>
                                         <WageInput value={wages["e" + e.id] ?? Math.round((e.wage_per_hour + 2) * 100) / 100} onChange={(v) => setW("e" + e.id, v)} testid={`raise-wage-${e.id}`} />
                                         <KButton variant="primary" loading={busy === e.id} onClick={() => raise(e)} data-testid={`raise-send-${e.id}`}>Raise</KButton>
                                         <KButton variant="danger" loading={busy === e.id + "f"} onClick={() => fire(e)} data-testid={`fire-emp-${e.id}`}>Fire</KButton>
@@ -310,7 +311,7 @@ function PlayerHiring({ bizId, hiringOpen, onReloadDetail, roles = [] }) {
                                             <>
                                                 <select value={trainSel[e.id] ?? (trainOpts[0] && trainOpts[0].id) ?? ""} onChange={(ev) => setTrainSel((s) => ({ ...s, [e.id]: ev.target.value }))} data-testid={`train-select-${e.id}`}
                                                     className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-[11px] text-white focus:outline-none focus:border-neon-cyan/50">
-                                                    {trainOpts.map((o) => <option key={o.id} value={o.id} className="bg-[#0d0d12]">{o.label} (${o.cost}, +{o.skill_gain})</option>)}
+                                                    {trainOpts.map((o) => <option key={o.id} value={o.id} className="bg-[#0d0d12]">{o.label} (¤ {o.cost}, +{o.skill_gain})</option>)}
                                                 </select>
                                                 <KButton variant="ghost" className="!py-1 !px-2 !text-[11px]" loading={busy === e.id + "t"} onClick={() => offerTraining(e)} data-testid={`offer-training-${e.id}`}><GraduationCap className="w-3 h-3" /> Offer Training</KButton>
                                             </>
@@ -351,10 +352,10 @@ function BizActivityBanner({ activity }) {
             <div className="flex items-center justify-between mb-2">
                 <span className="font-display font-bold text-white flex items-center gap-2">
                     <Icon className={cn("w-4 h-4", upgrade ? "text-neon-yellow" : "text-neon-cyan")} />
-                    {upgrade ? "Upgrading Business" : "Marketing Campaign"}
+                    {upgrade ? "Upgrading Workshop" : "Heralds Campaign"}
                 </span>
                 <span className="font-mono text-xs text-neon-cyan" data-testid="activity-remaining">
-                    {upgrade ? `Upgrading... Day ${dayNow}/${activity.duration_days} (-50% income)` : `Marketing Campaign... Day ${dayNow}/${activity.duration_days}`}
+                    {upgrade ? `Upgrading... Day ${dayNow}/${activity.duration_days} (-50% income)` : `Heralds Campaign... Day ${dayNow}/${activity.duration_days}`}
                 </span>
             </div>
             <div className="h-2 bg-white/8 rounded-full overflow-hidden">
@@ -374,7 +375,7 @@ function parseHM(s) {
     const [h, m] = String(s).split(":").map(Number);
     return h + (m || 0) / 60;
 }
-const KIND_COLOR = { npc: "#00F3FF", player: "#B026FF" };
+const KIND_COLOR = { npc: "#D1B579", player: "#B6A0CC" };
 
 function ScheduleTab({ id, m, reload }) {
     const opening = m.opening_hours || { open: "08:00", close: "20:00" };
@@ -418,7 +419,7 @@ function ScheduleTab({ id, m, reload }) {
                 <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
                     <div className="font-display font-bold text-white flex items-center gap-1.5">
                         <Clock className="w-4 h-4 text-neon-cyan" /> Opening Hours
-                        <InfoTip text="The business only produces & sells while it's open. Staff shifts must fall within these hours. Set them here." testid="opening-info" />
+                        <InfoTip text="The workshop only produces & sells while it's open. Staff shifts must fall within these hours. Set them here." testid="opening-info" />
                     </div>
                     <Pill tone={m.is_open_now ? "green" : "red"} data-testid="open-now-pill">{m.is_open_now ? "Open now" : "Closed now"}</Pill>
                 </div>
@@ -463,7 +464,7 @@ function ScheduleTab({ id, m, reload }) {
                             return (
                                 <div key={w.id} className="absolute rounded-sm text-[9px] font-mono text-black flex items-center justify-center px-1 overflow-hidden"
                                     title={`${w.name}: ${w.shift_start}-${w.shift_end}`}
-                                    style={{ left: `${(s / 24) * 100}%`, width: `${((e - s) / 24) * 100}%`, top: `${4 + (i % 2) * 15}px`, height: "13px", background: KIND_COLOR[w.kind] || "#00F3FF", opacity: 0.85 }}>
+                                    style={{ left: `${(s / 24) * 100}%`, width: `${((e - s) / 24) * 100}%`, top: `${4 + (i % 2) * 15}px`, height: "13px", background: KIND_COLOR[w.kind] || "#D1B579", opacity: 0.85 }}>
                                     {w.name.split(" ")[0]}
                                 </div>
                             );
@@ -482,9 +483,9 @@ function ScheduleTab({ id, m, reload }) {
                             <div className="flex items-center gap-2 min-w-[160px]">
                                 <span className="w-2 h-2 rounded-full" style={{ background: KIND_COLOR[w.kind] }} />
                                 <span className="text-white text-sm">{w.name}</span>
-                                <Pill tone={w.kind === "npc" ? "cyan" : "purple"} className="capitalize !text-[9px]">{(w.role || "").replace(/_/g, " ")}</Pill>
+                                <Pill tone={w.kind === "npc" ? "cyan" : "purple"} className="capitalize !text-[9px]">{worldLabel(w.role || "")}</Pill>
                                 {w.on_shift && <Pill tone="green" className="!text-[9px]">On shift</Pill>}
-                                {!w.scheduled && <Pill tone="red" className="!text-[9px]" data-testid={`unscheduled-${w.id}`}>Unscheduled · $0</Pill>}
+                                {!w.scheduled && <Pill tone="red" className="!text-[9px]" data-testid={`unscheduled-${w.id}`}>Unscheduled · ¤ 0</Pill>}
                             </div>
                             {w.kind === "npc" ? (
                                 <div className="flex items-center gap-1.5 flex-wrap">
@@ -497,11 +498,11 @@ function ScheduleTab({ id, m, reload }) {
                                         className="bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono focus:outline-none focus:border-neon-cyan/50">
                                         {shiftOpts.slice(1).map((h) => <option key={h} value={h} className="bg-[#0d0d12]">{h}</option>)}
                                     </select>
-                                    <span className="text-[11px] text-neon-green font-mono ml-1">${w.hourly_wage}/hr · {w.shift_hours}h</span>
+                                    <span className="text-[11px] text-neon-green font-mono ml-1">¤ {w.hourly_wage}/hr · {w.shift_hours}h</span>
                                 </div>
                             ) : (
                                 <div className="text-[11px] font-mono text-muted-foreground">
-                                    {w.scheduled ? `${w.shift_start}–${w.shift_end}` : "no shift"} · ${w.hourly_wage}/hr <span className="text-neon-purple/70">(player — adjust via Player Hiring)</span>
+                                    {w.scheduled ? `${w.shift_start}–${w.shift_end}` : "no shift"} · ¤ {w.hourly_wage}/hr <span className="text-neon-purple/70">(player — adjust via Player Hiring)</span>
                                 </div>
                             )}
                         </div>
@@ -569,7 +570,7 @@ export default function BusinessManage() {
     const sellBiz = async () => {
         setBusy("sell");
         const r = await act(() => api.post(`/businesses/${id}/sell`), null);
-        if (r?.ok) toast.success(`Sold for $${(r.res.data.value ?? 0).toLocaleString()}`);
+        if (r?.ok) toast.success(`Sold for ¤ ${(r.res.data.value ?? 0).toLocaleString()}`);
         setConfirmSell(false);
         await loadAll();
         setBusy(null);
@@ -578,7 +579,7 @@ export default function BusinessManage() {
         const name = nameInput.trim();
         if (name.length < 2) return;
         setBusy("rename");
-        const r = await act(() => api.post(`/businesses/${id}/rename`, { name }), "Business renamed");
+        const r = await act(() => api.post(`/businesses/${id}/rename`, { name }), "Workshop renamed");
         if (r?.ok) { setRenaming(false); await loadAll(); }
         setBusy(null);
     };
@@ -602,12 +603,12 @@ export default function BusinessManage() {
     // headline net derived from the same whole-dollar components shown in the P&L box, so it always adds up on screen
     const net = Math.round(m.rev_day || 0) - Math.round(m.material_day || 0) - Math.round(m.wage_per_day || 0);
     const RETAIL_IDS = ["kiosk", "clothing_store", "pet_shop", "online_shop"];
-    const capacityLabel = RETAIL_IDS.includes(b.type_id) ? "Sales Capacity / day" : "Production / day";
+    const capacityLabel = RETAIL_IDS.includes(b.type_id) ? "Barter Capacity / day" : "Production / day";
 
     return (
         <div className="space-y-6">
             <Link to="/businesses" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-neon-cyan font-mono" data-testid="back-to-businesses">
-                <ArrowLeft className="w-3.5 h-3.5" /> All businesses
+                <ArrowLeft className="w-3.5 h-3.5" /> All workshops
             </Link>
             <SectionTitle icon={Boxes} kicker={`${b.category} · Level ${b.level}/${b.max_level}${b.bankrupt ? " · BANKRUPT" : ""}`} title={b.name}
                 right={<Pill tone={net >= 0 ? "green" : "red"} className="text-sm py-1">{net >= 0 ? "+" : ""}{money(net)}/day</Pill>} />
@@ -630,17 +631,17 @@ export default function BusinessManage() {
                 <div className="space-y-4">
                     <BusinessOperations business={b} operations={detail.operations} onReload={loadAll} onTab={setTab} />
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                        <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#00FF66" : "#FF0055"} sub="rev − materials − wages" />
-                        <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00F3FF" sub={`${Math.round(m.sold_day)} sold × ${money2(m.effective_price ?? m.product?.price ?? 0)}`} />
-                        <Tile label="Materials / day" value={money(m.material_day)} accent="#FFC300" sub={`${money2(m.material_cost_per_unit)}/unit`} />
-                        <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#FF8A00" />
-                        <Tile label={capacityLabel} value={`${Math.round(m.capacity_day ?? 0)}/day`} accent="#B026FF" info="How many units your staff can make/sell per day at current staffing and satisfaction. Hire more staff or upgrade to raise it." sub={`vs ${Math.round(m.demand_day)}/day demand`} />
-                        <Tile label="Products in stock" value={Math.round(m.products_in_stock)} accent="#B026FF" />
-                        <Tile label="Business cash" value={money(b.cash)} accent="#00FF66" />
-                        <Tile label="Staff slots" value={`${m.staff_count ?? 0}/${m.max_staff_slots ?? 0}`} accent="#00F3FF" sub="upgrade for +1 slot" />
-                        <Tile label="Business debt" value={money(b.debt)} accent={b.debt > 0 ? "#FF0055" : "#9CA3AF"} />
-                        <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#00FF66" testid="reputation" info="Reputation acts as a multiplier for market demand. Higher reputation attracts more customers." sub={`Demand ×${(m.reputation_demand_mult ?? 1).toFixed(2)}`} />
-                        <Tile label="Satisfaction" value={`${m.satisfaction}%`} accent="#00F3FF" testid="satisfaction" info="Staff satisfaction determines work efficiency. Unhappy workers produce or sell at a slower pace." sub={`Output ×${(m.satisfaction_production_mult ?? 1).toFixed(2)}`} />
+                        <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#8EB89B" : "#DE8274"} sub="rev − materials − wages" />
+                        <Tile label="Revenue / day" value={money(m.rev_day)} accent="#D1B579" sub={`${Math.round(m.sold_day)} sold × ${money2(m.effective_price ?? m.product?.price ?? 0)}`} />
+                        <Tile label="Materials / day" value={money(m.material_day)} accent="#D9B66B" sub={`${money2(m.material_cost_per_unit)}/unit`} />
+                        <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#D49D72" />
+                        <Tile label={capacityLabel} value={`${Math.round(m.capacity_day ?? 0)}/day`} accent="#B6A0CC" info="How many units your staff can make/sell per day at current staffing and satisfaction. Hire more staff or upgrade to raise it." sub={`vs ${Math.round(m.demand_day)}/day demand`} />
+                        <Tile label="Products in stock" value={Math.round(m.products_in_stock)} accent="#B6A0CC" />
+                        <Tile label="Workshop cash" value={money(b.cash)} accent="#8EB89B" />
+                        <Tile label="Staff slots" value={`${m.staff_count ?? 0}/${m.max_staff_slots ?? 0}`} accent="#D1B579" sub="upgrade for +1 slot" />
+                        <Tile label="Workshop debt" value={money(b.debt)} accent={b.debt > 0 ? "#DE8274" : "#9CA3AF"} />
+                        <Tile label="Reputation" value={`${Math.round(b.reputation)}%`} accent="#8EB89B" testid="reputation" info="Reputation acts as a multiplier for market demand. Higher reputation attracts more customers." sub={`Demand ×${(m.reputation_demand_mult ?? 1).toFixed(2)}`} />
+                        <Tile label="Satisfaction" value={`${m.satisfaction}%`} accent="#D1B579" testid="satisfaction" info="Staff satisfaction determines work efficiency. Unhappy workers produce or sell at a slower pace." sub={`Output ×${(m.satisfaction_production_mult ?? 1).toFixed(2)}`} />
                     </div>
 
                     <ActivePerks perks={player?.social_perks} />
@@ -657,13 +658,13 @@ export default function BusinessManage() {
                     {/* SUPPLY CHAIN — transparent P&L */}
                     <Panel className="p-5" data-testid="supply-chain-panel">
                         <div className="flex items-center gap-1.5 mb-3">
-                            <span className="font-display font-bold text-white">Supply Chain — how this business makes money</span>
-                            <InfoTip text="Your business buys ingredients, your workers turn them into the product, and the product is sold to meet daily demand. Profit = sales − materials − wages. No rent, no hidden fees." testid="supply-info" />
+                            <span className="font-display font-bold text-white">Supply Chain — how this workshop makes money</span>
+                            <InfoTip text="Your workshop buys ingredients, your workers turn them into the product, and the product is sold to meet daily demand. Profit = sales − materials − wages. No rent, no hidden fees." testid="supply-info" />
                         </div>
-                        <div className="grid lg:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             <div>
                                 <div className="text-[11px] uppercase tracking-wider text-neon-cyan/70 mb-2">Recipe</div>
-                                <div className="text-sm text-white mb-1">Sells: <span className="font-bold">{m.product?.name}</span> @ <span className="text-neon-green">{money2(m.effective_price ?? m.product?.price ?? 0)}</span>/unit{m.marketing_level > 0 ? <span className="text-neon-cyan"> (incl. +{m.marketing_price_pct}% marketing)</span> : null}</div>
+                                <div className="text-sm text-white mb-1">Sells: <span className="font-bold">{m.product?.name}</span> @ <span className="text-neon-green">{money2(m.effective_price ?? m.product?.price ?? 0)}</span>/unit{m.marketing_level > 0 ? <span className="text-neon-cyan"> (incl. +{m.marketing_price_pct}% word of mouth)</span> : null}</div>
                                 <div className="space-y-1 font-mono text-[12px]">
                                     {(m.recipe || []).map((r) => (
                                         <div key={r.id} className="flex justify-between text-muted-foreground" data-testid={`recipe-${r.id}`}>
@@ -689,7 +690,7 @@ export default function BusinessManage() {
                                 <div className="text-[11px] text-muted-foreground mt-2" data-testid="pnl-footer">
                                     {(m.capacity_day ?? 0) < (m.demand_day ?? 0)
                                         ? `${Math.round(m.sold_day)} / ${Math.round(m.demand_day)} units sold today. Hire more staff to reach full market potential.`
-                                        : `${Math.round(m.sold_day)} / ${Math.round(m.demand_day)} units sold today — you're meeting demand. Invest in Marketing to grow the market.`}
+                                        : `${Math.round(m.sold_day)} / ${Math.round(m.demand_day)} units sold today — you're meeting demand. Invest in Heralds to grow the market.`}
                                 </div>
                             </div>
                         </div>
@@ -698,7 +699,7 @@ export default function BusinessManage() {
                         <div className="mt-4 pt-4 border-t border-white/10">
                             <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
                                 <span className="text-[11px] uppercase tracking-wider text-neon-cyan/70">Inventory &amp; restock</span>
-                                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer" title="Automatically buy ingredients from the business's cash to keep production running.">
+                                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer" title="Automatically buy ingredients from the workshop's cash to keep production running.">
                                     <input type="checkbox" checked={!!m.auto_restock} onChange={(e) => toggleAutoRestock(e.target.checked)} className="accent-neon-cyan" data-testid="auto-restock-toggle" /> Auto-restock
                                 </label>
                             </div>
@@ -709,7 +710,7 @@ export default function BusinessManage() {
                                 <Pill tone="purple" data-testid="stock-products">Finished: {Math.round(m.products_in_stock)}</Pill>
                             </div>
                             <div className="flex items-end gap-2 flex-wrap">
-                                <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Stock target (units)
+                                <label className="text-[10px] text-muted-foreground flex flex-col gap-1">Commodity target (units)
                                     <input type="number" min="0" value={targetInput} placeholder={String(Math.round(m.restock_target || 0))} onChange={(e) => setTargetInput(e.target.value)} data-testid="restock-target-input"
                                         className="w-28 bg-white/5 border border-white/12 rounded-sm px-2 py-1 text-xs text-white font-mono" /></label>
                                 <MaterialsPurchase business={b} target={targetInput} onReload={loadAll} />
@@ -733,7 +734,7 @@ export default function BusinessManage() {
                                 return (
                                     <div key={s.role} className="flex items-center justify-between gap-3 border-b border-white/5 pb-2 last:border-0" data-testid={`staffing-${s.role}`}>
                                         <div className="min-w-0">
-                                            <span className="capitalize text-white text-sm">{s.role.replace(/_/g, " ")}</span>
+                                            <span className="capitalize text-white text-sm">{worldLabel(s.role)}</span>
                                             <div className="text-[11px] font-mono">
                                                 <span className="text-muted-foreground">Assigned {s.assigned}/{s.recommended} · </span>
                                                 <span className={activeOk ? "text-neon-green" : "text-neon-yellow"} data-testid={`staffing-active-${s.role}`}>Working now {s.active_working}/{s.recommended}</span>
@@ -747,22 +748,22 @@ export default function BusinessManage() {
                     </Panel>
 
                     <Panel className="p-4" data-testid="biz-actions" id="biz-actions-anchor">
-                        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
                                 <div className="font-display font-bold text-white text-sm mb-0.5">Take a payout</div>
                                 <p className="text-[11px] text-muted-foreground mb-3 flex-1">Withdraw cash above your operating reserve. Wages, materials and outstanding debt stay covered by the reserve estimate.</p>
                                 <KButton variant="green" disabled={!detail.operations?.safe_to_collect || !!busy} loading={busy === "collect"} onClick={() => run(() => api.post(`/businesses/${id}/collect`), "Profit collected", "collect")} data-testid="ov-collect">Collect {money(detail.operations?.safe_to_collect || 0)}</KButton>
                             </div>
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
-                                <div className="font-display font-bold text-white text-sm mb-0.5 flex items-center gap-1.5">Marketing · Lvl {costs.marketing_level}
-                                    <InfoTip text="Marketing builds your brand: +25% customer demand AND a +12% price premium per level. The price premium raises revenue immediately — even when you're already selling out." testid="marketing-info" /></div>
+                                <div className="font-display font-bold text-white text-sm mb-0.5 flex items-center gap-1.5">Heralds · Lvl {costs.marketing_level}
+                                    <InfoTip text="Heralds builds your brand: +25% customer demand AND a +12% price premium per level. The price premium raises revenue immediately — even when you're already selling out." testid="marketing-info" /></div>
                                 <p className="text-[11px] text-muted-foreground mb-3 flex-1">Each level: +{costs.marketing_demand_boost_pct}% demand, +{costs.marketing_price_boost_pct}% price, +{costs.marketing_reputation_gain} reputation. Takes ~{costs.marketing_duration_days} in-game days to roll out.</p>
-                                <KButton variant="primary" disabled={costs.activity_in_progress} loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Marketing campaign launched", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> {costs.activity?.type === "marketing" ? "Campaign running…" : costs.activity_in_progress ? "Busy…" : `Run Marketing · ${money(costs.marketing_cost)} · ${costs.marketing_duration_days}d`}</KButton>
+                                <KButton variant="primary" disabled={costs.activity_in_progress} loading={busy === "marketing"} onClick={() => run(() => api.post(`/businesses/${id}/marketing`), "Heralds campaign launched", "marketing")} data-testid="ov-marketing"><Megaphone className="w-3.5 h-3.5" /> {costs.activity?.type === "marketing" ? "Campaign running…" : costs.activity_in_progress ? "Busy…" : `Run Heralds · ${money(costs.marketing_cost)} · ${costs.marketing_duration_days}d`}</KButton>
                             </div>
                             <div className="border border-white/10 rounded-sm p-3 flex flex-col">
                                 <div className="font-display font-bold text-white text-sm mb-0.5 flex items-center gap-1.5">Upgrade — +1 Staff Slot
                                     <InfoTip text="Each upgrade adds one staff slot so you can hire another worker, and raises production capacity & demand by 60% of base per level plus +4 reputation. Construction takes ~7 in-game days and cuts income 50% until done." testid="upgrade-info" /></div>
-                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">{costs.can_upgrade ? `Level ${costs.upgrade_from_level} → ${costs.upgrade_to_level}: +1 staff slot, +60% of base capacity & demand. Takes ~${costs.upgrade_duration_days} in-game days (income −50% during build).` : "This business is already at its maximum level."}</p>
+                                <p className="text-[11px] text-muted-foreground mb-3 flex-1">{costs.can_upgrade ? `Level ${costs.upgrade_from_level} → ${costs.upgrade_to_level}: +1 staff slot, +60% of base capacity & demand. Takes ~${costs.upgrade_duration_days} in-game days (income −50% during build).` : "This workshop is already at its maximum level."}</p>
                                 <KButton variant="primary" disabled={!costs.can_upgrade || costs.activity_in_progress} loading={busy === "upgrade"} onClick={() => run(() => api.post(`/businesses/${id}/upgrade`), "Upgrade started", "upgrade")} data-testid="ov-upgrade"><ArrowUpCircle className="w-3.5 h-3.5" /> {costs.activity?.type === "upgrade" ? "Upgrading…" : !costs.can_upgrade ? "Max level" : costs.activity_in_progress ? "Busy…" : `Upgrade · ${money(costs.upgrade_cost)} · ${costs.upgrade_duration_days}d`}</KButton>
                             </div>
                         </div>
@@ -774,8 +775,8 @@ export default function BusinessManage() {
                     </Panel>
                     {b.debt > 0 && (
                         <Panel className="p-4 flex gap-2 items-end">
-                            <KInput label="Inject cash / pay business debt" type="number" value={inject} onChange={(e) => setInject(e.target.value)} className="flex-1" testid="inject-input" />
-                            <KButton variant="green" loading={busy === "inject"} onClick={() => run(() => api.post(`/businesses/${id}/inject`, { amount: Number(inject) }), "Cash injected", "inject")} data-testid="inject-button">Inject</KButton>
+                            <KInput label="Inject cash / pay workshop debt" type="number" value={inject} onChange={(e) => setInject(e.target.value)} className="flex-1" testid="inject-input" />
+                            <KButton variant="green" loading={busy === "inject"} onClick={() => run(() => api.post(`/businesses/${id}/inject`, { amount: Number(inject) }), "Coin injected", "inject")} data-testid="inject-button">Inject</KButton>
                         </Panel>
                     )}
                 </div>
@@ -785,10 +786,10 @@ export default function BusinessManage() {
             {tab === "finances" && (
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                        <Tile label="Revenue / day" value={money(m.rev_day)} accent="#00FF66" />
-                        <Tile label="Materials / day" value={money(m.material_day)} accent="#FFC300" />
-                        <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#FF8A00" />
-                        <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#00FF66" : "#FF0055"} />
+                        <Tile label="Revenue / day" value={money(m.rev_day)} accent="#8EB89B" />
+                        <Tile label="Materials / day" value={money(m.material_day)} accent="#D9B66B" />
+                        <Tile label="Wages / day" value={money(m.wage_per_day)} accent="#D49D72" />
+                        <Tile label="Net / day" value={money(net)} accent={net >= 0 ? "#8EB89B" : "#DE8274"} />
                     </div>
                     <Panel className="p-5">
                         <div className="font-display font-bold text-white mb-1">Profit / Loss History</div>
@@ -823,7 +824,7 @@ export default function BusinessManage() {
                         <div className="font-display font-bold text-white mb-2">NPC Employees ({employees.length})</div>
                         <div className="space-y-3">
                     {employees.length === 0 ? (
-                        <EmptyState icon={Users} title="No NPC staff yet" sub="Hire from the Applicants tab. Understaffed businesses earn far less." />
+                        <EmptyState icon={Users} title="No NPC staff yet" sub="Hire from the Applicants tab. Understaffed workshops earn far less." />
                     ) : employees.map((e) => {
                         const inTraining = e.training && new Date(e.training.ends_at).getTime() > Date.now();
                         const trainLeft = inTraining ? (new Date(e.training.ends_at).getTime() - Date.now()) / 1000 : 0;
@@ -833,17 +834,17 @@ export default function BusinessManage() {
                                     <div className="flex-1 min-w-[200px]">
                                         <div className="flex items-center gap-2">
                                             <span className="font-display font-bold text-white">{e.name}</span>
-                                            <Pill tone="cyan" className="capitalize">{e.role.replace(/_/g, " ")}</Pill>
+                                            <Pill tone="cyan" className="capitalize">{worldLabel(e.role)}</Pill>
                                             {e.status === "sick" && <Pill tone="red">Sick</Pill>}
                                             {e.wants_raise && <Pill tone="yellow">Wants Raise</Pill>}
                                             {inTraining && <Pill tone="purple">Training {fmtDuration(trainLeft)}</Pill>}
                                         </div>
-                                        <div className="text-[11px] text-muted-foreground font-mono mt-1">Age {e.age} · Skill {e.skill}/10 · Loyalty {Math.round(e.loyalty)} · <span className="text-neon-green">${e.hourly_wage ?? Math.round((e.daily_wage || 0) / 8 * 100) / 100}/hr</span></div>
+                                        <div className="text-[11px] text-muted-foreground font-mono mt-1">Age {e.age} · Skill {e.skill}/10 · Loyalty {Math.round(e.loyalty)} · <span className="text-neon-green">¤ {e.hourly_wage ?? Math.round((e.daily_wage || 0) / 8 * 100) / 100}/hr</span></div>
                                         <div className="text-[11px] text-neon-cyan flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {e.shift_start || "08:00"}–{e.shift_end || "16:00"} · {e.shift_hours ?? 0}h/day</div>
                                         <ProjLine proj={e.projection} label="Est. contribution" testid={`npc-proj-${e.id}`} />
                                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-2 max-w-xs">
-                                            <StatBar label="Morale" value={e.morale} color="#B026FF" />
-                                            <StatBar label="Energy" value={e.energy} color="#00F3FF" />
+                                            <StatBar label="Morale" value={e.morale} color="#B6A0CC" />
+                                            <StatBar label="Energy" value={e.energy} color="#D1B579" />
                                         </div>
                                         <div className="mt-2"><TraitPills traits={e.traits} /></div>
                                     </div>
@@ -868,14 +869,14 @@ export default function BusinessManage() {
                                         <div className="flex items-center justify-between flex-wrap gap-2">
                                             <div>
                                                 <span className="font-display font-bold text-white text-sm">{e.employee_name}</span>
-                                                <Pill tone="purple" className="ml-2 capitalize">{(e.role || "").replace(/_/g, " ")}</Pill>
+                                                <Pill tone="purple" className="ml-2 capitalize">{worldLabel(e.role || "")}</Pill>
                                                 {e.on_shift
                                                     ? <Pill tone="green" className="ml-2">Working now</Pill>
                                                     : <Pill tone="yellow" className="ml-2">Off shift</Pill>}
-                                                <span className="text-[11px] text-muted-foreground ml-2">${e.wage_per_hour}/h · {Math.round(e.total_hours_worked || 0)}h worked</span>
+                                                <span className="text-[11px] text-muted-foreground ml-2">¤ {e.wage_per_hour}/h · {Math.round(e.total_hours_worked || 0)}h worked</span>
                                                 <div className="text-[11px] text-neon-purple flex items-center gap-1 mt-0.5"><Clock className="w-3 h-3" /> {scheduleLabel(e.schedule)}</div>
                                             </div>
-                                            <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)}{e.today && e.today.hours > 0 ? ` · today net ${e.today.net >= 0 ? "+$" : "-$"}${Math.abs(Math.round(e.today.net))}` : ""}</div>
+                                            <div className="text-[11px] text-muted-foreground">Perf {Math.round(e.performance)} · Reliab {Math.round(e.reliability)}{e.today && e.today.hours > 0 ? ` · today net ${e.today.net >= 0 ? "+¤ " : "-¤ "}${Math.abs(Math.round(e.today.net))}` : ""}</div>
                                         </div>
                                     </Panel>
                                 ))}
@@ -899,9 +900,9 @@ export default function BusinessManage() {
                                 <div className="flex-1 min-w-[200px]">
                                     <div className="flex items-center gap-2">
                                         <span className="font-display font-bold text-white">{a.name}</span>
-                                        <Pill tone="cyan" className="capitalize">{a.role.replace(/_/g, " ")}</Pill>
+                                        <Pill tone="cyan" className="capitalize">{worldLabel(a.role)}</Pill>
                                     </div>
-                                    <div className="text-[11px] text-muted-foreground font-mono mt-1">Age {a.age} · Skill {a.skill}/10 · Reliability {a.reliability} · Wants <span className="text-neon-yellow">${a.wage_per_hour ?? Math.round((a.daily_wage || 0) / 8 * 100) / 100}/hr</span></div>
+                                    <div className="text-[11px] text-muted-foreground font-mono mt-1">Age {a.age} · Skill {a.skill}/10 · Reliability {a.reliability} · Wants <span className="text-neon-yellow">¤ {a.wage_per_hour ?? Math.round((a.daily_wage || 0) / 8 * 100) / 100}/hr</span></div>
                                     <div className="mt-2"><TraitPills traits={a.traits} /></div>
                                 </div>
                                 <div className="flex flex-col gap-2 w-28">
@@ -928,12 +929,12 @@ export default function BusinessManage() {
                             </div>
                         ))}
                     </Panel>
-                    <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {trainOpts.map((o) => (
                             <Panel key={o.id} className="p-4">
                                 <div className="flex items-center justify-between mb-1">
                                     <span className="font-display font-bold text-white text-sm">{o.label}</span>
-                                    <span className="font-mono text-neon-red">${o.cost}</span>
+                                    <span className="font-mono text-neon-red">¤ {o.cost}</span>
                                 </div>
                                 <p className="text-[11px] text-muted-foreground mb-2">{o.desc}</p>
                                 <div className="flex flex-wrap gap-1">
@@ -953,9 +954,9 @@ export default function BusinessManage() {
 
             {/* EVENTS */}
             {tab === "events" && (
-                <Panel className="p-0 overflow-hidden bg-[#050505]">
+                <Panel className="p-0 overflow-hidden bg-[#101A16]">
                     {events.length === 0 ? (
-                        <div className="px-4 py-8 text-center text-muted-foreground text-sm font-mono">No events for this business yet.</div>
+                        <div className="px-4 py-8 text-center text-muted-foreground text-sm font-mono">No events for this workshop yet.</div>
                     ) : events.map((e, i) => (
                         <div key={e.id || i} className="px-4 py-2.5 font-mono text-xs border-b border-white/5" data-testid={`biz-event-${i}`}>
                             <span className="text-muted-foreground/50">{new Date(e.ts).toLocaleString()} </span>
@@ -974,7 +975,7 @@ export default function BusinessManage() {
                             <span className="font-display font-bold text-white flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-neon-yellow" /> Sell {b.name}?</span>
                             <button onClick={() => setConfirmSell(false)}><X className="w-5 h-5 text-muted-foreground" /></button>
                         </div>
-                        <p className="text-[13px] text-muted-foreground mb-3">This permanently sells the business. All employees are let go and this can't be undone.</p>
+                        <p className="text-[13px] text-muted-foreground mb-3">This permanently sells the workshop. All employees are let go and this can't be undone.</p>
                         <div className="space-y-1.5 font-mono text-sm border border-white/10 rounded-sm p-3 mb-4">
                             <div className="flex justify-between"><span className="text-muted-foreground">Asset value (level {b.level}, rep {Math.round(b.reputation)})</span><span className="text-white">{money(Math.max(0, Math.round(b.purchase_price * 0.5 * b.level * (0.6 + 0.4 * b.reputation / 100))))}</span></div>
                             <div className="flex justify-between"><span className="text-muted-foreground">+ Uncollected cash</span><span className="text-neon-green">{money(b.cash)}</span></div>
@@ -995,7 +996,7 @@ export default function BusinessManage() {
                     <div className="absolute inset-0 bg-black/75" onClick={() => setRenaming(false)} />
                     <Panel className="relative w-full max-w-md p-5">
                         <div className="flex items-center justify-between mb-3">
-                            <span className="font-display font-bold text-white">Rename business</span>
+                            <span className="font-display font-bold text-white">Rename workshop</span>
                             <button onClick={() => setRenaming(false)}><X className="w-5 h-5 text-muted-foreground" /></button>
                         </div>
                         <KInput label="New name (2–40 characters)" value={nameInput} onChange={(e) => setNameInput(e.target.value)} testid="rename-input" />
@@ -1022,7 +1023,7 @@ export default function BusinessManage() {
                                     className="w-full text-left p-3 border border-white/12 rounded-sm hover:border-neon-cyan/50 transition-colors disabled:opacity-50" data-testid={`train-opt-${o.id}`}>
                                     <div className="flex items-center justify-between">
                                         <span className="font-display font-bold text-white text-sm">{o.label}</span>
-                                        <span className="font-mono text-neon-red text-xs">${o.cost} · {realDurationLabel(o.duration_minutes, 1)}</span>
+                                        <span className="font-mono text-neon-red text-xs">¤ {o.cost} · {realDurationLabel(o.duration_minutes, 1)}</span>
                                     </div>
                                     <div className="text-[11px] text-muted-foreground">{o.desc}</div>
                                 </button>

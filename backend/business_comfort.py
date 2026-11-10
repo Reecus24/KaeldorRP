@@ -42,7 +42,7 @@ def operations(b, m, cfg):
     if cash < reserve:
         alerts.append({"title": "Build your operating reserve", "detail": "Keep money in the business for materials and wages before taking a payout.", "tab": "overview"})
     if stock_days is not None and stock_days < tune.get("stock_warning_days", 0.5):
-        alerts.append({"title": "Check your supplies", "detail": "Automatic restocking uses business cash. Review the purchase quote if funds are tight.", "tab": "overview"})
+        alerts.append({"title": "Check your supplies", "detail": "Automatic restocking uses business coin. Review the purchase quote if funds are tight.", "tab": "overview"})
     if m.get("net_day", 0) < 0:
         alerts.append({"title": "Review the daily cost breakdown", "detail": "Forecast wages and materials exceed sales. Check shift overlap and demand before expanding.", "tab": "schedule"})
     return {"reserve_days": days, "max_reserve_days": tune.get("max_reserve_days", 30),

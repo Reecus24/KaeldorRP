@@ -30,7 +30,7 @@ DEFAULT_ACCEPT_REASONS = {
 }
 DEFAULT_REJECT_REASONS = {
     "criminal_record": "your criminal record",
-    "suspicion": "you're under police attention",
+    "suspicion": "you're under watch attention",
     "low_skill": "insufficient skills",
     "reputation": "poor reputation",
     "work_history": "a weak work history",
@@ -505,13 +505,13 @@ async def resolve_npc_applications(db, p, cfg, now):
         ev = evaluate_application(p, job, cfg, boss.get("relationship_score", 0) if boss else 0,
                                   mentor.get("relationship_score", 0) if mentor else 0)
         if ev["accepted"]:
-            msg = (job.get("success_response") or "Your application for {title} was accepted — offer ${wage}/h.").format(
+            msg = (job.get("success_response") or "Your application for {title} was accepted — offer ¤ {wage}/h.").format(
                 title=job["title"], wage=ev["wage"], reason=ev["reason"])
             upd = {"status": "accepted", "wage_offer": ev["wage"], "reason": ev["reason"], "resolved": True,
                    "outcome_message": msg,
                    "offer_expires_at": (now + timedelta(hours=cfg.get("employment", {}).get("offer_expiry_hours", 24))).isoformat()}
             await add_event(db, p["id"], msg, "job", "success")
-            await add_notification(db, p["id"], "job", "Application accepted", f"{job['title']} — ${ev['wage']}/h. Accept the offer to start working.", "success", "/jobs")
+            await add_notification(db, p["id"], "job", "Application accepted", f"{job['title']} — ¤ {ev['wage']}/h. Accept the offer to start working.", "success", "/jobs")
         else:
             msg = (job.get("failure_response") or "Your application for {title} was rejected: {reason}.").format(
                 title=job["title"], wage=ev["wage"], reason=ev["reason"])

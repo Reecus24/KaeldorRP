@@ -264,7 +264,7 @@ def _day_rates(b, workers, upgrade_penalty=1.0, slots=1, wage_mult=1.0, material
 
 
 def _auto_restock(b, need_units, material_spend_out, cost_mult=1.0, cash_floor=0):
-    """Buy a balanced recipe, keeping the requested wage cash available."""
+    """Buy a balanced recipe, keeping the requested wage coin available."""
     target = max(b.get("restock_target", b.get("daily_demand", 0)), need_units)
     materials = b.get("materials") or {}
     budget = max(0, b.get("cash", 0) - cash_floor)
@@ -677,7 +677,7 @@ async def _npc_lifecycle(db, b, cfg, gh, now, traits_map, net_positive):
         if theft_rate > 0 and random.random() < theft_rate * gh:
             amt = round(random.uniform(20, 80) + unit_price(b) * 2)
             b["cash"] = round(max(0, b.get("cash", 0) - amt), 2)
-            await add_event(db, b["player_id"], f"{e['name']} stole ${amt} from {b['name']}!", "business", "danger", bid)
+            await add_event(db, b["player_id"], f"{e['name']} stole ¤ {amt} from {b['name']}!", "business", "danger", bid)
         sick_rate = 0.0015 + sum(td.get("sick", 0) for td in tmap) + (0.004 if e["morale"] < 35 else 0)
         if random.random() < sick_rate * gh:
             e["status"] = "sick"

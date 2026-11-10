@@ -404,9 +404,9 @@ async def _apply_interaction(db, p, cfg, c, a, gift, eff=1.0):
     name = c["name"]
     msg = (a.get("success_text", "It went well.") if success else a.get("fail_text", "It didn't go well.")).replace("{name}", name)
     if extra.get("loan"):
-        msg += f" (+${extra['loan']} borrowed — added to your debt to repay)"
+        msg += f" (+¤ {extra['loan']} borrowed — added to your debt to repay)"
     elif extra.get("cash"):
-        msg += f" (+${extra['cash']})"
+        msg += f" (+¤ {extra['cash']})"
     if extra.get("favor_note"):
         msg += f" — {name} {extra['favor_note']}."
     if extra.get("became_romantic"):
@@ -603,7 +603,7 @@ def contact_opportunities(c):
     if rt == "landlord" and s >= 45:
         out.append("Flexible on rent and likely to return your deposit in full.")
     if rt == "shady_contact" and t >= 40:
-        out.append("Can lower your heat — reduces police risk on your next crime.")
+        out.append("Can lower your heat — reduces watch risk on your next crime.")
     if c.get("status") == "romantic":
         out.append("Romantic partner — boosts your mood and life stability (but costs money).")
     if not out:

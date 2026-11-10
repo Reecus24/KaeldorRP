@@ -1,3 +1,4 @@
+import { worldLabel } from "@/lib/helpers";
 import { KButton } from "@/components/game/controls";
 import { Panel, Pill, RiskBadge, Money } from "@/components/game/primitives";
 import { realDurationLabel, fmtDuration, gameDuration, SKILL_LABELS } from "@/lib/helpers";
@@ -16,7 +17,7 @@ function effectChips(effects) {
                 className={cn("font-mono text-[10px] px-1.5 py-0.5 rounded-sm border", good ? "text-neon-green border-neon-green/30" : "text-neon-red border-neon-red/30")}
             >
                 {v > 0 ? "+" : ""}
-                {Math.round(v)} {k.replace("_", " ")}
+                {Math.round(v)} {worldLabel(k)}
             </span>
         );
     });
@@ -25,7 +26,7 @@ function effectChips(effects) {
 function skillChips(skillXp) {
     return Object.entries(skillXp || {}).filter(([, v]) => v).slice(0, 4).map(([k, v]) => (
         <span key={`sk-${k}`} className="font-mono text-[10px] px-1.5 py-0.5 rounded-sm border text-neon-cyan border-neon-cyan/30">
-            +{Math.round(v)} {SKILL_LABELS[k] || k.replace("_", " ")} XP
+            +{Math.round(v)} {SKILL_LABELS[k] || worldLabel(k)} XP
         </span>
     ));
 }
@@ -36,10 +37,10 @@ export default function ActionCard({ action, onStart, blocked, loading, ctaLabel
     const available = action.available !== false;
     const onCd = (action.cooldown_remaining || 0) > 0;
     const cannotAfford = Number(action.money_cost || 0) > Number(player?.cash || 0) + Number(player?.bank || 0);
-    const blockedReason = player?.status === "hospital" ? "Recovering in hospital" : player?.status === "jail" ? "Serving a jail sentence"
+    const blockedReason = player?.status === "hospital" ? "Recovering in infirmary" : player?.status === "jail" ? "Serving a dungeon sentence"
         : player?.on_shift ? "Finish your shift or clock out first" : "Finish or cancel your current activity first";
     const reason = blocked ? blockedReason : !available ? (onCd ? `Cooldown: ${fmtDuration(action.cooldown_remaining)}` : action.reason || "Requirements not met")
-        : cannotAfford ? `Requires $${action.money_cost} in cash or bank` : null;
+        : cannotAfford ? `Requires ¤ ${action.money_cost} in your purse or vault` : null;
     const disabled = blocked || !available || cannotAfford || loading;
 
     return (
@@ -57,8 +58,8 @@ export default function ActionCard({ action, onStart, blocked, loading, ctaLabel
 
             <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground font-mono mb-2">
                 <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {realDurationLabel(action.duration_minutes, ts)} real</span>
-                {action.money_cost > 0 && <span className="flex items-center gap-1 text-neon-red"><Coins className="w-3 h-3" /> ${action.money_cost}</span>}
-                {action.money_reward > 0 && <span className="flex items-center gap-1 text-neon-green"><Coins className="w-3 h-3" /> +${action.money_reward}</span>}
+                {action.money_cost > 0 && <span className="flex items-center gap-1 text-neon-red"><Coins className="w-3 h-3" /> ¤ {action.money_cost}</span>}
+                {action.money_reward > 0 && <span className="flex items-center gap-1 text-neon-green"><Coins className="w-3 h-3" /> +¤ {action.money_reward}</span>}
             </div>
             {ts !== 1 && <div className="text-xs text-muted-foreground mb-3">{gameDuration(action.duration_minutes)} at ×{ts} speed</div>}
 
