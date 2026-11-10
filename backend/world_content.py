@@ -127,3 +127,6 @@ WORLD_CONTENT = {name: (name, data) for name, data in [
 
 for origin in WORLD_ORIGINS:
     origin.update(stats={}, training={}, professions=[])
+
+from world_life_content import LIFE_CONTENT
+WORLD_CONTENT.update(LIFE_CONTENT)

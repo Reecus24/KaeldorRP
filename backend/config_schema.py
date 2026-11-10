@@ -90,6 +90,8 @@ def validate_config(config, defaults):
     validate_world_settings(config["world"])
     from world_map import validate_map
     validate_map(config["world_map"])
+    from world_life import validate_settings as validate_life
+    validate_life(config["world_life"])
     from realm_engine import validate_settings
     validate_settings(config["realm"])
     journey = config.get("journey", {})

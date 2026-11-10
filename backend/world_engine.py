@@ -70,7 +70,10 @@ def validate_definition(kind, d):
         if key in d and (not isinstance(d[key], str) or len(d[key]) > 4000):
             raise ValueError(key + ": expected text up to 4000 characters")
     validate_requirements(d.get("requirements", {}))
-    if kind == "world_regions":
+    if kind in ("world_day_events", "world_travel_events", "world_weather"):
+        from world_life import validate_definition as validate_life
+        validate_life(kind, d)
+    elif kind == "world_regions":
         for key in ("x", "y"):
             number(d.get(key), key, 0, 100)
         if not isinstance(d.get("connections"), list):
@@ -280,6 +283,8 @@ async def complete(db, p, cfg, payload, at):
     w = state(p, cfg)
     if payload.get("travel_to"):
         w["region"] = payload["travel_to"]
+        from world_life import finish_travel
+        finish_travel(p, cfg, payload, at)
         if w["region"] not in w["visited"]:
             w["visited"].append(w["region"])
         await add_event(db, p["id"], "Arrived at " + payload["name"] + ".", "world", "info")
@@ -300,6 +305,8 @@ async def complete(db, p, cfg, payload, at):
     for intent in w["intents"]:
         if intent["id"] == payload.get("intent_id"):
             intent["status"] = "completed"
+    from world_life import finish_choice
+    finish_choice(p, cfg, payload, report)
     w["reports"] = (w["reports"] + [report])[-cfg["world"]["report_limit"]:]
     p.setdefault("stats_meta", {})["actions_done"] = p["stats_meta"].get("actions_done", 0) + 1
     await add_event(db, p["id"], f"{payload['name']}: {o['name']} · ¤ {o['coin_result']} · {o['xp']} XP", "world", "success" if o["success"] else "warning")

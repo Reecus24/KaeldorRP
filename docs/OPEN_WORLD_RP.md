@@ -7,6 +7,75 @@ is no real-time 2D/3D movement layer.
 
 ## Playing together
 
+Use separate accounts on the same running backend. **Together & chat** shows
+companions' saved locations, online/away status, expected travel arrivals and
+short player-written scene statuses. Markers on the atlas show who is at a place;
+the header keeps your own location visible on other pages. Presence refreshes on
+polling, not through a real-time socket. An offline traveller's arrival is marked
+as awaiting their refresh until their server-owned activity has been settled.
+
+Three conversation channels support speech, emotes and out-of-character planning:
+
+- **At this location** can only be read/sent from the character's current region.
+  Travellers must arrive first. It is a location conversation history, so a newly
+  arriving character can read earlier posts there.
+- **World / OOC** shares the existing World Chat stream.
+- **Private** is a private planning channel available across locations without
+  equipment. Only the two participants can query the conversation through the
+  player API. Existing player blocks and chat mutes apply. The same threads are
+  available under **Messages → Private RP**, with unread counts.
+
+### Days that belong to everyone
+
+At each game midnight, a new date becomes eligible for a shared weather roll and
+one village event per visited location. They are generated lazily on the first
+request, then stored under unique date/location IDs. Concurrent visitors see the
+same result. Reloading, Owner definition edits and restarts do not reroll that
+day. There is no backlog of automatic offline rewards or injuries from unvisited
+days. Weather and time-of-day descriptions are shared atmosphere; NPCs can tell
+you about today's local event when you ask about news.
+
+The initial catalogue has eight village events, six road encounters and five
+weather profiles. An event offers skill-based choices with disclosed chances,
+coin ranges, XP, costs and effects. Each character chooses once per location/day.
+The default village goal takes two contributions; both successful and unsuccessful
+efforts normally contribute. Each contributor can claim the configured shared
+reward once, at that location before the next game day. A cancelled timed choice
+stays used and contributes nothing. Goal target zero disables the shared goal.
+
+### Journeys with consequences
+
+Departure draws an individual road encounter using the Owner's encounter chance
+and weighted eligible pool. Weather multiplies base game minutes; an encounter
+can add a delay. A zero-minute route remains instant. The journey snapshots its
+duration, weather and encounter, so later balancing cannot change it mid-trip.
+The departure countdown is authoritative; the pre-departure estimate includes
+weather and warns about possible encounter delays.
+
+On arrival, the encounter is presented as a story from that journey. Choose an
+approach or leave it behind; settle it before starting another trip. These are
+arrival encounters, not an interrupting combat screen halfway down a road. Choices
+use the existing chronological action/injury engine and cannot be claimed twice.
+Travel itself is remembered in **Journal → The roads you remember**; chosen checks
+and their rolls appear in the dice chronicle. Characters travel independently.
+
+### Owner controls for the living world
+
+**Sandbox → Open World → Day Picker / Travel Picker / Weather Picker** provides
+weight editing, enable/disable controls, contextual probabilities, preview-only
+random rolls, new entries and complete JSON editing of choices and consequences.
+Weight zero and empty catalogues remain disabled. A preview never changes a live
+scene. Road event `regions` select destinations; day event `regions` select where
+they can appear. An empty region list means anywhere.
+
+**Gameplay Tuning → Config → world_life** controls `daily_events_enabled`,
+`travel_event_chance` (0–1), RP message length/history/cooldown, scene status length,
+presence minutes and time-of-day descriptions. Presence zero shows everyone away;
+status length zero allows clearing but no new status text. Empty phase lists and
+empty weather pools do not resurrect defaults. Daily flag changes apply when new
+day snapshots are created. All new catalogues are registered in `CONTENT_MAP`;
+future content uses the same validation, seeding and snapshot rules.
+
 Characters share the same world catalogue, clock, NPC routines, player-founded
 groups and world chat. The map lists other characters at your location. Select an
 adjacent destination and travel; the activity bar shows the real countdown.

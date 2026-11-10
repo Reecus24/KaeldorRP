@@ -229,9 +229,9 @@ export default function Layout({ children }) {
                     </button>
                     <div className="flex items-center gap-2 mr-2">
                         <Shield className="w-5 h-5 text-neon-cyan" />
-                        <span className="font-display font-extrabold tracking-tighter text-lg hidden sm:block">
+                        <div className="min-w-0"><span className="font-display font-extrabold tracking-tighter text-lg hidden sm:block">
                             KAELDOR<span className="text-neon-cyan">.</span>
-                        </span>
+                        </span>{state?.world_location?.current&&<NavLink to="/" aria-label="Your current location" className="block max-w-[110px] text-[10px] text-neon-cyan truncate" title={state.world_location.destination?`Travelling to ${state.world_location.destination.name}`:state.world_location.current.name}>{state.world_location.destination?`→ ${state.world_location.destination.name}`:state.world_location.current.name}</NavLink>}</div>
                     </div>
 
                     {/* Money strip */}

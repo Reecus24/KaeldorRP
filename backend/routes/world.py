@@ -169,10 +169,17 @@ async def world_view(user: dict = Depends(current_user)):
     charters = await catalog("world_charters")
     for charter in charters:
         charter["reason"] = founding_reason(p, cfg, charter, profmap)
+    from world_life import scene, public_presence
+    living = await scene(db, p, cfg, profmap, npcmap)
+    others = await db.players.find({"id": {"$ne": p["id"]}, "world.region": {"$exists": True}}, {"_id": 0, "id": 1, "name": 1, "world.region": 1, "world.profession": 1, "world.rp_status": 1, "current_activity": 1, "last_seen": 1}).to_list(500)
+    presence = [public_presence(other, cfg) for other in others]
+    for region in regions:
+        for edge in region["connections"]:
+            edge["weather_minutes"] = edge["minutes"] * (living["weather"]["travel_multiplier"] if living["weather"] else 1)
     nearby = await db.players.find({"world.region": w["region"], "id": {"$ne": p["id"]}}, {"_id": 0, "id": 1, "name": 1, "world.profession": 1, "world.region": 1}).to_list(100)
     await save_player(p)
     from npc_dialogue import availability
-    return {"world": w, "regions": regions, "map": cfg["world_map"], "npcs": npcs, "actions": actions, "professions": professions,
+    return {"world": w, "regions": regions, "map": cfg["world_map"], "life": living, "presence": presence, "npcs": npcs, "actions": actions, "professions": professions,
             "skills": await catalog("world_skills"), "charters": charters, "foundings": groups, "nearby_players": nearby,
             "blocked": world.busy_reason(p), "ai": availability(cfg), "time_scale": cfg["time_scale"], "max_foundings": cfg["world"]["max_foundings"]}
 
@@ -183,6 +190,8 @@ async def travel(region_id: str, user: dict = Depends(current_user)):
     reason = world.busy_reason(p)
     if reason:
         raise HTTPException(409, reason)
+    if w.get("pending_encounter"):
+        raise HTTPException(409, "Settle or leave your previous road encounter before travelling again.")
     source = await db.world_regions.find_one({"id": w["region"]})
     target = await db.world_regions.find_one({"id": region_id, "active": {"$ne": False}})
     edge = next((e for e in (source or {}).get("connections", []) if e["to"] == region_id), None)
@@ -192,7 +201,9 @@ async def travel(region_id: str, user: dict = Depends(current_user)):
     reason = world.requirements_reason(p, target.get("requirements", {}), profs)
     if reason:
         raise HTTPException(409, reason)
-    set_activity(p, "world", "Travel to " + target["name"], edge["minutes"], cfg, {"travel_to": region_id, "name": target["name"]})
+    from world_life import prepare_travel
+    payload, duration = await prepare_travel(db, p, target, edge["minutes"], cfg)
+    set_activity(p, "world", "Travel to " + target["name"], duration, cfg, payload)
     await save_player(p)
     return {"ok": True, "activity": serialize_activity(p)}
 
@@ -321,6 +332,11 @@ async def talk(npc_id: str, body: TalkBody, user: dict = Depends(current_user)):
     offers = await npc_offers(npc_id, w)
     from npc_dialogue import reply
     text, mode = await reply(db, p, npc, body.message.strip(), offers, cfg)
+    if any(word in body.message.lower() for word in ("today", "news", "heute", "neuigkeiten", "rumour")):
+        from world_life import day_state
+        today, _ = await day_state(db, w["region"], cfg)
+        if today and today["definition"]:
+            text += " Today, everyone is talking about this: " + today["definition"]["description"]
     world.remember(w, npc_id, body.message.strip(), text, cfg)
     w["last_dialogue_at"] = now_utc().isoformat()
     await save_player(p)

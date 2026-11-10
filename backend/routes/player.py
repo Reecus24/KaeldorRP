@@ -104,11 +104,16 @@ async def game_state(user: dict = Depends(current_user)):
     cfg = await get_config(db)
     from copy import deepcopy
     from realm_engine import standing
+    region_id = p.get("world", {}).get("region", cfg["world"]["start_region"])
+    location = await db.world_regions.find_one({"id": region_id}, {"_id": 0, "id": 1, "name": 1})
+    travel_to = (p.get("current_activity") or {}).get("payload", {}).get("travel_to")
+    destination = await db.world_regions.find_one({"id": travel_to}, {"_id": 0, "id": 1, "name": 1}) if travel_to else None
     public_player = deepcopy(p)
     if (public_player.get("current_activity") or {}).get("kind") in ("expedition", "world"):
         public_player["current_activity"]["payload"] = {}
     return {
         "player": public_player,
+        "world_location": {"current": location, "destination": destination},
         "realm_standing": await standing(db, p),
         "player_xp_per_level": cfg["xp"]["player_per_level"],
         "skill_xp_per_level": cfg["xp"]["skill_per_level"],
@@ -143,6 +148,11 @@ async def cancel_activity(user: dict = Depends(current_user)):
         raise HTTPException(status_code=400, detail="Nothing to cancel")
     act = p["current_activity"]
     if act.get("kind") == "world":
+        context = act.get("payload", {}).get("life_event")
+        if context and context["kind"] == "day":
+            record = p.get("world", {}).get("daily_visits", {}).get(context["region"], {})
+            if record.get("event_id") == context["id"]:
+                record["status"] = "cancelled"
         intent_id = act.get("payload", {}).get("intent_id")
         for intent in p.get("world", {}).get("intents", []):
             if intent["id"] == intent_id:

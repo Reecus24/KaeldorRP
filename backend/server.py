@@ -5,6 +5,7 @@ import routes.journey  # noqa: F401
 import routes.realm  # noqa: F401
 import routes.world  # noqa: F401
 import routes.map_editor  # noqa: F401
+import routes.world_life  # noqa: F401
 
 app = FastAPI(title="Kaeldor RPG API")
 

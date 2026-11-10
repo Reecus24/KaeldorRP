@@ -3,6 +3,8 @@
 A persistent medieval fantasy map/text RPG with a React interface, FastAPI backend and MongoDB storage.
 Travel, meet NPCs, propose free actions, learn trades and establish player-led factions and workshops.
 The Owner Sandbox controls content, random creation, dice, qualifications and simulation settings.
+Play together through local, world and private RP chats, visible locations, shared village day events
+and cooperative goals. Weighted weather and travel encounters make journeys part of the story.
 
 See [Open-world RP and Owner guide](docs/OPEN_WORLD_RP.md) for the current systems and limits.
 NPC dialogue currently uses written responses and per-character memories; a self-hosted AI is planned later.
